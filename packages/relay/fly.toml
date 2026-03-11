@@ -1,4 +1,4 @@
-app = "coder-relay"
+app = "coder-ai"
 primary_region = "sjc"
 
 [build]

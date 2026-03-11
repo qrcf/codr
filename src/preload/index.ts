@@ -42,10 +42,24 @@ contextBridge.exposeInMainWorld('claude', {
   listSessions: () => ipcRenderer.invoke('sessions:list'),
   getSessionMessages: (sessionId: string) => ipcRenderer.invoke('sessions:get-messages', sessionId),
   getAccountInfo: () => ipcRenderer.invoke('sessions:get-account-info'),
+  listFiles: (dir?: string) => ipcRenderer.invoke('sessions:list-files', dir),
 
   onSessionRefreshHint: (callback: () => void) => {
     const listener = () => callback()
     ipcRenderer.on('sessions:refresh-hint', listener)
     return () => { ipcRenderer.removeListener('sessions:refresh-hint', listener) }
+  },
+
+  // Remote access
+  connectRemote: (relayUrl: string, clerkToken: string) =>
+    ipcRenderer.invoke('remote:connect', relayUrl, clerkToken),
+  disconnectRemote: () =>
+    ipcRenderer.invoke('remote:disconnect'),
+  getRemoteStatus: () =>
+    ipcRenderer.invoke('remote:status'),
+  onRemoteStatusChange: (callback: (status: { status: string; webClients: number }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: { status: string; webClients: number }) => callback(status)
+    ipcRenderer.on('remote:status-change', listener)
+    return () => { ipcRenderer.removeListener('remote:status-change', listener) }
   },
 })

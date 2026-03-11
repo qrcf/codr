@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { timeAgo } from '../utils/timeAgo'
 import { parseSessionMessages } from '../utils/sessionParser'
+import { RemotePanel } from './RemotePanel'
 import type { ChatMessage } from '../types'
 import './Sidebar.css'
 
@@ -126,6 +127,9 @@ export function Sidebar({
         <button className="btn-new-chat" onClick={onNewChat}>
           + New Chat
         </button>
+        <button className="btn-refresh-sessions" onClick={fetchSessions} title="Refresh sessions">
+          ↻
+        </button>
       </div>
 
       <div className="folder-selector" ref={recentsRef}>
@@ -201,6 +205,8 @@ export function Sidebar({
       </div>
 
       <div className="sidebar-footer">
+        {window.claude.connectRemote && <RemotePanel />}
+
         <label className="settings-toggle">
           <input
             type="checkbox"

@@ -1,5 +1,6 @@
-import { ipcMain, type BrowserWindow } from 'electron'
+import { ipcMain } from 'electron'
 import type { CanUseTool, PermissionResult } from '@anthropic-ai/claude-agent-sdk'
+import type { EventBroadcaster } from './event-broadcaster'
 
 const ALLOW: PermissionResult = { behavior: 'allow' }
 const DENY: PermissionResult = { behavior: 'deny', message: 'Denied by user' }
@@ -61,8 +62,21 @@ function isBashWhitelisted(command: string): boolean {
   return settings.bashWhitelist.includes(firstWord)
 }
 
+/**
+ * Resolve a pending permission request. Can be called from either
+ * the IPC handler (Electron renderer) or relay-forwarded messages (web client).
+ * First response wins — subsequent calls for the same ID are ignored.
+ */
+export function resolvePermission(id: number, allowed: boolean) {
+  const pending = pendingPermissions.get(id)
+  if (pending) {
+    pending.resolve(allowed)
+    pendingPermissions.delete(id)
+  }
+}
+
 export function createCanUseTool(
-  getMainWindow: () => BrowserWindow | null,
+  broadcaster: EventBroadcaster,
 ): CanUseTool {
   return async (toolName, input, _options) => {
     // Auto-approve read-only tools
@@ -75,7 +89,7 @@ export function createCanUseTool(
       if (settings.autoApproveEdits) {
         return ALLOW
       }
-      return promptUser(getMainWindow, toolName, input as Record<string, unknown>)
+      return promptUser(broadcaster, toolName, input as Record<string, unknown>)
     }
 
     // Bash: check read-only patterns, then whitelist, then prompt
@@ -87,24 +101,21 @@ export function createCanUseTool(
       if (isBashWhitelisted(command)) {
         return ALLOW
       }
-      return promptUser(getMainWindow, toolName, input as Record<string, unknown>)
+      return promptUser(broadcaster, toolName, input as Record<string, unknown>)
     }
 
     // Unknown tools: prompt
-    return promptUser(getMainWindow, toolName, input as Record<string, unknown>)
+    return promptUser(broadcaster, toolName, input as Record<string, unknown>)
   }
 }
 
 async function promptUser(
-  getMainWindow: () => BrowserWindow | null,
+  broadcaster: EventBroadcaster,
   toolName: string,
   input: Record<string, unknown>,
 ): Promise<PermissionResult> {
-  const win = getMainWindow()
-  if (!win) return DENY
-
   const id = ++permissionIdCounter
-  win.webContents.send('agent:permission-request', { id, tool: toolName, input })
+  broadcaster.send('agent:permission-request', { id, tool: toolName, input })
 
   return new Promise((resolve) => {
     pendingPermissions.set(id, {
@@ -113,21 +124,21 @@ async function promptUser(
   })
 }
 
-export function registerPermissionHandlers() {
+export function updateSettings(update: Partial<PermissionSettings>) {
+  if (update.autoApproveEdits !== undefined) {
+    settings.autoApproveEdits = update.autoApproveEdits
+  }
+  if (update.bashWhitelist !== undefined) {
+    settings.bashWhitelist = update.bashWhitelist
+  }
+}
+
+export function registerPermissionHandlers(broadcaster: EventBroadcaster) {
   ipcMain.on('agent:permission-response', (_event, data: { id: number; allowed: boolean }) => {
-    const pending = pendingPermissions.get(data.id)
-    if (pending) {
-      pending.resolve(data.allowed)
-      pendingPermissions.delete(data.id)
-    }
+    resolvePermission(data.id, data.allowed)
   })
 
   ipcMain.on('agent:settings-update', (_event, update: Partial<PermissionSettings>) => {
-    if (update.autoApproveEdits !== undefined) {
-      settings.autoApproveEdits = update.autoApproveEdits
-    }
-    if (update.bashWhitelist !== undefined) {
-      settings.bashWhitelist = update.bashWhitelist
-    }
+    updateSettings(update)
   })
 }

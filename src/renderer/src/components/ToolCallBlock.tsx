@@ -1,21 +1,34 @@
 import { useState } from 'react'
 import { formatValue } from './JsonHighlight'
+import { toolRenderers } from './toolRenderers'
 import type { ToolCallInfo } from '../types'
+
+function getSummary(tool: ToolCallInfo): string {
+  switch (tool.name) {
+    case 'Bash':
+      return (tool.input.command as string)?.slice(0, 80) || ''
+    case 'Read':
+      return (tool.input.file_path as string) || ''
+    case 'Edit':
+    case 'Write':
+      return (tool.input.file_path as string) || ''
+    case 'Grep':
+      return (tool.input.pattern as string) || ''
+    case 'Glob':
+      return (tool.input.pattern as string) || ''
+    case 'TodoWrite':
+      return `${(tool.input.todos as unknown[])?.length || 0} tasks`
+    case 'Agent':
+      return (tool.input.description as string) || ''
+    default:
+      return ''
+  }
+}
 
 export function ToolCallBlock({ tool }: { tool: ToolCallInfo }) {
   const [expanded, setExpanded] = useState(false)
-
-  const summary = tool.name === 'Bash'
-    ? (tool.input.command as string)?.slice(0, 80) || ''
-    : tool.name === 'Read'
-      ? (tool.input.file_path as string) || ''
-      : tool.name === 'Edit' || tool.name === 'Write'
-        ? (tool.input.file_path as string) || ''
-        : tool.name === 'Grep'
-          ? (tool.input.pattern as string) || ''
-          : tool.name === 'Glob'
-            ? (tool.input.pattern as string) || ''
-            : ''
+  const CustomRenderer = toolRenderers[tool.name]
+  const summary = getSummary(tool)
 
   const statusIcon = tool.status === 'running' ? '⟳' : tool.status === 'error' ? '✗' : '✓'
   const statusClass = `tool-status tool-status-${tool.status}`
@@ -28,6 +41,7 @@ export function ToolCallBlock({ tool }: { tool: ToolCallInfo }) {
         {summary && <span className="tool-summary">{summary}</span>}
         <span className="tool-chevron">{expanded ? '▾' : '▸'}</span>
       </div>
+      {CustomRenderer && <CustomRenderer tool={tool} />}
       {expanded && (
         <div className="tool-call-details">
           <div className="tool-section">

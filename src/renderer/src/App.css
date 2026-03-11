@@ -329,7 +329,8 @@
   resize: none;
   line-height: 1.4;
   min-height: 20px;
-  max-height: 120px;
+  max-height: 240px;
+  overflow-y: hidden;
 }
 
 .input-field:focus {
@@ -339,4 +340,425 @@
 
 .input-field:disabled {
   opacity: 0.5;
+}
+
+/* ===== Tool Renderers ===== */
+
+/* TodoWrite */
+.todo-list {
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-top: 1px solid #3a3a4a;
+}
+
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-size: 0.88em;
+  line-height: 1.4;
+}
+
+.todo-indicator {
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+  font-size: 0.9em;
+}
+
+.todo-completed .todo-indicator { color: #4caf50; }
+.todo-in_progress .todo-indicator { color: #f0c040; }
+.todo-pending .todo-indicator { color: #666; }
+
+.todo-completed .todo-text {
+  color: #777;
+  text-decoration: line-through;
+}
+
+.todo-in_progress .todo-text { color: #e0e0e0; }
+.todo-pending .todo-text { color: #999; }
+
+/* Bash */
+.bash-renderer {
+  border-top: 1px solid #3a3a4a;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.85em;
+}
+
+.bash-description {
+  padding: 6px 10px 0;
+  color: #777;
+  font-size: 0.9em;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.bash-command {
+  display: flex;
+  gap: 8px;
+  padding: 6px 10px;
+  color: #e0e0e0;
+  line-height: 1.4;
+}
+
+.bash-prompt {
+  color: #4caf50;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.bash-cmd-text {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.bash-output {
+  margin: 0;
+  padding: 8px 10px;
+  background: #0d0d1a;
+  color: #b0b0b0;
+  border-top: 1px solid #3a3a4a;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  line-height: 1.4;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.bash-output-error {
+  color: #f44336;
+}
+
+/* Edit (diff view) */
+.edit-renderer {
+  border-top: 1px solid #3a3a4a;
+}
+
+.edit-file-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  color: #aaa;
+  font-size: 0.85em;
+}
+
+.edit-file-icon {
+  color: #f0c040;
+  font-weight: 700;
+}
+
+.edit-file-name {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edit-replace-all-badge {
+  background: #444460;
+  color: #ccc;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.85em;
+  margin-left: auto;
+}
+
+.edit-diff {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.85em;
+}
+
+.edit-diff-old,
+.edit-diff-new {
+  margin: 0;
+  padding: 6px 10px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  line-height: 1.4;
+}
+
+.edit-diff-old {
+  background: rgba(244, 67, 54, 0.1);
+  border-left: 3px solid #f44336;
+}
+
+.edit-diff-new {
+  background: rgba(76, 175, 80, 0.1);
+  border-left: 3px solid #4caf50;
+}
+
+.edit-diff-marker {
+  color: #888;
+  margin-right: 8px;
+  user-select: none;
+}
+
+/* Read (file viewer) */
+.read-renderer {
+  border-top: 1px solid #3a3a4a;
+}
+
+.read-file-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  color: #aaa;
+  font-size: 0.85em;
+}
+
+.read-file-icon {
+  font-size: 0.9em;
+}
+
+.read-file-name {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.read-range {
+  color: #777;
+  font-size: 0.9em;
+}
+
+.read-line-count {
+  color: #666;
+  margin-left: auto;
+  font-size: 0.9em;
+}
+
+.read-content {
+  margin: 0;
+  padding: 8px 10px;
+  background: #0d0d1a;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.82em;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: #b8b8b8;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.read-show-more {
+  display: block;
+  width: 100%;
+  background: #1a1a2a;
+  border: none;
+  border-top: 1px solid #3a3a4a;
+  color: #646cff;
+  padding: 6px;
+  font-size: 0.82em;
+  cursor: pointer;
+  text-align: center;
+}
+
+.read-show-more:hover {
+  background: #222238;
+}
+
+/* Write */
+.write-renderer {
+  border-top: 1px solid #3a3a4a;
+}
+
+.write-file-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  color: #aaa;
+  font-size: 0.85em;
+}
+
+.write-file-icon {
+  color: #4caf50;
+  font-weight: 700;
+}
+
+.write-file-name {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.write-line-count {
+  color: #666;
+  margin-left: auto;
+  font-size: 0.9em;
+}
+
+.write-preview {
+  margin: 0;
+  padding: 6px 10px;
+  background: #0d0d1a;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.82em;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: #888;
+  border-top: 1px solid #3a3a4a;
+}
+
+/* Grep */
+.grep-renderer {
+  border-top: 1px solid #3a3a4a;
+}
+
+.grep-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  color: #aaa;
+  font-size: 0.85em;
+}
+
+.grep-icon {
+  font-size: 0.9em;
+}
+
+.grep-pattern {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: #c3e88d;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.grep-path, .grep-glob {
+  color: #777;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.9em;
+}
+
+.grep-count {
+  color: #666;
+  margin-left: auto;
+  font-size: 0.9em;
+}
+
+.grep-results {
+  margin: 0;
+  padding: 8px 10px;
+  background: #0d0d1a;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.82em;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: #b0b0b0;
+  max-height: 300px;
+  overflow-y: auto;
+  border-top: 1px solid #3a3a4a;
+}
+
+/* Glob */
+.glob-renderer {
+  border-top: 1px solid #3a3a4a;
+}
+
+.glob-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  color: #aaa;
+  font-size: 0.85em;
+}
+
+.glob-icon {
+  font-size: 0.9em;
+}
+
+.glob-pattern {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: #82aaff;
+}
+
+.glob-count {
+  color: #666;
+  margin-left: auto;
+  font-size: 0.9em;
+}
+
+.glob-file-list {
+  padding: 4px 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.glob-file-item {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.82em;
+  color: #b0b0b0;
+  padding: 2px 6px;
+}
+
+.glob-file-more {
+  font-size: 0.82em;
+  color: #666;
+  padding: 2px 6px;
+}
+
+/* Agent */
+.agent-renderer {
+  border-top: 1px solid #3a3a4a;
+}
+
+.agent-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  color: #ccc;
+  font-size: 0.88em;
+}
+
+.agent-icon {
+  flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+}
+
+.agent-type-badge {
+  background: #3a4a60;
+  color: #aaccee;
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-size: 0.82em;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  flex-shrink: 0;
+}
+
+.agent-description {
+  color: #aaa;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-result {
+  margin: 0;
+  padding: 8px 10px;
+  background: #0d0d1a;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.82em;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: #b0b0b0;
+  max-height: 300px;
+  overflow-y: auto;
+  border-top: 1px solid #3a3a4a;
 }

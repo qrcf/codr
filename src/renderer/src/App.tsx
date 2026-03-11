@@ -4,6 +4,7 @@ import { MessageBubble } from './components/MessageBubble'
 import { ToolCallBlock } from './components/ToolCallBlock'
 import { PermissionDialog } from './components/PermissionDialog'
 import { Sidebar } from './components/Sidebar'
+import { FileMentionDropdown } from './components/FileMentionDropdown'
 import './App.css'
 
 let messageIdCounter = 0
@@ -23,7 +24,13 @@ export default function App() {
     return localStorage.getItem('sidebar-open') !== 'false'
   })
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const [mentionActive, setMentionActive] = useState(false)
+  const [mentionQuery, setMentionQuery] = useState('')
+  const [mentionStart, setMentionStart] = useState(0)
+  const [mentionIndex, setMentionIndex] = useState(0)
+  const [fileCache, setFileCache] = useState<string[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -90,8 +97,28 @@ export default function App() {
       setPermissionRequest(request)
     }))
 
+    // State sync (web client only — replaces state when joining mid-conversation)
+    if (window.claude.onStateSync) {
+      unsubs.push(window.claude.onStateSync((state) => {
+        setMessages(state.messages)
+        setIsLoading(state.isLoading)
+        setStreamingText(state.streamingText)
+        setStreamingTools(state.streamingTools)
+        setPermissionRequest(state.permissionRequest)
+      }))
+    }
+
     return () => unsubs.forEach((fn) => fn())
   }, [])
+
+  useEffect(() => {
+    const ta = textareaRef.current
+    if (!ta) return
+    ta.style.height = 'auto'
+    const clamped = Math.min(ta.scrollHeight, 240)
+    ta.style.height = clamped + 'px'
+    ta.style.overflowY = ta.scrollHeight > 240 ? 'auto' : 'hidden'
+  }, [input])
 
   const handleSend = async () => {
     const prompt = input.trim()
@@ -150,7 +177,84 @@ export default function App() {
     setInput('')
   }
 
+  const getFilteredFiles = useCallback(() => {
+    const q = mentionQuery.toLowerCase()
+    const filtered = q ? fileCache.filter((f) => f.toLowerCase().includes(q)) : fileCache
+    return filtered.slice(0, 15)
+  }, [fileCache, mentionQuery])
+
+  const handleMentionSelect = useCallback((file: string) => {
+    const before = input.slice(0, mentionStart)
+    const after = input.slice(mentionStart + mentionQuery.length + 1)
+    setInput(before + '@' + file + ' ' + after)
+    setMentionActive(false)
+    setMentionQuery('')
+    setMentionIndex(0)
+    textareaRef.current?.focus()
+  }, [input, mentionStart, mentionQuery])
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value
+    const cursor = e.target.selectionStart
+    setInput(value)
+
+    // Check for @ mention trigger
+    if (mentionActive) {
+      // Find the @ that started this mention
+      const textAfterAt = value.slice(mentionStart + 1, cursor)
+      if (textAfterAt.includes(' ') || textAfterAt.includes('\n') || cursor <= mentionStart) {
+        setMentionActive(false)
+        setMentionQuery('')
+        setMentionIndex(0)
+      } else {
+        setMentionQuery(textAfterAt)
+        setMentionIndex(0)
+      }
+    } else {
+      // Detect new @ trigger
+      const charBeforeCursor = value[cursor - 1]
+      const charBeforeAt = value[cursor - 2]
+      if (charBeforeCursor === '@' && (cursor === 1 || charBeforeAt === ' ' || charBeforeAt === '\n' || charBeforeAt === undefined)) {
+        setMentionActive(true)
+        setMentionStart(cursor - 1)
+        setMentionQuery('')
+        setMentionIndex(0)
+        if (fileCache.length === 0) {
+          window.claude.listFiles().then(setFileCache).catch(() => {})
+        }
+      }
+    }
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (mentionActive) {
+      const filtered = getFilteredFiles()
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setMentionIndex((i) => Math.min(i + 1, filtered.length - 1))
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setMentionIndex((i) => Math.max(i - 1, 0))
+        return
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault()
+        if (filtered.length > 0) {
+          handleMentionSelect(filtered[mentionIndex])
+        }
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setMentionActive(false)
+        setMentionQuery('')
+        setMentionIndex(0)
+        return
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
@@ -210,11 +314,20 @@ export default function App() {
           <div ref={messagesEndRef} />
         </div>
 
-        <div className="input-bar">
+        <div className="input-bar" style={{ position: 'relative' }}>
+          {mentionActive && (
+            <FileMentionDropdown
+              files={fileCache}
+              query={mentionQuery}
+              activeIndex={mentionIndex}
+              onSelect={handleMentionSelect}
+            />
+          )}
           <textarea
+            ref={textareaRef}
             className="input-field"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             placeholder="Send a message..."
             rows={1}

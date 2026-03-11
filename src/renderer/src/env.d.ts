@@ -33,6 +33,19 @@ interface PermissionRequest {
   input: unknown
 }
 
+interface RemoteStatus {
+  status: 'disconnected' | 'connecting' | 'connected'
+  webClients: number
+}
+
+interface StateSyncPayload {
+  messages: import('./types').ChatMessage[]
+  isLoading: boolean
+  streamingText: string
+  streamingTools: import('./types').ToolCallInfo[]
+  permissionRequest: PermissionRequest | null
+}
+
 interface ClaudeAPI {
   query: (prompt: string, options?: { resumeSessionId?: string }) => Promise<void>
   interrupt: () => Promise<void>
@@ -46,7 +59,18 @@ interface ClaudeAPI {
   listSessions: () => Promise<SessionInfo[]>
   getSessionMessages: (sessionId: string) => Promise<RawSessionMessage[]>
   getAccountInfo: () => Promise<AccountInfo | null>
+  listFiles: (dir?: string) => Promise<string[]>
   onSessionRefreshHint: (callback: () => void) => () => void
+
+  // Remote access (desktop only)
+  connectRemote?: (relayUrl: string, clerkToken: string) => Promise<void>
+  disconnectRemote?: () => Promise<void>
+  getRemoteStatus?: () => Promise<RemoteStatus | null>
+  onRemoteStatusChange?: (callback: (status: RemoteStatus) => void) => () => void
+
+  // State sync (web only)
+  onStateSync?: (callback: (state: StateSyncPayload) => void) => () => void
+  onDesktopStatus?: (callback: (online: boolean) => void) => () => void
 }
 
 interface Window {

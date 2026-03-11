@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "types": ["vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      "@components/*": ["../../src/renderer/src/components/*"],
+      "@utils/*": ["../../src/renderer/src/utils/*"],
+      "@/types": ["../../src/renderer/src/types"],
+      "@app": ["../../src/renderer/src/App"]
+    }
+  },
+  "include": [
+    "src/**/*",
+    "../../src/renderer/src/**/*"
+  ],
+  "exclude": [
+    "../../src/renderer/src/main.tsx"
+  ]
+}

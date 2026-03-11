@@ -9,19 +9,25 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "lint": "eslint .",
+    "relay:dev": "pnpm --filter @coder/relay dev",
+    "relay:build": "pnpm --filter @coder/relay build",
+    "web:dev": "pnpm --filter @coder/web dev",
+    "web:build": "pnpm --filter @coder/web build",
     "postinstall": "electron-builder install-app-deps",
     "dist": "electron-vite build && electron-builder"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.72",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react-swc": "^4.2.2",
     "electron": "^41.0.0",
     "electron-builder": "^26.8.1",

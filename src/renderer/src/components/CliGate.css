@@ -1,0 +1,130 @@
+.cli-gate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background: #0d0d1a;
+}
+
+.cli-loading {
+  color: #666;
+  font-family: monospace;
+  font-size: 14px;
+}
+
+.cli-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  max-width: 480px;
+  padding: 0 24px;
+}
+
+.cli-title {
+  color: #e0e0e0;
+  font-size: 32px;
+  font-weight: 600;
+  margin: 0;
+  font-family: monospace;
+}
+
+.cli-subtitle {
+  color: #e08050;
+  font-family: monospace;
+  font-size: 16px;
+  margin: 0;
+  font-weight: 500;
+}
+
+.cli-instructions {
+  color: #999;
+  font-family: monospace;
+  font-size: 13px;
+  text-align: left;
+  width: 100%;
+}
+
+.cli-instructions p {
+  margin: 4px 0;
+}
+
+.cli-step {
+  display: flex;
+  gap: 12px;
+  margin: 12px 0;
+  align-items: flex-start;
+}
+
+.cli-step-number {
+  background: #8142C7;
+  color: #fff;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.cli-code {
+  display: block;
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: #a0d0a0;
+  font-size: 13px;
+  margin-top: 4px;
+  user-select: all;
+}
+
+.cli-alt {
+  color: #666;
+  font-size: 12px;
+  margin-top: 8px !important;
+}
+
+.cli-link {
+  color: #8142C7;
+  text-decoration: underline;
+}
+
+.cli-link:hover {
+  color: #9a63d9;
+}
+
+.cli-error-text {
+  color: #d09090;
+  background: #1a1a2e;
+  border: 1px solid #4a2a2a;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  word-break: break-word;
+}
+
+.cli-retry-btn {
+  background: #8142C7;
+  border: none;
+  color: #fff;
+  padding: 14px 48px;
+  border-radius: 8px;
+  font-family: monospace;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-top: 8px;
+  transition: background 0.15s;
+}
+
+.cli-retry-btn:hover:not(:disabled) {
+  background: #6e35ab;
+}
+
+.cli-retry-btn:disabled {
+  background: #3a3560;
+  cursor: default;
+}

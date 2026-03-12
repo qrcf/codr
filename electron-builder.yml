@@ -1,0 +1,44 @@
+appId: com.integerstudios.codr
+productName: Codr
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - out/**/*
+
+asarUnpack:
+  - "node_modules/@anthropic-ai/claude-agent-sdk/**"
+
+mac:
+  category: public.app-category.developer-tools
+  icon: build/icon.icns
+  target:
+    - target: dmg
+      arch:
+        - arm64
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+  notarize: true
+
+dmg:
+  sign: true
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+  window:
+    width: 540
+    height: 380
+  title: "Install Codr"
+
+protocols:
+  - name: Codr Protocol
+    schemes:
+      - codr

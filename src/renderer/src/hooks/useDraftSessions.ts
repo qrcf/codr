@@ -1,0 +1,60 @@
+import { useState, useCallback } from 'react'
+
+export interface DraftSession {
+  draftId: string
+  createdAt: number
+  cwd?: string
+}
+
+const STORAGE_KEY = 'draft-sessions'
+const STALE_MS = 24 * 60 * 60 * 1000 // 24 hours
+
+function readDrafts(): DraftSession[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as DraftSession[]
+    // Clean up stale drafts
+    const now = Date.now()
+    return parsed.filter(d => now - d.createdAt < STALE_MS)
+  } catch {
+    return []
+  }
+}
+
+function writeDrafts(drafts: DraftSession[]): void {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(drafts))
+}
+
+export function useDraftSessions() {
+  const [drafts, setDrafts] = useState<DraftSession[]>(readDrafts)
+
+  const createDraft = useCallback((cwd?: string): DraftSession => {
+    const draft: DraftSession = {
+      draftId: `draft-${Date.now()}`,
+      createdAt: Date.now(),
+      cwd,
+    }
+    setDrafts(prev => {
+      const next = [draft, ...prev]
+      writeDrafts(next)
+      return next
+    })
+    return draft
+  }, [])
+
+  const removeDraft = useCallback((draftId: string) => {
+    setDrafts(prev => {
+      const next = prev.filter(d => d.draftId !== draftId)
+      writeDrafts(next)
+      return next
+    })
+  }, [])
+
+  const promoteDraft = useCallback((draftId: string) => {
+    // Same as remove — the real session takes over via normal SDK flow
+    removeDraft(draftId)
+  }, [removeDraft])
+
+  return { drafts, createDraft, removeDraft, promoteDraft }
+}

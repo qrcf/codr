@@ -1,0 +1,600 @@
+.sidebar {
+  width: 260px;
+  height: 100vh;
+  background: #161622;
+  border-right: 1px solid #333;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  transition: margin-left 0.2s ease;
+  overflow: hidden;
+}
+
+.sidebar.collapsed {
+  margin-left: -260px;
+}
+
+.sidebar-header {
+  padding: 12px;
+  display: flex;
+  gap: 8px;
+}
+
+.btn-new-chat {
+  flex: 1;
+  background: #8142C7;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 0.9em;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-new-chat:hover {
+  background: #6e35ab;
+}
+
+.btn-refresh-sessions {
+  background: #2a2a3a;
+  color: #aaa;
+  border: 1px solid #444;
+  border-radius: 6px;
+  width: 36px;
+  font-size: 1.1em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.btn-refresh-sessions:hover {
+  background: #3a3a4a;
+  color: #ddd;
+}
+
+/* Folder selector */
+.folder-selector {
+  padding: 8px 12px;
+  border-bottom: 1px solid #2a2a3a;
+  position: relative;
+}
+
+.folder-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.folder-current {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 8px;
+  background: #1a1a2a;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85em;
+  color: #ccc;
+  min-width: 0;
+}
+
+.folder-current:hover {
+  background: #222233;
+}
+
+.folder-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-chevron {
+  color: #666;
+  font-size: 0.8em;
+  flex-shrink: 0;
+  margin-left: 6px;
+}
+
+.folder-clear {
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 1.1em;
+  padding: 2px 4px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.folder-clear:hover {
+  color: #ccc;
+}
+
+.folder-dropdown {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 100%;
+  background: #1e1e2e;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 4px 0;
+  z-index: 10;
+  max-height: 240px;
+  overflow-y: auto;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.folder-dropdown-item {
+  padding: 6px 10px;
+  font-size: 0.82em;
+  color: #bbb;
+  cursor: pointer;
+  border-radius: 3px;
+  margin: 0 4px;
+}
+
+.folder-dropdown-item:hover {
+  background: #2a2a3d;
+  color: #eee;
+}
+
+.folder-dropdown-item.folder-browse {
+  color: #8142C7;
+  border-top: 1px solid #2a2a3a;
+  margin-top: 4px;
+  padding-top: 8px;
+}
+
+.folder-item-name {
+  display: block;
+}
+
+.folder-item-path {
+  display: block;
+  font-size: 0.85em;
+  color: #555;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-name {
+  color: #8888cc;
+  font-size: 0.9em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 80px;
+}
+
+.btn-manage-project {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  background: #1a1a2a;
+  border: none;
+  color: #999;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 0.82em;
+  cursor: pointer;
+  text-align: center;
+  letter-spacing: 0.02em;
+  transition: background 0.15s, color 0.15s;
+}
+
+.btn-manage-project:hover {
+  background: #252538;
+  color: #c4a5e6;
+}
+
+.sidebar-sessions {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.sidebar-empty {
+  padding: 20px 16px;
+  color: #666;
+  font-size: 0.85em;
+  text-align: center;
+}
+
+/* Archive toggle */
+.archive-toggle-row {
+  padding: 4px 12px;
+}
+
+.btn-archive-toggle {
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 0.78em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.btn-archive-toggle:hover {
+  color: #aaa;
+  background: #1e1e2e;
+}
+
+.btn-archive-toggle.active {
+  color: #8142C7;
+}
+
+.session-item {
+  padding: 10px 12px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: background 0.1s;
+  position: relative;
+}
+
+.session-item:hover {
+  background: #1e1e2e;
+}
+
+.session-item.active {
+  background: #1e1e2e;
+  border-left-color: #8142C7;
+}
+
+.session-item.loading {
+  opacity: 0.6;
+}
+
+/* Draft session styling */
+.session-item--draft .session-summary {
+  font-style: italic;
+  color: #999;
+}
+
+/* Archived session styling */
+.session-item--archived {
+  opacity: 0.5;
+}
+
+.session-item--archived:hover {
+  opacity: 0.7;
+}
+
+/* Archive button on session items */
+.btn-archive-session {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: #1a1a2a;
+  border: 1px solid #333;
+  color: #888;
+  border-radius: 4px;
+  width: 24px;
+  height: 24px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.session-item:hover .btn-archive-session {
+  display: flex;
+}
+
+.btn-archive-session:hover {
+  color: #ccc;
+  background: #2a2a3a;
+}
+
+.session-summary {
+  font-size: 0.85em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #ddd;
+  line-height: 1.3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.session-title-loading {
+  display: inline-block;
+  width: 120px;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #2a2a3a 25%, #3a3a4a 50%, #2a2a3a 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.background-query-indicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  min-width: 8px;
+  border-radius: 50%;
+  border: 2px solid #e8a03e;
+  border-top-color: transparent;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.session-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.7em;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+  animation: status-glow 2s ease-in-out infinite;
+}
+
+.session-status-question {
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+}
+
+.session-status-plan-review {
+  background: rgba(168, 85, 247, 0.12);
+  color: #a855f7;
+}
+
+.session-status-permission {
+  background: rgba(232, 160, 62, 0.12);
+  color: #e8a03e;
+}
+
+@keyframes status-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.session-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  font-size: 0.75em;
+  color: #777;
+}
+
+.git-branch-badge {
+  background: #1a2e1a;
+  color: #6cb86c;
+  padding: 0 5px;
+  border-radius: 3px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.9em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100px;
+}
+
+.btn-load-more {
+  display: block;
+  width: calc(100% - 16px);
+  margin: 4px 8px 8px;
+  padding: 6px;
+  background: #1a1a2a;
+  border: 1px solid #333;
+  color: #999;
+  border-radius: 4px;
+  font-size: 0.82em;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.btn-load-more:hover {
+  background: #252538;
+  color: #c4a5e6;
+}
+
+.sidebar-footer {
+  padding: 12px;
+  border-top: 1px solid #2a2a3a;
+  font-size: 0.85em;
+}
+
+.auth-info {
+  color: #888;
+  font-size: 0.85em;
+}
+
+.auth-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.auth-row .auth-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.auth-email {
+  color: #bbb;
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-settings-gear {
+  background: none;
+  border: 1px solid #333;
+  color: #888;
+  cursor: pointer;
+  font-size: 18px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+
+.btn-settings-gear:hover {
+  color: #ccc;
+  background: #2a2a3a;
+}
+
+.auth-badges {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.auth-badge {
+  background: #2a2a3d;
+  color: #aaa;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.85em;
+}
+
+.auth-status-unknown {
+  color: #666;
+  font-style: italic;
+}
+
+.btn-sign-out {
+  margin-top: 10px;
+  width: 100%;
+  background: none;
+  border: 1px solid #333;
+  color: #888;
+  padding: 6px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.btn-sign-out:hover {
+  background: #2a2a3a;
+  color: #ccc;
+}
+
+/* ===== Mobile: full-screen overlay drawer ===== */
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100dvh;
+    z-index: 200;
+    transition: transform 0.25s ease;
+    border-right: none;
+  }
+
+  .sidebar.collapsed {
+    margin-left: 0;
+    transform: translateX(-100%);
+  }
+
+  .sidebar-header {
+    padding: 16px;
+  }
+
+  .btn-new-chat {
+    min-height: 44px;
+    font-size: 1em;
+  }
+
+  .btn-refresh-sessions {
+    min-height: 44px;
+    width: 44px;
+  }
+
+  .folder-current {
+    min-height: 40px;
+    font-size: 0.9em;
+  }
+
+  .folder-dropdown {
+    max-height: 50vh;
+  }
+
+  .folder-dropdown-item {
+    padding: 10px 12px;
+    font-size: 0.9em;
+  }
+
+  .btn-manage-project {
+    min-height: 40px;
+    font-size: 0.9em;
+  }
+
+  .session-item {
+    padding: 14px 16px;
+  }
+
+  .session-summary {
+    font-size: 0.9em;
+  }
+
+  .sidebar-footer {
+    padding: 16px;
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+
+  .btn-settings-gear {
+    width: 40px;
+    height: 40px;
+  }
+
+  .project-name {
+    max-width: 140px;
+  }
+
+  .git-branch-badge {
+    max-width: 160px;
+  }
+}
+
+/* Sidebar backdrop overlay */
+.sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 199;
+  }
+}

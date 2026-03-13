@@ -16,7 +16,6 @@ import App from '@app'
 
 // Import shared styles
 import '@styles/index.css'
-import '@styles/App.css'
 
 const CLERK_PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string
 const RELAY_URL = import.meta.env.VITE_RELAY_URL as string || 'ws://localhost:8080'

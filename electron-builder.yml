@@ -1,12 +1,22 @@
 appId: com.integerstudios.codr
 productName: Codr
 
+publish:
+  provider: generic
+  url: https://tqxf75s51oolyowp.public.blob.vercel-storage.com/releases/
+
 directories:
   output: dist
   buildResources: build
 
 files:
   - out/**/*
+
+extraResources:
+  - from: resources/crawl4ai
+    to: crawl4ai
+  - from: resources/bin
+    to: bin
 
 asarUnpack:
   - "node_modules/@anthropic-ai/claude-agent-sdk/**"
@@ -16,6 +26,9 @@ mac:
   icon: build/icon.icns
   target:
     - target: dmg
+      arch:
+        - arm64
+    - target: zip
       arch:
         - arm64
   hardenedRuntime: true

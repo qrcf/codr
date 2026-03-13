@@ -1,5 +1,7 @@
 /// <reference types="vite/client" />
 
+declare const __APP_VERSION__: string
+
 interface ImportMetaEnv {
   readonly VITE_CLERK_PUBLISHABLE_KEY: string
   readonly VITE_RELAY_URL?: string
@@ -13,6 +15,8 @@ interface ImportMeta {
 // Protocol/API types — sourced from @codr-works/types plus local provider metadata
 type SessionInfo = import('@codr-works/types').SessionInfo & {
   provider?: 'claude' | 'codex'
+  model?: string
+  thinkingBudget?: string
 }
 type AccountInfo = import('@codr-works/types').AccountInfo
 type PermissionRequest = import('@codr-works/types').PermissionRequest
@@ -71,10 +75,18 @@ interface RawSessionMessage {
 }
 
 interface ClaudeAPI {
-  query: (prompt: string, options?: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; cwd?: string }) => Promise<void>
+  getPathForFile?: (file: File) => string
+  readClipboardFilePaths?: () => Promise<string[]>
+  query: (prompt: string, options?: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; cwd?: string; model?: string; thinkingBudget?: 'low' | 'medium' | 'high' }) => Promise<void>
   interrupt: (sessionId?: string) => Promise<void>
   getProvider?: () => Promise<'claude' | 'codex'>
   setProvider?: (provider: 'claude' | 'codex') => Promise<{ provider?: 'claude' | 'codex'; error?: string }>
+  getModels?: (provider?: 'claude' | 'codex') => Promise<{
+    models: Array<{ value: string; displayName: string }>
+    selectedModel?: string
+  }>
+  setModel?: (provider: 'claude' | 'codex', model: string | undefined) => Promise<{ model?: string }>
+  getDefaults?: () => Promise<{ effortLevel?: string }>
   getAgentState?: (sessionId?: string) => Promise<{
     isLoading: boolean
     streamingText: string
@@ -138,6 +150,22 @@ interface ClaudeAPI {
   recrawlDocSource?: (sourceId: number, url: string, crawlDepth: number, prefix?: string) => Promise<{ ok?: boolean; error?: string }>
   cancelDocCrawl?: (sourceId: number) => Promise<{ ok?: boolean; error?: string }>
   onDocsCrawlProgress?: (callback: (progress: DocCrawlProgress) => void) => () => void
+  onDocsSetupProgress?: (callback: (progress: { step: string; detail?: string; stepIndex: number; totalSteps: number }) => void) => () => void
+  reinstallDocsRuntime?: () => Promise<{ ok?: boolean; error?: string }>
+  fetchDocTitle?: (url: string) => Promise<{ title: string | null }>
+
+  // Auto-updater (desktop only)
+  installUpdate?: () => Promise<void>
+  onUpdateStatus?: (cb: (status: UpdateStatus) => void) => () => void
+
+  // Token provider (desktop only) — lets main process request fresh Clerk tokens
+  registerTokenProvider?: (getToken: () => Promise<string | null>) => () => void
+}
+
+interface UpdateStatus {
+  status: 'downloaded' | 'error'
+  version?: string
+  error?: string
 }
 
 type CliStatus =

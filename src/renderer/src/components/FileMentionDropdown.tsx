@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react'
 import { BookOpen } from 'lucide-react'
-import './FileMentionDropdown.css'
 
 interface FileMentionDropdownProps {
   files: string[]
@@ -36,33 +35,38 @@ export function FileMentionDropdown({ files, docSources, query, activeIndex, onS
     activeRef.current?.scrollIntoView({ block: 'nearest' })
   }, [activeIndex])
 
+  const dropdownClass = "absolute bottom-full left-0 right-0 mb-1 bg-[#1e1e2e] border border-[#444] rounded-lg max-h-60 overflow-y-auto z-[100] shadow-[0_-4px_16px_rgba(0,0,0,0.4)]"
+  const headerClass = "px-3 py-1.5 text-[0.75em] text-[#888] uppercase tracking-[0.05em] border-b border-[#333]"
+  const itemBase = "px-3 py-1.5 cursor-pointer font-mono text-[0.85em] text-[#ccc] flex items-center gap-2 hover:bg-[#2a2a3d] hover:text-white"
+  const itemActive = "bg-[#2a2a3d] text-white"
+
   if (totalItems === 0) {
     return (
-      <div className="file-mention-dropdown">
-        <div className="file-mention-empty">No matches</div>
+      <div className={dropdownClass}>
+        <div className="p-3 text-[#666] text-[0.85em] text-center">No matches</div>
       </div>
     )
   }
 
   return (
-    <div className="file-mention-dropdown" ref={listRef}>
+    <div className={dropdownClass} ref={listRef}>
       {/* Docs section */}
       {filteredDocs.length > 0 && (
         <>
-          <div className="file-mention-header">Docs</div>
+          <div className={headerClass}>Docs</div>
           {filteredDocs.map((doc, i) => (
             <div
               key={`doc-${doc.id}`}
               ref={i === activeIndex ? activeRef : undefined}
-              className={`file-mention-item${i === activeIndex ? ' active' : ''}`}
+              className={`${itemBase}${i === activeIndex ? ` ${itemActive}` : ''}`}
               onMouseDown={(e) => {
                 e.preventDefault()
                 onSelectDoc(doc)
               }}
             >
-              <BookOpen size={12} style={{ flexShrink: 0, marginRight: '6px', opacity: 0.6 }} />
-              <span className="file-mention-item-path" style={{ fontWeight: 500 }}>{doc.name}</span>
-              <span style={{ marginLeft: '8px', fontSize: '11px', opacity: 0.5 }}>{doc.url}</span>
+              <BookOpen size={12} className="shrink-0 mr-1.5 opacity-60" />
+              <span className="overflow-hidden text-ellipsis whitespace-nowrap font-medium">{doc.name}</span>
+              <span className="ml-2 text-[11px] opacity-50">{doc.url}</span>
             </div>
           ))}
         </>
@@ -71,20 +75,20 @@ export function FileMentionDropdown({ files, docSources, query, activeIndex, onS
       {/* Files section */}
       {shownFiles.length > 0 && (
         <>
-          <div className="file-mention-header">Files</div>
+          <div className={headerClass}>Files</div>
           {shownFiles.map((file, i) => {
             const globalIndex = filteredDocs.length + i
             return (
               <div
                 key={file}
                 ref={globalIndex === activeIndex ? activeRef : undefined}
-                className={`file-mention-item${globalIndex === activeIndex ? ' active' : ''}`}
+                className={`${itemBase}${globalIndex === activeIndex ? ` ${itemActive}` : ''}`}
                 onMouseDown={(e) => {
                   e.preventDefault()
                   onSelect(file)
                 }}
               >
-                <span className="file-mention-item-path">{file}</span>
+                <span className="overflow-hidden text-ellipsis whitespace-nowrap">{file}</span>
               </div>
             )
           })}

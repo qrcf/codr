@@ -18,6 +18,8 @@ export interface IndexedSessionMeta {
   status?: 'active' | 'done' | 'error'
   hasPlan?: boolean
   archived?: boolean
+  model?: string
+  thinkingBudget?: string
 }
 
 export interface IndexedSessionMessagesRecord {
@@ -68,6 +70,10 @@ function getDb(): DatabaseSync {
     )
   `)
 
+  // Migration: add model column to sessions table
+  try { _db.exec('ALTER TABLE sessions ADD COLUMN model TEXT') } catch { /* column already exists */ }
+  try { _db.exec('ALTER TABLE sessions ADD COLUMN thinkingBudget TEXT') } catch { /* column already exists */ }
+
   return _db
 }
 
@@ -116,6 +122,8 @@ export async function upsertIndexedSession(
     hasPlan?: boolean
     status?: 'active' | 'done' | 'error'
     updatedAt?: number | null
+    model?: string | null
+    thinkingBudget?: string | null
   },
 ): Promise<void> {
   return withWriteLock(async () => {
@@ -164,16 +172,18 @@ function upsertIndexedSessionSync(
     hasPlan?: boolean
     status?: 'active' | 'done' | 'error'
     updatedAt?: number | null
+    model?: string | null
+    thinkingBudget?: string | null
   },
 ): void {
   const db = getDb()
   const now = Date.now()
-  const prev = db.prepare('SELECT createdAt, archived FROM sessions WHERE sessionId = ?').get(sessionId) as { createdAt: number; archived: number } | undefined
+  const prev = db.prepare('SELECT createdAt, archived, model, thinkingBudget FROM sessions WHERE sessionId = ?').get(sessionId) as { createdAt: number; archived: number; model: string | null; thinkingBudget: string | null } | undefined
 
   db.prepare(
     `INSERT OR REPLACE INTO sessions
-      (sessionId, provider, providerSessionId, createdAt, updatedAt, title, firstPrompt, workspaceDir, status, hasPlan, archived)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (sessionId, provider, providerSessionId, createdAt, updatedAt, title, firstPrompt, workspaceDir, status, hasPlan, archived, model, thinkingBudget)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     sessionId,
     data.provider,
@@ -186,6 +196,8 @@ function upsertIndexedSessionSync(
     data.status ?? 'active',
     data.hasPlan ? 1 : 0,
     prev?.archived ?? 0,
+    data.model ?? prev?.model ?? null,
+    data.thinkingBudget ?? prev?.thinkingBudget ?? null,
   )
 }
 
@@ -202,5 +214,7 @@ function rowToMeta(row: Record<string, unknown>): IndexedSessionMeta {
     status: (row.status as 'active' | 'done' | 'error' | null) ?? undefined,
     hasPlan: row.hasPlan === 1,
     archived: row.archived === 1,
+    model: (row.model as string | null) ?? undefined,
+    thinkingBudget: (row.thinkingBudget as string | null) ?? undefined,
   }
 }

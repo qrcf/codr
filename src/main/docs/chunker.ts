@@ -1,6 +1,3 @@
-import * as cheerio from 'cheerio'
-import TurndownService from 'turndown'
-
 export interface DocChunk {
   heading: string    // heading breadcrumb, e.g. "API Reference > useState"
   content: string    // chunk text
@@ -13,70 +10,6 @@ export interface ChunkedPage {
 }
 
 const TARGET_CHUNK_SIZE = 1500 // characters
-
-/**
- * Remove non-content elements from HTML (nav, footer, sidebar, scripts, etc.)
- */
-function stripNonContent(html: string): string {
-  const $ = cheerio.load(html)
-
-  // Remove elements that are typically not documentation content
-  $('script, style, noscript, iframe').remove()
-  $('nav, header, footer').remove()
-  $('[role="navigation"], [role="banner"], [role="contentinfo"]').remove()
-  $('[class*="sidebar"], [class*="nav-"], [class*="menu"], [class*="footer"], [class*="header"]').remove()
-  $('[id*="sidebar"], [id*="nav-"], [id*="menu"], [id*="footer"], [id*="header"]').remove()
-  $('[class*="toc"], [class*="breadcrumb"]').remove()
-  $('[class*="cookie"], [class*="banner"], [class*="popup"]').remove()
-
-  // Try to find main content container
-  const mainContent = $('main, [role="main"], article, .content, .documentation, .doc-content, #content, #main').first()
-  if (mainContent.length > 0) {
-    return mainContent.html() || $.html()
-  }
-
-  return $('body').html() || $.html()
-}
-
-/**
- * Extract the page title from HTML
- */
-function extractTitle(html: string): string {
-  const $ = cheerio.load(html)
-  // Try various title sources
-  const title = $('h1').first().text().trim()
-    || $('title').text().trim()
-    || $('meta[property="og:title"]').attr('content')?.trim()
-    || ''
-  return title
-}
-
-/**
- * Create a turndown service configured for documentation content
- */
-function createTurndown(): TurndownService {
-  const turndown = new TurndownService({
-    headingStyle: 'atx',
-    codeBlockStyle: 'fenced',
-    bulletListMarker: '-',
-  })
-
-  // Preserve code blocks
-  turndown.addRule('codeBlock', {
-    filter: (node) => {
-      return node.nodeName === 'PRE' && node.querySelector('code') !== null
-    },
-    replacement: (_content, node) => {
-      const el = node as unknown as { querySelector: (s: string) => { className?: string; textContent?: string } | null }
-      const code = el.querySelector('code')
-      const lang = code?.className?.match(/language-(\w+)/)?.[1] || ''
-      const text = code?.textContent || ''
-      return `\n\`\`\`${lang}\n${text}\n\`\`\`\n`
-    },
-  })
-
-  return turndown
-}
 
 /**
  * Split markdown content into chunks based on heading boundaries.
@@ -166,20 +99,14 @@ function splitLargeContent(content: string, heading: string): DocChunk[] {
 }
 
 /**
- * Extract content from HTML and split into searchable chunks.
- * Pipeline: HTML → strip non-content → markdown → split by headings
+ * Chunk markdown content into searchable pieces.
+ * Crawl4AI already produces clean markdown — we just split by headings.
  */
-export function extractAndChunk(html: string, url: string): ChunkedPage {
-  const title = extractTitle(html)
-  const cleanHtml = stripNonContent(html)
-
-  const turndown = createTurndown()
-  const markdown = turndown.turndown(cleanHtml)
-
+export function chunkMarkdown(markdown: string, url: string, title: string): ChunkedPage {
   const chunks = splitByHeadings(markdown)
 
   // Filter out empty/tiny chunks
-  const filteredChunks = chunks.filter(c => c.content.length > 50)
+  const filteredChunks = chunks.filter(c => c.content.length > 20)
 
   return {
     title,

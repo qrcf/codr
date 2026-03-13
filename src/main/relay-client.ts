@@ -56,6 +56,10 @@ export class RelayClient {
     return this.clerkToken
   }
 
+  updateClerkToken(token: string) {
+    this.clerkToken = token
+  }
+
   setApiUrl(url: string) {
     this.apiUrl = url
   }

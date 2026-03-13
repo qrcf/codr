@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
-import './CliGate.css'
 
 interface CliGateProps {
   children: ReactNode
@@ -33,8 +32,8 @@ export function CliGate({ children }: CliGateProps) {
 
   if (cliStatus.status === 'checking') {
     return (
-      <div className="cli-gate">
-        <div className="cli-loading">Checking Claude CLI...</div>
+      <div className="flex items-center justify-center h-screen bg-[#0d0d1a]">
+        <div className="text-[#666] font-mono text-[14px]">Checking Claude CLI...</div>
       </div>
     )
   }
@@ -44,38 +43,38 @@ export function CliGate({ children }: CliGateProps) {
   }
 
   return (
-    <div className="cli-gate">
-      <div className="cli-container">
-        <h1 className="cli-title">Codr</h1>
+    <div className="flex items-center justify-center h-screen bg-[#0d0d1a]">
+      <div className="flex flex-col items-center gap-4 max-w-[480px] px-6">
+        <h1 className="text-[#e0e0e0] text-[32px] font-semibold m-0 font-mono">Codr</h1>
 
         {cliStatus.status === 'not-installed' && (
           <>
-            <p className="cli-subtitle">Claude CLI not found</p>
-            <div className="cli-instructions">
-              <p>Codr requires the Claude CLI to be installed.</p>
-              <div className="cli-step">
-                <span className="cli-step-number">1</span>
+            <p className="text-[#e08050] font-mono text-[16px] m-0 font-medium">Claude CLI not found</p>
+            <div className="text-[#999] font-mono text-[13px] text-left w-full">
+              <p className="my-1">Codr requires the Claude CLI to be installed.</p>
+              <div className="flex gap-3 my-3 items-start">
+                <span className="bg-[#8142c7] text-white w-6 h-6 rounded-full flex items-center justify-center text-[12px] shrink-0">1</span>
                 <div>
-                  <p>Install Claude Code:</p>
-                  <code className="cli-code">brew install --cask claude-code</code>
-                  <p className="cli-alt">
+                  <p className="my-1">Install Claude Code:</p>
+                  <code className="block bg-[#1a1a2e] border border-[#2a2a4a] rounded-md px-3 py-2 text-[#a0d0a0] text-[13px] mt-1 select-all">brew install --cask claude-code</code>
+                  <p className="text-[#666] text-[12px] mt-2 mb-1">
                     Or follow the{' '}
                     <a
                       href="https://code.claude.com/docs/en/quickstart"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="cli-link"
+                      className="text-[#8142c7] underline hover:text-[#9a63d9]"
                     >
                       quickstart guide
                     </a>
                   </p>
                 </div>
               </div>
-              <div className="cli-step">
-                <span className="cli-step-number">2</span>
+              <div className="flex gap-3 my-3 items-start">
+                <span className="bg-[#8142c7] text-white w-6 h-6 rounded-full flex items-center justify-center text-[12px] shrink-0">2</span>
                 <div>
-                  <p>Then log in:</p>
-                  <code className="cli-code">claude login</code>
+                  <p className="my-1">Then log in:</p>
+                  <code className="block bg-[#1a1a2e] border border-[#2a2a4a] rounded-md px-3 py-2 text-[#a0d0a0] text-[13px] mt-1 select-all">claude login</code>
                 </div>
               </div>
             </div>
@@ -84,14 +83,14 @@ export function CliGate({ children }: CliGateProps) {
 
         {cliStatus.status === 'not-logged-in' && (
           <>
-            <p className="cli-subtitle">Not logged in to Claude CLI</p>
-            <div className="cli-instructions">
-              <p>Claude CLI is installed but you need to log in.</p>
-              <div className="cli-step">
-                <span className="cli-step-number">1</span>
+            <p className="text-[#e08050] font-mono text-[16px] m-0 font-medium">Not logged in to Claude CLI</p>
+            <div className="text-[#999] font-mono text-[13px] text-left w-full">
+              <p className="my-1">Claude CLI is installed but you need to log in.</p>
+              <div className="flex gap-3 my-3 items-start">
+                <span className="bg-[#8142c7] text-white w-6 h-6 rounded-full flex items-center justify-center text-[12px] shrink-0">1</span>
                 <div>
-                  <p>Run this in your terminal:</p>
-                  <code className="cli-code">claude login</code>
+                  <p className="my-1">Run this in your terminal:</p>
+                  <code className="block bg-[#1a1a2e] border border-[#2a2a4a] rounded-md px-3 py-2 text-[#a0d0a0] text-[13px] mt-1 select-all">claude login</code>
                 </div>
               </div>
             </div>
@@ -100,18 +99,18 @@ export function CliGate({ children }: CliGateProps) {
 
         {cliStatus.status === 'error' && (
           <>
-            <p className="cli-subtitle">Unable to connect to Claude CLI</p>
-            <div className="cli-instructions">
-              <p className="cli-error-text">{cliStatus.message}</p>
-              <p>Make sure Claude CLI is installed and you are logged in:</p>
-              <code className="cli-code">brew install --cask claude-code</code>
-              <code className="cli-code">claude login</code>
+            <p className="text-[#e08050] font-mono text-[16px] m-0 font-medium">Unable to connect to Claude CLI</p>
+            <div className="text-[#999] font-mono text-[13px] text-left w-full">
+              <p className="text-[#d09090] bg-[#1a1a2e] border border-[#4a2a2a] rounded-md px-3 py-2 text-[12px] break-words">{cliStatus.message}</p>
+              <p className="my-1">Make sure Claude CLI is installed and you are logged in:</p>
+              <code className="block bg-[#1a1a2e] border border-[#2a2a4a] rounded-md px-3 py-2 text-[#a0d0a0] text-[13px] mt-1 select-all">brew install --cask claude-code</code>
+              <code className="block bg-[#1a1a2e] border border-[#2a2a4a] rounded-md px-3 py-2 text-[#a0d0a0] text-[13px] mt-1 select-all">claude login</code>
             </div>
           </>
         )}
 
         <button
-          className="cli-retry-btn"
+          className="bg-[#8142c7] border-none text-white px-12 py-3.5 rounded-lg font-mono text-[15px] font-medium cursor-pointer mt-2 transition-colors duration-150 hover:enabled:bg-[#6e35ab] disabled:bg-[#3a3560] disabled:cursor-default"
           onClick={checkStatus}
           disabled={retrying}
         >

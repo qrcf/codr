@@ -3,7 +3,8 @@ import { registerPermissionHandlers, type MessageOrigin } from './permissions'
 import type { EventBroadcaster } from './event-broadcaster'
 import type { RelayClient } from './relay-client'
 import { setCachedAccountInfo } from './sessions'
-import { getSelectedProvider, setSelectedProvider } from './runtime/provider-config'
+import { getSelectedProvider, setSelectedProvider, getSelectedModel, setSelectedModel, getClaudeSettingsDefaults } from './runtime/provider-config'
+import { getModelsForProvider } from './runtime/models'
 import { appendIndexedRawMessage, getIndexedSessionMeta, upsertIndexedSession } from './runtime/session-index'
 import { ClaudeProvider, getClaudeCliPath } from './runtime/providers/claude-provider'
 import { CodexProvider } from './runtime/providers/codex-provider'
@@ -18,11 +19,13 @@ export function registerAgentHandlers(
   getMainWindow: () => BrowserWindow | null,
   broadcaster: EventBroadcaster,
   relayClient: RelayClient,
+  getAuthToken: () => Promise<string>,
 ) {
   registerPermissionHandlers(broadcaster)
   const providerContext: AgentProviderContext = {
     broadcaster,
     relayClient,
+    getAuthToken,
     sessionStore: {
       upsertSessionMetadata: async (sessionId, data) => {
         await upsertIndexedSession(sessionId, {
@@ -47,21 +50,30 @@ export function registerAgentHandlers(
   }
 
   // Run a query (used by both IPC and relay-forwarded commands)
-  async function runQuery(prompt: string, resumeSessionId?: string, planMode?: boolean, cwd?: string, askMode?: boolean, origin: MessageOrigin = 'local') {
+  async function runQuery(prompt: string, resumeSessionId?: string, planMode?: boolean, cwd?: string, askMode?: boolean, origin: MessageOrigin = 'local', model?: string, thinkingBudget?: 'low' | 'medium' | 'high') {
     const selectedProvider = await getSelectedProvider()
     const storedSession = resumeSessionId ? await getIndexedSessionMeta(resumeSessionId) : null
     const providerId = resolveSessionProvider(selectedProvider, storedSession?.provider)
     const provider = providers[providerId]
+    const resolvedModel = model ?? storedSession?.model ?? await getSelectedModel(providerId)
     const tempKey = resumeSessionId || `new-${Date.now()}-${Math.random().toString(36).slice(2)}`
     let currentKey = tempKey
 
     broadcaster.markQueryStart(currentKey, prompt)
 
     await provider.runQuery(
-      { prompt, resumeSessionId, planMode, cwd, askMode, origin },
+      { prompt, resumeSessionId, planMode, cwd, askMode, origin, model: resolvedModel, thinkingBudget },
       {
         onSessionIdentified: (sessionId) => {
-          if (sessionId === currentKey) return
+          if (sessionId === currentKey) {
+            // Resume — still update model + reasoning for this query
+            void upsertIndexedSession(sessionId, {
+              provider: providerId,
+              model: resolvedModel,
+              thinkingBudget: thinkingBudget || null,
+            })
+            return
+          }
           broadcaster.updateQuerySessionId(currentKey, sessionId)
           currentKey = sessionId
           void upsertIndexedSession(sessionId, {
@@ -70,6 +82,8 @@ export function registerAgentHandlers(
             workspaceDir: cwd ?? undefined,
             providerSessionId: sessionId,
             status: 'active',
+            model: resolvedModel,
+            thinkingBudget: thinkingBudget || null,
           })
           // Do NOT send refresh-hint here — it races with draft promotion in the renderer.
           // The onDone callback sends it after the session is fully complete.
@@ -104,10 +118,10 @@ export function registerAgentHandlers(
   }
 
   // IPC handlers (Electron renderer)
-  ipcMain.handle('agent:query', async (_event, prompt: string, opts?: { resumeSessionId?: string; planMode?: boolean; cwd?: string; askMode?: boolean }) => {
+  ipcMain.handle('agent:query', async (_event, prompt: string, opts?: { resumeSessionId?: string; planMode?: boolean; cwd?: string; askMode?: boolean; model?: string; thinkingBudget?: 'low' | 'medium' | 'high' }) => {
     const win = getMainWindow()
     if (!win) return
-    await runQuery(prompt, opts?.resumeSessionId, opts?.planMode, opts?.cwd, opts?.askMode)
+    await runQuery(prompt, opts?.resumeSessionId, opts?.planMode, opts?.cwd, opts?.askMode, 'local', opts?.model, opts?.thinkingBudget)
   })
 
   ipcMain.handle('agent:interrupt', async (_event, sessionId?: string) => {
@@ -123,6 +137,24 @@ export function registerAgentHandlers(
     const selected = await setSelectedProvider(provider)
     broadcaster.send('sessions:refresh-hint')
     return { provider: selected }
+  })
+
+  ipcMain.handle('agent:get-models', async (_event, provider?: AgentProviderId) => {
+    const p = provider || await getSelectedProvider()
+    const [models, selectedModel] = await Promise.all([
+      getModelsForProvider(p),
+      getSelectedModel(p),
+    ])
+    return { models, selectedModel }
+  })
+
+  ipcMain.handle('agent:set-model', async (_event, provider: AgentProviderId, model: string | undefined) => {
+    await setSelectedModel(provider, model)
+    return { model }
+  })
+
+  ipcMain.handle('agent:get-defaults', () => {
+    return getClaudeSettingsDefaults()
   })
 
   // Return functions for relay-forwarded commands

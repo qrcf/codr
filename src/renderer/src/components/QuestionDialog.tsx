@@ -95,54 +95,68 @@ export function QuestionDialog({ request, onRespond }: {
   })()
 
   return (
-    <div className="question-dialog">
-      <div className="question-header">
-        <span className="question-icon">?</span>
+    <div className="max-[768px]:text-[0.9em]">
+      <div className="question-header flex items-center gap-2 px-[14px] py-[10px] bg-[#2a2a3a] font-semibold text-[#8142c7] max-[768px]:px-3 max-[768px]:py-2">
+        <span className="inline-flex items-center justify-center w-[22px] h-[22px] rounded-full bg-[#8142c7] text-white text-[0.85em] font-bold flex-shrink-0">?</span>
         Question
         {!isSingleQuestion && (
-          <span className="question-step-indicator">
+          <span className="ml-auto text-[0.8em] font-normal text-[#999]">
             {currentStep + 1} of {totalSteps}
           </span>
         )}
       </div>
       {!isSingleQuestion && (
-        <div className="question-stepper">
-          {request.questions.map((_, idx) => {
-            let dotClass = 'question-step-dot'
-            if (idx === currentStep) dotClass += ' active'
-            else if (idx < currentStep) dotClass += ' completed'
-            return <div key={idx} className={dotClass} />
-          })}
+        <div className="question-stepper flex justify-center gap-2 px-[14px] pt-[10px] pb-1">
+          {request.questions.map((_, idx) => (
+            <div
+              key={idx}
+              className={`w-2 h-2 rounded-full transition-[background,transform] duration-200 ${
+                idx === currentStep
+                  ? 'bg-[#8142c7] scale-[1.35]'
+                  : idx < currentStep
+                    ? 'bg-[#8142c7]'
+                    : 'bg-[#333]'
+              }`}
+            />
+          ))}
         </div>
       )}
-      <div key={currentQuestion.question} className="question-item">
-        <div className="question-badge">{currentQuestion.header}</div>
-        <div className="question-text">{currentQuestion.question}</div>
-        <div className="question-options">
+      <div key={currentQuestion.question} className="question-item px-[14px] py-3">
+        <div className="inline-block bg-[#333] text-[#aaa] text-[0.75em] px-2 py-[2px] rounded mb-[6px]">{currentQuestion.header}</div>
+        <div className="text-[0.95em] mb-[10px] text-[#ddd]">{currentQuestion.question}</div>
+        <div className="flex flex-col gap-[6px]">
           {currentQuestion.options.map((opt) => {
             const selected = selections[currentQuestion.question]?.has(opt.label)
             return (
               <button
                 key={opt.label}
-                className={`question-option${selected ? ' selected' : ''}`}
+                className={`flex flex-col items-start gap-[2px] px-3 py-2 rounded-md border text-left cursor-pointer transition-[border-color,background] duration-150 w-full ${
+                  selected
+                    ? 'border-[#8142c7] bg-[#2a2a4a] text-[#ccc]'
+                    : 'border-[#333] bg-[#222] text-[#ccc] hover:border-[#8142c7] hover:bg-[#2a2a3a]'
+                }`}
                 onClick={() => toggleOption(currentQuestion.question, opt.label, currentQuestion.multiSelect)}
               >
-                <span className="option-label">{opt.label}</span>
-                <span className="option-desc">{opt.description}</span>
+                <span className="font-semibold text-[0.9em] text-[#eee]">{opt.label}</span>
+                <span className="text-[0.8em] text-[#999]">{opt.description}</span>
               </button>
             )
           })}
           <button
-            className={`question-option question-option-other${showOther[currentQuestion.question] ? ' selected' : ''}`}
+            className={`flex flex-col items-start gap-[2px] px-3 py-2 rounded-md border border-dashed text-left cursor-pointer transition-[border-color,background] duration-150 w-full ${
+              showOther[currentQuestion.question]
+                ? 'border-[#8142c7] bg-[#2a2a4a] text-[#ccc]'
+                : 'border-[#333] bg-[#222] text-[#ccc] hover:border-[#8142c7] hover:bg-[#2a2a3a]'
+            }`}
             onClick={() => toggleOther(currentQuestion.question, currentQuestion.multiSelect)}
           >
-            <span className="option-label">Other</span>
-            <span className="option-desc">Provide a custom answer</span>
+            <span className="font-semibold text-[0.9em] text-[#eee]">Other</span>
+            <span className="text-[0.8em] text-[#999]">Provide a custom answer</span>
           </button>
         </div>
         {showOther[currentQuestion.question] && (
           <textarea
-            className="question-other-input"
+            className="w-full mt-2 px-2 py-2 bg-[#1a1a1a] border border-[#444] rounded-md text-[#ddd] font-[inherit] text-[0.9em] resize-y focus:outline-none focus:border-[#8142c7]"
             placeholder="Type your answer..."
             value={otherTexts[currentQuestion.question] || ''}
             onChange={(e) => setOtherTexts((prev) => ({ ...prev, [currentQuestion.question]: e.target.value }))}
@@ -150,15 +164,15 @@ export function QuestionDialog({ request, onRespond }: {
           />
         )}
       </div>
-      <div className="question-actions">
+      <div className="flex gap-2 px-[14px] py-[10px] justify-end border-t border-[#2a2a3a] max-[768px]:flex-wrap max-[768px]:gap-[6px] max-[768px]:px-3 max-[768px]:py-2">
         {!isFirstStep && (
-          <button className="btn btn-deny" onClick={handleBack}>
+          <button className="border-none rounded-md px-4 py-2 text-[0.9em] font-medium cursor-pointer transition-[background] duration-150 bg-[#555] text-white hover:bg-[#666] disabled:opacity-40 disabled:cursor-not-allowed max-[768px]:min-h-[40px]" onClick={handleBack}>
             Back
           </button>
         )}
         {isLastStep ? (
           <button
-            className="btn btn-approve"
+            className="border-none rounded-md px-4 py-2 text-[0.9em] font-medium cursor-pointer transition-[background] duration-150 bg-[#4caf50] text-white hover:bg-[#43a047] disabled:opacity-40 disabled:cursor-not-allowed max-[768px]:min-h-[40px]"
             onClick={handleSubmit}
             disabled={!allAnswered}
           >
@@ -166,7 +180,7 @@ export function QuestionDialog({ request, onRespond }: {
           </button>
         ) : (
           <button
-            className="btn btn-approve"
+            className="border-none rounded-md px-4 py-2 text-[0.9em] font-medium cursor-pointer transition-[background] duration-150 bg-[#4caf50] text-white hover:bg-[#43a047] disabled:opacity-40 disabled:cursor-not-allowed max-[768px]:min-h-[40px]"
             onClick={handleNext}
             disabled={!currentStepAnswered}
           >

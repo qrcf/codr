@@ -1,20 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useAuth } from '@clerk/clerk-react'
-import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import { PanelLeftClose, PanelLeftOpen, Square, AlertTriangle, ClipboardList, Minimize2 } from 'lucide-react'
-import { timeAgo } from './utils/timeAgo'
-import { MessageBubble } from './components/MessageBubble'
-import { ToolCallBlock } from './components/ToolCallBlock'
-import { PermissionDialog } from './components/PermissionDialog'
-import { QuestionDialog } from './components/QuestionDialog'
-import { PlanReview } from './components/PlanReview'
-import { CollapsibleDialog } from './components/CollapsibleDialog'
 import { Sidebar } from './components/Sidebar'
 import { SettingsPanel } from './components/SettingsPanel'
 import { ManageProjectPanel } from './components/ManageProjectPanel'
-import { ContextUsageBar } from './components/ContextUsageBar'
-import { FileMentionDropdown } from './components/FileMentionDropdown'
+import { ChatHeader } from './components/ChatHeader'
+import { MessageList } from './components/MessageList'
+import { DialogsPanel } from './components/DialogsPanel'
+import { InputArea } from './components/InputArea'
+import { UpdateOverlay } from './components/UpdateOverlay'
+import type { ReasoningLevel } from './components/ReasoningSelector'
 import { useDocsAPI } from './hooks/useDocsAPI'
 import { useInputComposer } from './hooks/useInputComposer'
 import { useDialogs } from './hooks/useDialogs'
@@ -22,18 +16,35 @@ import { useAgentConnection } from './hooks/useAgentConnection'
 import { useSessionManager } from './hooks/useSessionManager'
 import { useDraftSessions } from './hooks/useDraftSessions'
 import { useArchivedSessions } from './hooks/useArchivedSessions'
-import { formatMessageContent } from './utils/formatMessage'
-import './App.css'
-
-function truncate(s: string | undefined, max: number): string {
-  if (!s) return ''
-  return s.length > max ? s.slice(0, max) + '...' : s
-}
 
 export default function App() {
   const { getToken } = useAuth()
   const stableGetToken = useCallback(() => getToken(), [getToken])
   const docsAPI = useDocsAPI(stableGetToken)
+
+  // Register token provider so main process can request fresh Clerk tokens on demand
+  useEffect(() => {
+    const cleanup = window.claude.registerTokenProvider?.(stableGetToken)
+    return cleanup
+  }, [stableGetToken])
+
+  // Auto-updater
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
+  const [updateDismissed, setUpdateDismissed] = useState(false)
+
+  useEffect(() => {
+    const cleanup = window.claude.onUpdateStatus?.((status) => {
+      setUpdateStatus(status)
+      // Reset dismissed state when a new version arrives
+      const dismissed = localStorage.getItem('codr:dismissed-update')
+      if (status.version && dismissed !== status.version) {
+        setUpdateDismissed(false)
+      }
+    })
+    return cleanup
+  }, [])
+
+  const showUpdateOverlay = updateStatus?.status === 'downloaded' && updateStatus.version && !updateDismissed
 
   // Simple UI state
   const [sidebarOpen, setSidebarOpen] = useState(() => {
@@ -42,6 +53,7 @@ export default function App() {
   })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [manageProjectOpen, setManageProjectOpen] = useState(false)
+  const [manageProjectFolder, setManageProjectFolder] = useState<string | null>(null)
 
   // Scroll refs
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -126,6 +138,51 @@ export default function App() {
     setMode: dialogs.setMode,
   })
 
+  // --- Model selector state ---
+  const [selectedModel, setSelectedModel] = useState<string | undefined>(undefined)
+  const [currentProvider, setCurrentProvider] = useState<'claude' | 'codex'>('claude')
+
+  // --- Reasoning level ---
+  const [defaultReasoning, setDefaultReasoning] = useState<ReasoningLevel>('auto')
+  const [reasoning, setReasoning] = useState<ReasoningLevel>(() => {
+    return (localStorage.getItem('codr:reasoning') as ReasoningLevel | null) ?? 'auto'
+  })
+  const handleReasoningChange = (level: ReasoningLevel) => {
+    setReasoning(level)
+    localStorage.setItem('codr:reasoning', level)
+  }
+  const currentProviderRef = useRef(currentProvider)
+  useEffect(() => { currentProviderRef.current = currentProvider })
+  // Track whether the last onLoadSession call provided a model from session messages.
+  // onActiveSessionInfo fires after onLoadSession, so if no model was found we fetch the provider default.
+  const sessionLoadHadModelRef = useRef(false)
+
+  // Initialize provider + model + default reasoning on mount
+  useEffect(() => {
+    window.claude.getProvider?.().then(p => {
+      setCurrentProvider(p)
+      window.claude.getModels?.(p).then(result => {
+        if (result?.selectedModel) setSelectedModel(result.selectedModel)
+      })
+    })
+    // Read default reasoning from ~/.claude/settings.json effortLevel
+    window.claude.getDefaults?.().then(defaults => {
+      if (defaults?.effortLevel) {
+        const level = defaults.effortLevel as ReasoningLevel
+        setDefaultReasoning(level)
+        // If localStorage has no stored value, apply the default
+        if (!localStorage.getItem('codr:reasoning')) {
+          handleReasoningChange(level)
+        }
+      }
+    })
+  }, [])
+
+  const handleModelChange = async (model: string | undefined) => {
+    setSelectedModel(model)
+    await window.claude.setModel?.(currentProviderRef.current, model)
+  }
+
   // Wire the bridge refs now that all hooks exist.
   // Must be in an effect to satisfy react-hooks/refs lint rule.
   useEffect(() => {
@@ -139,6 +196,19 @@ export default function App() {
       draftSessions.promoteDraft(draftId)
     }
   })
+
+  // --- Global Shift+Tab: cycle mode when a chat is open ---
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab' || !e.shiftKey) return
+      if (!session.activeSessionId) return
+      e.preventDefault()
+      const modes = ['plan', 'code', 'ask'] as const
+      dialogs.setMode(prev => modes[(modes.indexOf(prev) + 1) % modes.length])
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [session.activeSessionId, dialogs.setMode])
 
   // --- Scroll to bottom ---
   const scrollToBottom = useCallback(() => {
@@ -202,11 +272,13 @@ export default function App() {
     const isDraft = session.activeSessionId?.startsWith('draft-')
     const isNewSession = !session.activeSessionId || isDraft
 
-    const opts: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; cwd?: string } = {}
+    const opts: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; cwd?: string; model?: string; thinkingBudget?: 'low' | 'medium' | 'high' } = {}
     if (!isNewSession) opts.resumeSessionId = session.activeSessionId!
     if (usePlanMode) opts.planMode = true
     if (useAskMode) opts.askMode = true
-    if (isNewSession && session.selectedFolder) opts.cwd = session.selectedFolder
+    if (isNewSession && session.activeSession?.cwd) opts.cwd = session.activeSession.cwd
+    if (selectedModel) opts.model = selectedModel
+    if (reasoning !== 'auto') opts.thinkingBudget = reasoning
 
     // Signal that we're expecting a new session ID from the agent
     if (isNewSession) {
@@ -274,15 +346,60 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className="flex h-screen w-full">
+      {showUpdateOverlay && (
+        <UpdateOverlay
+          version={updateStatus.version!}
+          onRestart={() => window.claude.installUpdate?.()}
+          onDismiss={() => {
+            setUpdateDismissed(true)
+            localStorage.setItem('codr:dismissed-update', updateStatus.version!)
+          }}
+        />
+      )}
       <Sidebar
         isOpen={sidebarOpen}
         activeSessionId={session.activeSessionId}
-        onLoadSession={(id, msgs) => { session.handleLoadSession(id, msgs); setSettingsOpen(false); setManageProjectOpen(false); }}
-        onNewChat={() => { session.handleNewChat(); setSettingsOpen(false); setManageProjectOpen(false); }}
-        onActiveSessionInfo={session.setActiveSession}
+        onLoadSession={(id, msgs, usage, model) => {
+          session.handleLoadSession(id, msgs, usage)
+          sessionLoadHadModelRef.current = !!model
+          if (model) setSelectedModel(model)
+          setSettingsOpen(false)
+          setManageProjectOpen(false)
+        }}
+        onNewChat={(provider, cwd) => {
+          const p = provider || 'claude'
+          session.handleNewChat(provider, cwd)
+          setCurrentProvider(p)
+          window.claude.getModels?.(p).then(result => { setSelectedModel(result?.selectedModel) })
+          setSettingsOpen(false)
+          setManageProjectOpen(false)
+        }}
+        onActiveSessionInfo={(s) => {
+          session.setActiveSession(s)
+          if (s?.provider) {
+            setCurrentProvider(s.provider)
+            // If the session load didn't find a model in the messages (e.g. Codex sessions),
+            // use the model from the session index, or fall back to the provider default.
+            if (!sessionLoadHadModelRef.current) {
+              if (s.model) {
+                setSelectedModel(s.model)
+              } else {
+                window.claude.getModels?.(s.provider).then(result => {
+                  if (result?.selectedModel) setSelectedModel(result.selectedModel)
+                })
+              }
+            }
+            sessionLoadHadModelRef.current = false
+          }
+          // Restore reasoning level from session, falling back to settings.json default
+          if (s) {
+            const level = (s.thinkingBudget as ReasoningLevel) || defaultReasoning
+            handleReasoningChange(level)
+          }
+        }}
         onOpenSettings={() => { setSettingsOpen(true); setManageProjectOpen(false); }}
-        onOpenManageProject={() => { setManageProjectOpen(true); setSettingsOpen(false); }}
+        onOpenManageProject={(folder) => { setManageProjectFolder(folder); setManageProjectOpen(true); setSettingsOpen(false); }}
         backgroundQuerySessionIds={agent.backgroundQuerySessionIds}
         sessionStatuses={(() => {
           const m = new Map<string, 'question' | 'plan-review' | 'permission'>()
@@ -290,7 +407,6 @@ export default function App() {
           for (const [sid, req] of Object.entries(dialogs.permissionRequests)) m.set(sid, req.tool === 'ExitPlanMode' ? 'plan-review' : 'permission')
           return m
         })()}
-        onFolderChange={session.setSelectedFolder}
         onCloseSidebar={() => setSidebarOpen(false)}
         drafts={draftSessions.drafts}
         archivedIds={archive.archivedIds}
@@ -299,11 +415,11 @@ export default function App() {
         onArchiveSession={archive.archiveSession}
         onUnarchiveSession={archive.unarchiveSession}
       />
-      {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />}
+      {sidebarOpen && <div className="hidden max-[768px]:block fixed inset-0 bg-black/50 z-40" onClick={() => setSidebarOpen(false)} />}
 
-      {manageProjectOpen && session.selectedFolder ? (
+      {manageProjectOpen && manageProjectFolder ? (
         <ManageProjectPanel
-          folderPath={session.selectedFolder}
+          folderPath={manageProjectFolder}
           onClose={() => setManageProjectOpen(false)}
         />
       ) : settingsOpen ? (
@@ -324,251 +440,80 @@ export default function App() {
           }}
         />
       ) : (
-      <div className="app">
-        <header className="app-header">
-          <button className="btn-toggle-sidebar" onClick={toggleSidebar}>
-            {sidebarOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
-          </button>
-          <h1>{session.projectTitle}</h1>
-          {session.activeSession && (session.activeSession.customTitle || session.activeSession.generatedTitle) && (
-            <div className="session-title-wrapper">
-              <span className="session-title">
-                {session.activeSession.customTitle || session.activeSession.generatedTitle}
-              </span>
-              <div className="session-title-tooltip" onClick={(e) => {
-                const target = e.target as HTMLElement
-                if (target.classList.contains('tooltip-value')) {
-                  const text = target.textContent || ''
-                  navigator.clipboard.writeText(text)
-                  target.classList.add('copied')
-                  setTimeout(() => target.classList.remove('copied'), 600)
-                }
-              }}>
-                {session.activeSession.summary && (
-                  <div className="tooltip-row">
-                    <span className="tooltip-label">SDK Summary</span>
-                    <span className="tooltip-value">{session.activeSession.summary}</span>
-                  </div>
-                )}
-                {session.activeSession.generatedTitle && (
-                  <div className="tooltip-row">
-                    <span className="tooltip-label">Generated Title</span>
-                    <span className="tooltip-value">{session.activeSession.generatedTitle}</span>
-                  </div>
-                )}
-                {session.activeSession.customTitle && (
-                  <div className="tooltip-row">
-                    <span className="tooltip-label">Custom Title</span>
-                    <span className="tooltip-value">{session.activeSession.customTitle}</span>
-                  </div>
-                )}
-                {session.activeSession.firstPrompt && (
-                  <div className="tooltip-row">
-                    <span className="tooltip-label">First Prompt</span>
-                    <span className="tooltip-value">{truncate(session.activeSession.firstPrompt, 120)}</span>
-                  </div>
-                )}
-                {session.activeSession.cwd && (
-                  <div className="tooltip-row">
-                    <span className="tooltip-label">Project</span>
-                    <span className="tooltip-value">{session.activeSession.cwd}</span>
-                  </div>
-                )}
-                {session.activeSession.gitBranch && (
-                  <div className="tooltip-row">
-                    <span className="tooltip-label">Branch</span>
-                    <span className="tooltip-value">{session.activeSession.gitBranch}</span>
-                  </div>
-                )}
-                <div className="tooltip-row">
-                  <span className="tooltip-label">Last Modified</span>
-                  <span className="tooltip-value">{timeAgo(session.activeSession.lastModified)}</span>
-                </div>
-                <div className="tooltip-row">
-                  <span className="tooltip-label">Session ID</span>
-                  <span className="tooltip-value tooltip-mono">{session.activeSession.sessionId}</span>
-                </div>
-                <div className="tooltip-row">
-                  <span className="tooltip-label">File Size</span>
-                  <span className="tooltip-value">{session.activeSession.fileSize < 1024 ? `${session.activeSession.fileSize} B` : `${(session.activeSession.fileSize / 1024).toFixed(1)} KB`}</span>
-                </div>
-              </div>
-            </div>
-          )}
-        </header>
+      <div className="flex flex-col h-screen flex-1 min-w-0 overflow-clip font-[system-ui,-apple-system,sans-serif] text-[14px]">
+        <ChatHeader
+          sidebarOpen={sidebarOpen}
+          onToggleSidebar={toggleSidebar}
+          projectTitle={session.projectTitle}
+          activeSession={session.activeSession}
+        />
 
-        <div className="messages-container" ref={messagesContainerRef}>
-          {agent.hasMoreMessages && (
-            <div className="load-more-indicator">Loading earlier messages...</div>
-          )}
-          {agent.messages.map((msg) => (
-            <MessageBubble key={msg.id} message={msg} />
-          ))}
+        <MessageList
+          messages={agent.messages}
+          isLoading={agent.isLoading}
+          streamingText={agent.streamingText}
+          streamingTools={agent.streamingTools}
+          streamingThinking={agent.streamingThinking}
+          isCompacting={agent.isCompacting}
+          hasMoreMessages={agent.hasMoreMessages}
+          onInterrupt={handleInterrupt}
+          messagesContainerRef={messagesContainerRef}
+          messagesEndRef={messagesEndRef}
+        />
 
-          {agent.isLoading && (agent.streamingText || agent.streamingTools.length > 0) && (
-            <div className="message message-assistant">
-              {agent.streamingText && <div className="message-content"><Markdown remarkPlugins={[remarkGfm]}>{formatMessageContent(agent.streamingText)}</Markdown></div>}
-              {agent.streamingTools.length > 0 && (
-                <div className="tool-calls">
-                  {agent.streamingTools.map((tool) => (
-                    <ToolCallBlock key={tool.id} tool={tool} />
-                  ))}
-                </div>
-              )}
-              <div className="loading-indicator">
-                <div className="spinner" />
-                <span className="thinking">Working...</span>
-                <button className="cancel-btn" onClick={handleInterrupt}>Cancel</button>
-              </div>
-            </div>
-          )}
+        <DialogsPanel
+          activeSessionId={session.activeSessionId}
+          permissionRequests={dialogs.permissionRequests}
+          questionRequests={dialogs.questionRequests}
+          planReview={dialogs.planReview}
+          planReady={dialogs.planReady}
+          onPermissionResponse={dialogs.handlePermissionResponse}
+          onAlwaysAllow={dialogs.handleAlwaysAllow}
+          onQuestionResponse={dialogs.handleQuestionResponse}
+          onPlanApprove={handlePlanApprove}
+          onPlanRequestChanges={handlePlanRequestChanges}
+        />
 
-          {agent.isLoading && !agent.streamingText && agent.streamingTools.length === 0 && (
-            <div className="message message-assistant">
-              {agent.streamingThinking && (
-                <div className="message-content streaming-thinking">
-                  <Markdown remarkPlugins={[remarkGfm]}>{agent.streamingThinking}</Markdown>
-                </div>
-              )}
-              <div className="loading-indicator">
-                <div className="spinner" />
-                <span className="thinking">{agent.isCompacting ? 'Compacting context...' : agent.streamingThinking ? 'Reasoning...' : 'Thinking...'}</span>
-                <button className="cancel-btn" onClick={handleInterrupt}>Cancel</button>
-              </div>
-            </div>
-          )}
-
-          <div ref={messagesEndRef} />
-        </div>
-
-        {(dialogs.permissionRequests[session.activeSessionId || '_unknown'] || dialogs.questionRequests[session.activeSessionId || '_unknown'] || (dialogs.planReview && dialogs.planReady)) && (
-          <div className="dialogs-area">
-            {dialogs.permissionRequests[session.activeSessionId || '_unknown'] && (
-              <CollapsibleDialog
-                title={dialogs.permissionRequests[session.activeSessionId || '_unknown'].tool === 'ExitPlanMode' ? 'Plan Review' : 'Permission Required'}
-                icon={dialogs.permissionRequests[session.activeSessionId || '_unknown'].tool === 'ExitPlanMode' ? <ClipboardList size={14} /> : <AlertTriangle size={14} />}
-                variant={dialogs.permissionRequests[session.activeSessionId || '_unknown'].tool === 'ExitPlanMode' ? 'plan' : 'permission'}
-              >
-                <PermissionDialog request={dialogs.permissionRequests[session.activeSessionId || '_unknown']} onRespond={dialogs.handlePermissionResponse} onAlwaysAllow={dialogs.handleAlwaysAllow} />
-              </CollapsibleDialog>
-            )}
-            {dialogs.questionRequests[session.activeSessionId || '_unknown'] && (
-              <CollapsibleDialog title="Question" icon={<span className="collapsible-question-icon">?</span>} variant="question">
-                <QuestionDialog request={dialogs.questionRequests[session.activeSessionId || '_unknown']} onRespond={dialogs.handleQuestionResponse} />
-              </CollapsibleDialog>
-            )}
-            {dialogs.planReview && dialogs.planReady && (
-              <CollapsibleDialog title="Plan ready for review" icon={<ClipboardList size={14} />} variant="plan-review">
-                <PlanReview
-                  plan={dialogs.planReview}
-                  showActions={dialogs.planReady}
-                  onApprove={handlePlanApprove}
-                  onRequestChanges={handlePlanRequestChanges}
-                />
-              </CollapsibleDialog>
-            )}
-          </div>
-        )}
-
-        <div className="input-area-wrapper">
-        {!dialogs.planReady && (
-          <div
-            className={`input-bar${isDragOver ? ' drag-over' : ''}`}
-            style={{ position: 'relative' }}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-          >
-            {mentionActive && (
-              <FileMentionDropdown
-                files={fileCache}
-                docSources={docsAPI.sources}
-                query={mentionQuery}
-                activeIndex={mentionIndex}
-                onSelect={handleMentionSelect}
-                onSelectDoc={handleDocMentionSelect}
-              />
-            )}
-            {(selectedFiles.length > 0 || selectedDocs.length > 0) && (
-              <div className="file-tags-row">
-                {selectedDocs.map(doc => (
-                  <span key={`doc-${doc.id}`} className="file-tag doc-tag">
-                    <span className="file-tag-name" title={doc.url}>📄 {doc.name}</span>
-                    <button className="file-tag-remove"
-                      onClick={() => setSelectedDocs(prev => prev.filter(d => d.id !== doc.id))}
-                    >×</button>
-                  </span>
-                ))}
-                {selectedFiles.map(file => (
-                  <span key={file} className="file-tag">
-                    <span className="file-tag-name" title={file}>{file.startsWith('/') ? file.split('/').pop() : file}</span>
-                    <button className="file-tag-remove"
-                      onClick={() => setSelectedFiles(prev => prev.filter(f => f !== file))}
-                    >×</button>
-                  </span>
-                ))}
-              </div>
-            )}
-            <textarea
-              ref={textareaRef}
-              className="input-field"
-              value={input}
-              onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
-              placeholder="Send a message..."
-              rows={1}
-              disabled={agent.isLoading}
-            />
-            <div className="input-toolbar">
-              <div className="input-toolbar-left">
-                <div className="mode-selector">
-                  {(['plan', 'code', 'ask'] as const).map((m) => (
-                    <button
-                      key={m}
-                      className={`mode-btn${dialogs.mode === m ? ' active' : ''}`}
-                      onClick={() => dialogs.setMode(m)}
-                    >
-                      {m.charAt(0).toUpperCase() + m.slice(1)}
-                    </button>
-                  ))}
-                </div>
-                {dialogs.mode !== 'ask' && <label className="allow-edits-toggle" title="Auto-approve file edits">
-                  <input
-                    type="checkbox"
-                    checked={dialogs.autoApproveEdits}
-                    onChange={dialogs.handleToggleAutoEdits}
-                  />
-                  <span className="toggle-track">
-                    <span className="toggle-thumb" />
-                  </span>
-                  <span className="toggle-label">Allow edits</span>
-                </label>}
-                {session.activeSessionId && !session.activeSessionId.startsWith('draft-') && (
-                  <button
-                    className="btn-compact"
-                    onClick={handleCompact}
-                    disabled={agent.isLoading}
-                    title="Compact context"
-                  >
-                    <Minimize2 size={13} />
-                    <span>Compact</span>
-                  </button>
-                )}
-                {session.activeSessionId && !session.activeSessionId.startsWith('draft-') && agent.tokenUsage && (
-                  <ContextUsageBar {...agent.tokenUsage} />
-                )}
-              </div>
-              <div className="input-toolbar-right">
-                {agent.isLoading ? (
-                  <button className="btn btn-interrupt" onClick={handleInterrupt}><Square size={14} /></button>
-                ) : (
-                  <button className="btn btn-send" onClick={handleSend} disabled={!input.trim() && selectedFiles.length === 0 && selectedDocs.length === 0}>Send</button>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
+        <div className="flex-shrink-0">
+          <InputArea
+            input={input}
+            setInput={setInput}
+            textareaRef={textareaRef}
+            mentionActive={mentionActive}
+            mentionQuery={mentionQuery}
+            mentionIndex={mentionIndex}
+            fileCache={fileCache}
+            selectedFiles={selectedFiles}
+            setSelectedFiles={setSelectedFiles}
+            selectedDocs={selectedDocs}
+            setSelectedDocs={setSelectedDocs}
+            isDragOver={isDragOver}
+            handleInputChange={handleInputChange}
+            handleMentionSelect={handleMentionSelect}
+            handleDocMentionSelect={handleDocMentionSelect}
+            handleKeyDown={handleKeyDown}
+            handleDragOver={handleDragOver}
+            handleDragLeave={handleDragLeave}
+            handleDrop={handleDrop}
+            handlePaste={handlePaste}
+            mode={dialogs.mode}
+            setMode={dialogs.setMode}
+            autoApproveEdits={dialogs.autoApproveEdits}
+            handleToggleAutoEdits={dialogs.handleToggleAutoEdits}
+            planReady={dialogs.planReady}
+            isLoading={agent.isLoading}
+            tokenUsage={agent.tokenUsage}
+            currentProvider={currentProvider}
+            selectedModel={selectedModel}
+            onModelChange={handleModelChange}
+            reasoning={reasoning}
+            onReasoningChange={handleReasoningChange}
+            activeSessionId={session.activeSessionId}
+            onSend={handleSend}
+            onInterrupt={handleInterrupt}
+            onCompact={handleCompact}
+            docSources={docsAPI.sources}
+          />
         </div>
       </div>
       )}

@@ -52,37 +52,37 @@ export function ToolCallBlock({ tool }: { tool: ToolCallInfo }) {
   const hasRenderer = !!CustomRenderer
   const summary = getSummary(tool)
 
-  const statusIcon = tool.status === 'running' ? <Loader2 size={14} className="spin" /> : tool.status === 'error' ? <XCircle size={14} /> : <CheckCircle2 size={14} />
-  const statusClass = `tool-status tool-status-${tool.status}`
+  const statusColor = tool.status === 'running' ? 'text-[#f0c040]' : tool.status === 'error' ? 'text-[#f44336]' : 'text-[#4caf50]'
+  const statusIcon = tool.status === 'running' ? <Loader2 size={14} className="animate-spin" /> : tool.status === 'error' ? <XCircle size={14} /> : <CheckCircle2 size={14} />
 
   return (
-    <div className={`tool-call-block ${expanded ? 'tool-call-expanded' : ''}`}>
-      <div className="tool-call-header" onClick={() => setExpanded(!expanded)}>
-        <span className={statusClass}>{statusIcon}</span>
-        <span className="tool-name-badge">{tool.name}</span>
-        {summary && <span className="tool-summary">{summary}</span>}
-        <span className="tool-chevron">{expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
+    <div className={`border rounded overflow-hidden text-[0.9em] max-[768px]:text-[0.8em] ${expanded ? 'border-[#3a3a4a] my-1' : 'border-transparent'}`}>
+      <div className={`flex items-center gap-2 px-[10px] py-1 bg-[#2a2a3a] cursor-pointer select-none hover:bg-[#333345] ${expanded ? 'rounded-t' : 'rounded'}`} onClick={() => setExpanded(!expanded)}>
+        <span className={`text-[0.85em] w-[18px] text-center flex-shrink-0 ${statusColor}`}>{statusIcon}</span>
+        <span className="bg-[#444460] text-[#ccc] px-2 py-[1px] rounded text-[0.85em] font-['SF_Mono','Fira_Code',monospace] flex-shrink-0">{tool.name}</span>
+        {summary && <span className="text-[#999] overflow-hidden text-ellipsis whitespace-nowrap flex-1 font-['SF_Mono','Fira_Code',monospace] text-[0.85em]">{summary}</span>}
+        <span className="text-[#666] flex-shrink-0 text-[0.8em]">{expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
       </div>
       {expanded && (
         <>
           {CustomRenderer && <CustomRenderer tool={tool} />}
           {hasRenderer && (
             <span
-              className="tool-raw-toggle"
+              className="inline-block px-[10px] py-[2px] text-[0.75em] text-[#666] cursor-pointer select-none font-['SF_Mono','Fira_Code',monospace] hover:text-[#999] hover:underline"
               onClick={() => setShowRawDetails(!showRawDetails)}
             >
               {showRawDetails ? 'less' : 'more details'}
             </span>
           )}
           {(!hasRenderer || showRawDetails) && (
-            <div className="tool-call-details">
-              <div className="tool-section">
-                <div className="tool-section-label">Input</div>
+            <div className="p-[10px] border-t border-[#3a3a4a] bg-[#1a1a2a] max-[768px]:text-[0.85em]">
+              <div className="mb-2">
+                <div className="text-[0.75em] font-semibold text-[#888] uppercase tracking-[0.05em] mb-1">Input</div>
                 {formatValue(tool.input)}
               </div>
               {tool.result !== undefined && (
-                <div className="tool-section">
-                  <div className="tool-section-label">Result{tool.isError ? ' (Error)' : ''}</div>
+                <div>
+                  <div className="text-[0.75em] font-semibold text-[#888] uppercase tracking-[0.05em] mb-1">Result{tool.isError ? ' (Error)' : ''}</div>
                   {formatValue(tool.result)}
                 </div>
               )}

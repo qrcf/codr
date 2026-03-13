@@ -22,17 +22,22 @@ export function DiffView({ oldString, newString, maxLines = 50 }: DiffViewProps)
   const visible = truncated ? lines.slice(0, maxLines) : lines
 
   return (
-    <div className="diff-view">
+    <div className="font-['SF_Mono','Fira_Code',monospace] text-[0.85em] overflow-x-auto">
       {visible.map((line, i) => (
-        <div key={i} className={`diff-line diff-line-${line.type}`}>
-          <span className="diff-marker">
+        <div
+          key={i}
+          className={`flex leading-[1.5] px-[10px] min-h-[1.5em] ${line.type === 'removed' ? 'bg-[rgba(244,67,54,0.1)]' : line.type === 'added' ? 'bg-[rgba(76,175,80,0.1)]' : ''}`}
+        >
+          <span className={`w-4 flex-shrink-0 select-none text-center ${line.type === 'removed' ? 'text-[#f44336]' : line.type === 'added' ? 'text-[#4caf50]' : 'text-[#888]'}`}>
             {line.type === 'removed' ? '-' : line.type === 'added' ? '+' : ' '}
           </span>
-          <span className="diff-content">{line.text}</span>
+          <span className="whitespace-pre-wrap break-words flex-1">{line.text}</span>
         </div>
       ))}
       {truncated && (
-        <div className="diff-truncated">... {lines.length - maxLines} more lines</div>
+        <div className="px-[10px] py-1 text-[#888] text-[0.85em] italic">
+          ... {lines.length - maxLines} more lines
+        </div>
       )}
     </div>
   )

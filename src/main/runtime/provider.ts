@@ -11,6 +11,8 @@ export interface AgentQueryRequest {
   cwd?: string
   askMode?: boolean
   origin?: MessageOrigin
+  model?: string
+  thinkingBudget?: 'low' | 'medium' | 'high'
 }
 
 export interface ProviderRunCallbacks {
@@ -41,6 +43,7 @@ export interface AgentProviderContext {
   broadcaster: EventBroadcaster
   relayClient: RelayClient
   sessionStore: ProviderSessionStore
+  getAuthToken: () => Promise<string>
 }
 
 export interface AgentProvider {

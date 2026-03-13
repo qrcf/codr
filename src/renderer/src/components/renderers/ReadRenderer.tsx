@@ -22,18 +22,21 @@ export function ReadRenderer({ tool }: { tool: ToolCallInfo }) {
     : ''
 
   return (
-    <div className="read-renderer">
-      <div className="read-file-header">
-        <span className="read-file-icon">&#128196;</span>
-        <span className="read-file-name" title={filePath}>{fileName}</span>
-        {rangeInfo && <span className="read-range">{rangeInfo}</span>}
-        {tool.status === 'done' && <span className="read-line-count">{totalLines} lines</span>}
+    <div className="border-t border-[#3a3a4a]">
+      <div className="flex items-center gap-[6px] px-[10px] py-[6px] text-[#aaa] text-[0.85em]">
+        <span className="text-[0.9em]">&#128196;</span>
+        <span className="font-['SF_Mono','Fira_Code',monospace] overflow-hidden text-ellipsis whitespace-nowrap" title={filePath}>{fileName}</span>
+        {rangeInfo && <span className="text-[#777] text-[0.9em]">{rangeInfo}</span>}
+        {tool.status === 'done' && <span className="text-[#666] ml-auto text-[0.9em]">{totalLines} lines</span>}
       </div>
       {result && (
         <>
-          <pre className="read-content">{visibleContent}</pre>
+          <pre className="m-0 px-[10px] py-2 bg-[#0d0d1a] font-['SF_Mono','Fira_Code',monospace] text-[0.82em] leading-[1.4] whitespace-pre-wrap break-words text-[#b8b8b8] max-h-[400px] overflow-y-auto">{visibleContent}</pre>
           {truncated && (
-            <button className="read-show-more" onClick={() => setShowAll(true)}>
+            <button
+              className="block w-full bg-[#1a1a2a] border-0 border-t border-[#3a3a4a] text-[#8142c7] py-[6px] text-[0.82em] cursor-pointer text-center hover:bg-[#222238]"
+              onClick={() => setShowAll(true)}
+            >
               Show all ({totalLines} lines)
             </button>
           )}

@@ -14,6 +14,7 @@ const CHANNEL_TO_WS_TYPE: Record<string, string> = {
   'agent:permission-cleared': 'permission_cleared',
   'agent:question-cleared': 'question_cleared',
   'docs:crawl-progress': 'doc_crawl_progress',
+  'docs:setup-progress': 'setup_progress',
 }
 
 export interface TokenUsage {
@@ -94,6 +95,8 @@ export class EventBroadcaster {
       } else if (channel === 'sessions:session-updated') {
         this.relayClient.send({ type: wsType, ...(data as Record<string, unknown>) })
       } else if (channel === 'docs:crawl-progress') {
+        this.relayClient.send({ type: wsType, ...(data as Record<string, unknown>) })
+      } else if (channel === 'docs:setup-progress') {
         this.relayClient.send({ type: wsType, ...(data as Record<string, unknown>) })
       } else {
         this.relayClient.send({ type: wsType, querySessionId: qsid })

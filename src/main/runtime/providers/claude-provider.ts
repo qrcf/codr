@@ -1,0 +1,181 @@
+import { query } from '@anthropic-ai/claude-agent-sdk'
+import type { Query } from '@anthropic-ai/claude-agent-sdk'
+import { app } from 'electron'
+import path from 'node:path'
+import { createCanUseTool } from '../../permissions'
+import { storeSessionMetadata, setCachedAccountInfo } from '../../sessions'
+import type {
+  AgentProvider,
+  AgentProviderContext,
+  AgentQueryRequest,
+  ProviderRunCallbacks,
+  ProviderRunResult,
+} from '../provider'
+
+interface DocSearchResult {
+  sourceName: string
+  sourceUrl: string
+  pageUrl: string
+  pageTitle: string | null
+  heading: string | null
+  content: string
+}
+
+/**
+ * In packaged builds the SDK can't resolve cli.js via import.meta.url because
+ * the module lives inside app.asar. Return the unpacked path instead.
+ */
+export function getClaudeCliPath(): string | undefined {
+  if (!app.isPackaged) return undefined
+  return path.join(
+    process.resourcesPath,
+    'app.asar.unpacked',
+    'node_modules',
+    '@anthropic-ai',
+    'claude-agent-sdk',
+    'cli.js'
+  )
+}
+
+function parseDocRefs(prompt: string): { cleanedPrompt: string; docNames: string[] } {
+  const docNames: string[] = []
+  const cleaned = prompt.replace(/@docs:(\S+)/g, (_, name) => {
+    docNames.push(name)
+    return ''
+  }).trim()
+  return { cleanedPrompt: cleaned, docNames }
+}
+
+async function retrieveDocsContext(
+  ctx: AgentProviderContext,
+  searchQuery: string,
+  docNames: string[],
+): Promise<string> {
+  const apiBaseUrl = ctx.relayClient.getApiBaseUrl()
+  const token = ctx.relayClient.getClerkToken()
+  if (!apiBaseUrl || !token) return ''
+
+  try {
+    const res = await fetch(`${apiBaseUrl}/api/docs/search`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query: searchQuery,
+        limit: 8,
+      }),
+    })
+    if (!res.ok) return ''
+
+    const results = await res.json() as DocSearchResult[]
+    if (!results.length) return ''
+
+    const filtered = docNames.length > 0
+      ? results.filter(r => docNames.some(name => r.sourceName.toLowerCase() === name.toLowerCase()))
+      : results
+    if (!filtered.length) return ''
+
+    const chunks = filtered.map(r => {
+      const source = `${r.sourceName} (${r.pageUrl})`
+      const heading = r.heading ? `## ${r.heading}\n` : ''
+      return `--- ${source} ---\n${heading}${r.content}`
+    }).join('\n\n')
+    return `<documentation_context>\n${chunks}\n</documentation_context>`
+  } catch (err) {
+    console.error('[docs] Failed to retrieve docs context:', err)
+    return ''
+  }
+}
+
+export class ClaudeProvider implements AgentProvider {
+  readonly id = 'claude' as const
+  private readonly activeQueries = new Map<string, Query>()
+  private readonly ctx: AgentProviderContext
+
+  constructor(ctx: AgentProviderContext) {
+    this.ctx = ctx
+  }
+
+  async runQuery(req: AgentQueryRequest, callbacks: ProviderRunCallbacks): Promise<ProviderRunResult> {
+    const origin = req.origin ?? 'local'
+    let currentKey = req.resumeSessionId || `new-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    let capturedSessionId: string | null = req.resumeSessionId || null
+    const isNewSession = !req.resumeSessionId
+    const stderrChunks: string[] = []
+
+    const canUseTool = createCanUseTool(this.ctx.broadcaster, () => currentKey, req.askMode, origin)
+    let finalPrompt = req.askMode
+      ? `[ASK MODE] You are in Ask mode. Your job is to ANSWER the user's question — do NOT edit any code, create files, or make changes. Only read, search, and explain. Do not use Edit, Write, or NotebookEdit tools.\n\n${req.prompt}`
+      : req.prompt
+
+    const { cleanedPrompt, docNames } = parseDocRefs(finalPrompt)
+    if (docNames.length > 0) {
+      const docsContext = await retrieveDocsContext(this.ctx, cleanedPrompt, docNames)
+      finalPrompt = docsContext ? `${docsContext}\n\n${cleanedPrompt}` : cleanedPrompt
+    }
+
+    const cliPath = getClaudeCliPath()
+    const q = query({
+      prompt: finalPrompt,
+      options: {
+        includePartialMessages: true,
+        canUseTool,
+        stderr: (data) => stderrChunks.push(data),
+        ...(cliPath ? { pathToClaudeCodeExecutable: cliPath } : {}),
+        ...(req.resumeSessionId ? { resume: req.resumeSessionId } : {}),
+        ...(req.planMode ? { permissionMode: 'plan' as const } : {}),
+        ...(req.cwd ? { cwd: req.cwd } : {}),
+      },
+    })
+
+    this.activeQueries.set(currentKey, q)
+
+    q.accountInfo?.().then((info) => {
+      if (!info) return
+      setCachedAccountInfo(info)
+      callbacks.onAccountInfo?.(info)
+    }).catch(() => {})
+
+    try {
+      for await (const message of q) {
+        if (!capturedSessionId && (message as { session_id?: string }).session_id) {
+          capturedSessionId = (message as { session_id?: string }).session_id!
+          this.activeQueries.delete(currentKey)
+          currentKey = capturedSessionId
+          this.activeQueries.set(currentKey, q)
+          callbacks.onSessionIdentified(capturedSessionId)
+
+          if (isNewSession) {
+            this.ctx.broadcaster.send('sessions:refresh-hint')
+            storeSessionMetadata(capturedSessionId, req.prompt, this.ctx.relayClient, this.ctx.broadcaster).catch(() => {})
+          }
+        }
+        callbacks.onMessage(message, currentKey)
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      const stderr = stderrChunks.join('').trim().slice(-500)
+      const errorText = stderr ? `${message}\n\n${stderr}` : message
+      callbacks.onError(errorText, currentKey)
+    } finally {
+      this.activeQueries.delete(currentKey)
+      callbacks.onDone(currentKey)
+      this.ctx.broadcaster.send('sessions:refresh-hint')
+    }
+
+    return { queryKey: currentKey }
+  }
+
+  async interruptQuery(sessionId?: string): Promise<void> {
+    if (sessionId) {
+      const q = this.activeQueries.get(sessionId)
+      if (q) await q.interrupt()
+      return
+    }
+    for (const q of this.activeQueries.values()) {
+      await q.interrupt()
+    }
+  }
+}

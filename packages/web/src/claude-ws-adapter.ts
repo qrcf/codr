@@ -8,7 +8,7 @@ interface PendingRequest {
   timer: ReturnType<typeof setTimeout>
 }
 
-export function createWebSocketClaudeAPI(relayUrl: string, getToken: () => Promise<string>) {
+export function createWebSocketAgentAPI(relayUrl: string, getToken: () => Promise<string>) {
   let ws: WebSocket | null = null
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let reconnectDelay = 1000
@@ -245,6 +245,13 @@ export function createWebSocketClaudeAPI(relayUrl: string, getToken: () => Promi
 
   // Build the ClaudeAPI-compatible object
   const api = {
+    getProvider: async () => {
+      const res = await request('get_provider') as { provider?: 'claude' | 'codex' }
+      return res.provider || 'claude'
+    },
+    setProvider: async (provider: 'claude' | 'codex') => {
+      return request('set_provider', { provider }) as Promise<{ provider?: 'claude' | 'codex'; error?: string }>
+    },
     query: async (prompt: string, options?: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; cwd?: string }) => {
       sendJson({ type: 'query', prompt, resumeSessionId: options?.resumeSessionId, planMode: options?.planMode, askMode: options?.askMode, cwd: options?.cwd })
     },
@@ -310,3 +317,5 @@ export function createWebSocketClaudeAPI(relayUrl: string, getToken: () => Promi
 
   return api
 }
+
+export const createWebSocketClaudeAPI = createWebSocketAgentAPI

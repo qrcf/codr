@@ -1,5 +1,6 @@
 import { listSessions, getSessionMessages, query } from '@anthropic-ai/claude-agent-sdk'
 import type { AccountInfo } from '@anthropic-ai/claude-agent-sdk'
+import type { SessionInfo } from '@codr-works/types'
 import { dialog, ipcMain } from 'electron'
 import { execSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -9,31 +10,52 @@ import { homedir } from 'node:os'
 import { getCliPath } from './agent'
 import type { RelayClient } from './relay-client'
 import type { EventBroadcaster } from './event-broadcaster'
+import { getSelectedProvider } from './runtime/provider-config'
+import { getIndexedSessionMessages, getIndexedSessionMeta, listIndexedSessions, putIndexedRawMessages, upsertIndexedSession } from './runtime/session-index'
+import { buildSessionList, shouldUseIndexedMessages, type ClaudeDbSessionMeta } from './runtime/session-records'
+import { listCodexThreads, getCodexThreadRolloutPath, getCodexDbPath_exported } from './runtime/codex-discovery'
+import { parseCodexRollout } from './runtime/codex-rollout-parser'
 
 
-// --- Session watcher: detects external changes (e.g., Claude Desktop) ---
-// Uses lightweight directory mtime check instead of re-reading all session files.
+// --- Session watcher: detects external changes (e.g., Claude Desktop, Codex Desktop) ---
+// Uses lightweight mtime checks instead of re-reading all session files.
 
 export function startSessionWatcher(broadcaster: EventBroadcaster): ReturnType<typeof setInterval> {
-  let lastDirMtime = 0
+  let lastClaudeMtime = 0
+  let lastCodexMtime = 0
 
   return setInterval(async () => {
     if (broadcaster.hasActiveQueries()) return
     try {
-      // Check if the projects directory has changed (lightweight stat, not full scan)
-      const projectsDir = join(homedir(), '.claude', 'projects')
-      const dirStat = await fsStat(projectsDir).catch(() => null)
-      if (!dirStat) return
+      let changed = false
 
-      const mtime = dirStat.mtimeMs
-      if (lastDirMtime === 0) {
-        lastDirMtime = mtime
-        return
+      // Claude: check ~/.claude/projects directory mtime
+      const claudeProjectsDir = join(homedir(), '.claude', 'projects')
+      const claudeStat = await fsStat(claudeProjectsDir).catch(() => null)
+      if (claudeStat) {
+        const mtime = claudeStat.mtimeMs
+        if (lastClaudeMtime === 0) {
+          lastClaudeMtime = mtime
+        } else if (mtime !== lastClaudeMtime) {
+          lastClaudeMtime = mtime
+          changed = true
+        }
       }
-      if (mtime === lastDirMtime) return
-      lastDirMtime = mtime
 
-      broadcaster.send('sessions:refresh-hint')
+      // Codex: check ~/.codex/state_5.sqlite mtime
+      const codexDbPath = getCodexDbPath_exported()
+      const codexStat = await fsStat(codexDbPath).catch(() => null)
+      if (codexStat) {
+        const mtime = codexStat.mtimeMs
+        if (lastCodexMtime === 0) {
+          lastCodexMtime = mtime
+        } else if (mtime !== lastCodexMtime) {
+          lastCodexMtime = mtime
+          changed = true
+        }
+      }
+
+      if (changed) broadcaster.send('sessions:refresh-hint')
     } catch {
       // Silent failure — SDK may not be ready yet
     }
@@ -67,25 +89,22 @@ export function cacheTitleLocally(sessionId: string, name: string, firstPrompt?:
 export async function listSessionsData(relayClient?: RelayClient) {
   const baseUrl = relayClient?.getApiBaseUrl()
 
-  // Load SDK and DB sessions in parallel
+  // listCodexThreads is synchronous (node:sqlite) — run it alongside async calls
+  const codexThreads = listCodexThreads()
   const [sdkSessions, dbSessions] = await Promise.all([
-    listSessions({ limit: 50 }),
-    (async () => {
-      if (!baseUrl) return null
-      try {
-        const token = relayClient!.getClerkToken()
-        const resp = await fetch(`${baseUrl}/api/sessions`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (resp.ok)
-          return (await resp.json()) as Array<{
-            sessionId: string
-            name: string | null
-            firstPrompt: string | null
-          }>
-      } catch {}
-      return null
-    })(),
+    listSessions({ limit: 50 }).catch(() => []),
+    baseUrl
+      ? (async () => {
+          try {
+            const token = relayClient!.getClerkToken()
+            const resp = await fetch(`${baseUrl}/api/sessions`, {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+            if (resp.ok) return (await resp.json()) as ClaudeDbSessionMeta[]
+          } catch {}
+          return null
+        })()
+      : Promise.resolve(null),
   ])
 
   // Update local cache with successful DB results
@@ -96,17 +115,14 @@ export async function listSessionsData(relayClient?: RelayClient) {
     }
   }
 
-  // Build lookup: prefer fresh DB data, fall back to local cache
-  const dbMap = new Map<string, { name: string | null; firstPrompt: string | null }>()
-  for (const s of dbSessions || []) dbMap.set(s.sessionId, s)
-
   for (const session of sdkSessions as Array<{
     sessionId?: string
     generatedTitle?: string
     firstPrompt?: string
+    cwd?: string
   }>) {
     if (!session.sessionId) continue
-    const dbEntry = dbMap.get(session.sessionId)
+    const dbEntry = (dbSessions || []).find(s => s.sessionId === session.sessionId)
     const cached = titleCache.get(session.sessionId)
 
     // Prefer DB data, fall back to cache
@@ -117,10 +133,45 @@ export async function listSessionsData(relayClient?: RelayClient) {
     if (firstPrompt) session.firstPrompt = firstPrompt
   }
 
-  // titlesLoaded = true when DB fetch succeeded OR we have cached titles from a prior fetch
-  const titlesLoaded = dbFetchSucceeded || titleCache.size > 0
+  // Keep the shared index fresh with Claude session discovery, regardless of selected provider.
+  await Promise.all(
+    (sdkSessions as Array<{ sessionId?: string; generatedTitle?: string; firstPrompt?: string; cwd?: string; lastModified?: number }>).map(async (session) => {
+      if (!session.sessionId) return
+      const dbEntry = (dbSessions || []).find(s => s.sessionId === session.sessionId)
+      await upsertIndexedSession(session.sessionId!, {
+        provider: 'claude',
+        title: dbEntry?.name || session.generatedTitle || null,
+        firstPrompt: dbEntry?.firstPrompt || session.firstPrompt || null,
+        workspaceDir: session.cwd || null,
+        updatedAt: typeof session.lastModified === 'number' ? session.lastModified : null,
+      })
+    }),
+  )
 
-  return { sessions: sdkSessions, titlesLoaded }
+  // Upsert Codex Desktop threads so they appear in the sidebar
+  await Promise.all(
+    codexThreads.map(async (thread) => {
+      await upsertIndexedSession(thread.id, {
+        provider: 'codex',
+        title: thread.title || null,
+        firstPrompt: thread.firstUserMessage || null,
+        workspaceDir: thread.cwd || null,
+        updatedAt: thread.updatedAt,
+      })
+    }),
+  )
+
+  const refreshedIndexed = await listIndexedSessions()
+  const result = buildSessionList({
+    indexedSessions: refreshedIndexed,
+    claudeSessions: sdkSessions as SessionInfo[],
+    claudeDbSessions: dbSessions || [],
+  })
+
+  return {
+    sessions: result.sessions,
+    titlesLoaded: dbFetchSucceeded || titleCache.size > 0 || result.titlesLoaded,
+  }
 }
 
 async function storeSessionMetadataUnlocked(
@@ -243,12 +294,45 @@ export async function storeSessionMetadata(
 }
 
 export async function getSessionMessagesData(sessionId: string, dir?: string) {
-  return getSessionMessages(sessionId, {
+  const indexedMeta = await getIndexedSessionMeta(sessionId)
+  const expectedProvider = indexedMeta?.provider
+
+  // --- Codex sessions ---
+  if (expectedProvider === 'codex') {
+    // Check our own index first (codr-initiated sessions store messages here)
+    const indexed = await getIndexedSessionMessages(sessionId)
+    if (shouldUseIndexedMessages(indexed, 'codex')) {
+      return indexed.rawMessages as Awaited<ReturnType<typeof getSessionMessages>>
+    }
+    // Fall back to Codex Desktop rollout file
+    const rolloutPath = getCodexThreadRolloutPath(sessionId)
+    if (rolloutPath && existsSync(rolloutPath)) {
+      const messages = await parseCodexRollout(rolloutPath, sessionId)
+      return messages as unknown as Awaited<ReturnType<typeof getSessionMessages>>
+    }
+    // Session exists but has no messages yet (just created)
+    return [] as unknown as Awaited<ReturnType<typeof getSessionMessages>>
+  }
+
+  // --- Claude sessions: check index first, fall back to SDK ---
+  const indexed = await getIndexedSessionMessages(sessionId)
+  if (expectedProvider && shouldUseIndexedMessages(indexed, expectedProvider)) {
+    return indexed.rawMessages as Awaited<ReturnType<typeof getSessionMessages>>
+  }
+
+  const messages = await getSessionMessages(sessionId, {
     ...(dir ? { dir } : {}),
   })
+  await putIndexedRawMessages(sessionId, 'claude', messages as unknown[])
+  return messages
 }
 
 export async function getAccountInfoData() {
+  const provider = await getSelectedProvider()
+  if (provider === 'codex') {
+    return { tokenSource: 'openai-codex' } as AccountInfo
+  }
+
   if (cachedAccountInfo) return cachedAccountInfo
 
   let probeQuery: ReturnType<typeof query> | null = null
@@ -292,6 +376,14 @@ export type CliStatus =
   | { status: 'error'; message: string }
 
 export async function checkCliStatus(): Promise<CliStatus> {
+  const provider = await getSelectedProvider()
+  if (provider === 'codex') {
+    return {
+      status: 'ready',
+      accountInfo: { tokenSource: 'openai-codex' } as AccountInfo,
+    }
+  }
+
   if (cachedAccountInfo) {
     return { status: 'ready', accountInfo: cachedAccountInfo }
   }
@@ -460,6 +552,108 @@ export async function ensureSessionTitle(
   await storeSessionMetadata(sessionId, firstPrompt, relayClient, broadcaster)
 }
 
+// --- Provider status (independent check for both Claude and Codex) ---
+
+export interface ProviderStatusInfo {
+  installed: boolean
+  loggedIn: boolean
+  detail?: string
+}
+
+export interface AllProviderStatus {
+  claude: ProviderStatusInfo
+  codex: ProviderStatusInfo
+}
+
+export async function getProviderStatusData(): Promise<AllProviderStatus> {
+  const [claudeStatus, codexStatus] = await Promise.all([
+    (async (): Promise<ProviderStatusInfo> => {
+      const cliPath = getCliPath()
+      let installed = false
+      try {
+        if (cliPath) {
+          installed = existsSync(cliPath)
+        } else {
+          execSync('which claude', { stdio: 'pipe', timeout: 3000 })
+          installed = true
+        }
+      } catch {
+        installed = false
+      }
+      if (!installed) return { installed: false, loggedIn: false }
+
+      if (cachedAccountInfo) {
+        const detail = cachedAccountInfo.subscriptionType || cachedAccountInfo.apiKeySource
+        return { installed: true, loggedIn: true, detail: detail || undefined }
+      }
+
+      let probeQuery: ReturnType<typeof query> | null = null
+      try {
+        probeQuery = query({
+          prompt: (async function* () { await new Promise(() => {}) })(),
+          options: {
+            persistSession: false,
+            ...(cliPath ? { pathToClaudeCodeExecutable: cliPath } : {}),
+          },
+        })
+        const info = await Promise.race([
+          probeQuery.accountInfo(),
+          new Promise<null>((_, reject) => setTimeout(() => reject(new Error('timeout')), 8_000)),
+        ])
+        if (info) {
+          cachedAccountInfo = info
+          const detail = info.subscriptionType || info.apiKeySource
+          return { installed: true, loggedIn: true, detail: detail || undefined }
+        }
+        return { installed: true, loggedIn: false }
+      } catch {
+        return { installed: true, loggedIn: false }
+      } finally {
+        probeQuery?.close()
+      }
+    })(),
+
+    (async (): Promise<ProviderStatusInfo> => {
+      const codexHome = join(homedir(), '.codex')
+      const sqliteDb = join(codexHome, 'state_5.sqlite')
+      const installed = existsSync(codexHome)
+      if (!installed) return { installed: false, loggedIn: false }
+
+      // If the session database exists, the user has run Codex queries before (auth worked)
+      if (existsSync(sqliteDb)) {
+        return { installed: true, loggedIn: true, detail: 'Ready' }
+      }
+
+      // Fallback: check OPENAI_API_KEY in env
+      if (process.env.OPENAI_API_KEY) {
+        return { installed: true, loggedIn: true, detail: 'API Key' }
+      }
+
+      // Check common config file locations
+      const configPaths = [
+        join(codexHome, 'config.json'),
+        join(codexHome, '.config.json'),
+      ]
+      for (const cfgPath of configPaths) {
+        if (existsSync(cfgPath)) {
+          try {
+            const { readFileSync } = await import('node:fs')
+            const raw = readFileSync(cfgPath, 'utf-8')
+            const cfg = JSON.parse(raw) as Record<string, unknown>
+            if (cfg.api_key || cfg.apiKey || cfg.openai_api_key) {
+              return { installed: true, loggedIn: true, detail: 'API Key' }
+            }
+          } catch { /* ignore */ }
+        }
+      }
+
+      return { installed: true, loggedIn: false }
+    })(),
+  ])
+
+  return { claude: claudeStatus, codex: codexStatus }
+}
+
 // --- IPC handlers ---
 
 export function registerSessionHandlers(relayClient?: RelayClient, broadcaster?: EventBroadcaster) {
@@ -486,6 +680,10 @@ export function registerSessionHandlers(relayClient?: RelayClient, broadcaster?:
 
   ipcMain.handle('cli:check-status', async () => {
     return checkCliStatus()
+  })
+
+  ipcMain.handle('providers:get-status', async () => {
+    return getProviderStatusData()
   })
 
   ipcMain.handle('sessions:list-files', async (_event, dir?: string) => {

@@ -13,6 +13,7 @@ fixPath()
 import { registerAgentHandlers } from './agent'
 import { registerSessionHandlers, listSessionsData, getSessionMessagesData, getAccountInfoData, listFilesData, startSessionWatcher } from './sessions'
 import { resolvePermission, resolveQuestion, updateSettings, approveToolForSession, type MessageOrigin } from './permissions'
+import { getSelectedProvider, setSelectedProvider } from './runtime/provider-config'
 import { EventBroadcaster } from './event-broadcaster'
 import { RelayClient } from './relay-client'
 import { createDocsManager, type DocsManager } from './docs/manager'
@@ -219,6 +220,20 @@ relayClient.onMessage(async (msg) => {
           case 'get_agent_state':
             data = broadcaster.getState(params?.sessionId as string | undefined)
             break
+          case 'get_provider':
+            data = { provider: await getSelectedProvider() }
+            break
+          case 'set_provider': {
+            const provider = params?.provider as 'claude' | 'codex'
+            if (provider !== 'claude' && provider !== 'codex') {
+              data = { error: 'Invalid provider' }
+            } else {
+              const selected = await setSelectedProvider(provider)
+              broadcaster.send('sessions:refresh-hint')
+              data = { provider: selected }
+            }
+            break
+          }
           case 'add_doc_source': {
             const mgr = ensureDocsManager()
             const crawlDepth = params?.crawlDepth ? Math.min(params.crawlDepth as number, 10) : undefined
@@ -297,7 +312,7 @@ app.whenReady().then(() => {
 
   if (process.platform === 'darwin') {
     const icon = nativeImage.createFromPath(path.join(__dirname, '../../build/icon.png'))
-    app.dock.setIcon(icon)
+    app.dock?.setIcon(icon)
   }
 
   if (process.platform === 'darwin') {

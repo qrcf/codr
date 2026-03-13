@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useUser } from '@clerk/clerk-react'
 import { RefreshCw, ChevronUp, ChevronDown, X, Settings, Archive, ArchiveRestore } from 'lucide-react'
 import { timeAgo } from '../utils/timeAgo'
 import { parseSessionMessages, extractTokenUsageFromRaw } from '../utils/sessionParser'
@@ -52,10 +53,15 @@ export function Sidebar({
   onArchiveSession,
   onUnarchiveSession,
 }: SidebarProps) {
+  const { user } = useUser()
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [sessionsLoaded, setSessionsLoaded] = useState(false)
   const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(null)
   const [accountError, setAccountError] = useState<string | null>(null)
+  const [providerStatus, setProviderStatus] = useState<{
+    claude: { installed: boolean; loggedIn: boolean; detail?: string }
+    codex: { installed: boolean; loggedIn: boolean; detail?: string }
+  } | null>(null)
   const [loadingSession, setLoadingSession] = useState<string | null>(null)
   const [selectedFolder, setSelectedFolder] = useState<string | null>(() => {
     return localStorage.getItem('selected-folder') || null
@@ -148,7 +154,8 @@ export function Sidebar({
       // Backfill title for first untitled session — only after DB titles are confirmed loaded
       if (result.titlesLoaded) {
         const untitled = list.find(
-          s => !s.generatedTitle
+          s => s.provider !== 'codex'
+            && !s.generatedTitle
             && !s.customTitle
             && !pendingTitleRequestsRef.current.has(s.sessionId),
         )
@@ -222,6 +229,13 @@ export function Sidebar({
       if (retryTimer) clearTimeout(retryTimer)
       unsubAccountInfo?.()
     }
+  }, [])
+
+  // Fetch independent provider status for both Claude and Codex
+  useEffect(() => {
+    window.claude.getProviderStatus?.().then((status) => {
+      if (status) setProviderStatus(status)
+    }).catch(() => {})
   }, [])
 
   // Push active session info up to parent
@@ -457,10 +471,13 @@ export function Sidebar({
                       const title = status === 'question' ? 'Waiting for answer' : status === 'plan-review' ? 'Review plan' : 'Needs approval'
                       return <span className={`session-status-pill session-status-${status}`} title={title}>{label}</span>
                     })()}
-                    {session.customTitle || session.generatedTitle || (isDraft ? 'New Chat' : <span className="session-title-loading" />)}
+                    {session.customTitle || session.generatedTitle || session.summary || (isDraft ? 'New Chat' : <span className="session-title-loading" />)}
                   </div>
                   <div className="session-meta">
                     <span>{timeAgo(session.lastModified)}</span>
+                    {session.provider && (
+                      <span className="git-branch-badge">{session.provider === 'claude' ? 'Claude' : 'Codex'}</span>
+                    )}
                     {session.cwd && !selectedFolder && (
                       <span className="project-name">{displayName(session.cwd)}</span>
                     )}
@@ -498,22 +515,38 @@ export function Sidebar({
         <RemotePanel />
 
         <div className="auth-row">
+          {user?.imageUrl && (
+            <img
+              className="auth-avatar"
+              src={user.imageUrl}
+              alt={user.fullName || 'User avatar'}
+              referrerPolicy="no-referrer"
+            />
+          )}
           <div className="auth-info">
-            {accountInfo ? (
-              <>
-                {accountInfo.email && <div className="auth-email">{accountInfo.email}</div>}
-                <div className="auth-badges">
-                  {accountInfo.subscriptionType && (
-                    <span className="auth-badge">{accountInfo.subscriptionType}</span>
-                  )}
-                  {accountInfo.apiKeySource && (
-                    <span className="auth-badge">{accountInfo.apiKeySource}</span>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="auth-status-unknown" title={accountError || undefined}>
-                {accountError ? 'Auth failed' : 'Checking auth...'}
+            <div className="auth-name">
+              {user?.fullName || user?.primaryEmailAddress?.emailAddress || (
+                <span className="auth-status-unknown" title={accountError || undefined}>
+                  {accountError ? 'Auth failed' : 'Checking auth...'}
+                </span>
+              )}
+            </div>
+            {providerStatus && (
+              <div className="auth-badges">
+                {providerStatus.claude.installed && (
+                  <span className={`auth-badge auth-badge-claude${providerStatus.claude.loggedIn ? ' auth-badge-active' : ''}`}>
+                    {providerStatus.claude.loggedIn
+                      ? (providerStatus.claude.detail || 'Claude')
+                      : 'Claude'}
+                  </span>
+                )}
+                {providerStatus.codex.installed && (
+                  <span className={`auth-badge auth-badge-codex${providerStatus.codex.loggedIn ? ' auth-badge-active' : ''}`}>
+                    {providerStatus.codex.loggedIn
+                      ? (providerStatus.codex.detail && providerStatus.codex.detail !== 'Ready' ? `Codex · ${providerStatus.codex.detail}` : 'Codex')
+                      : 'Codex'}
+                  </span>
+                )}
               </div>
             )}
           </div>

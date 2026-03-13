@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useClerk } from '@clerk/clerk-react'
+import { useClerk, useUser } from '@clerk/clerk-react'
 import { RefreshCw, Trash2, Loader2, BookOpen, Plus, ExternalLink, Square, ChevronDown, ChevronRight } from 'lucide-react'
 import './SettingsPanel.css'
 
@@ -59,13 +59,20 @@ type Tab = 'general' | 'docs' | 'lab'
 
 export function SettingsPanel({ onClose, docsAPI, onAddDocSource, onRecrawlDocSource }: SettingsPanelProps) {
   const { signOut } = useClerk()
+  const { user } = useUser()
   const [activeTab, setActiveTab] = useState<Tab>('general')
   const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(null)
+  const [providerStatus, setProviderStatus] = useState<{
+    claude: { installed: boolean; loggedIn: boolean; detail?: string }
+    codex: { installed: boolean; loggedIn: boolean; detail?: string }
+  } | null>(null)
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [sessionsLoading, setSessionsLoading] = useState(false)
   const [selectedSession, setSelectedSession] = useState<string | null>(null)
   const [sessionDetail, setSessionDetail] = useState<string | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
+  const [provider, setProvider] = useState<'claude' | 'codex'>('claude')
+  const [providerBusy, setProviderBusy] = useState(false)
 
   // Docs tab state
   const [docUrl, setDocUrl] = useState('')
@@ -126,6 +133,23 @@ export function SettingsPanel({ onClose, docsAPI, onAddDocSource, onRecrawlDocSo
     }
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+    window.claude.getProvider?.().then((p) => {
+      if (!cancelled && (p === 'claude' || p === 'codex')) {
+        setProvider(p)
+      }
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  // Fetch independent provider status for both Claude and Codex
+  useEffect(() => {
+    window.claude.getProviderStatus?.().then((status) => {
+      if (status) setProviderStatus(status)
+    }).catch(() => {})
+  }, [])
+
   // Listen for crawl progress updates
   useEffect(() => {
     if (!docsAPI) return
@@ -183,6 +207,20 @@ export function SettingsPanel({ onClose, docsAPI, onAddDocSource, onRecrawlDocSo
       setSessionDetail(JSON.stringify({ error: String(err) }, null, 2))
     } finally {
       setDetailLoading(false)
+    }
+  }
+
+  const handleProviderChange = async (next: 'claude' | 'codex') => {
+    if (next === provider || providerBusy) return
+    if (!window.claude.setProvider) return
+    setProviderBusy(true)
+    try {
+      const result = await window.claude.setProvider(next)
+      if (!result?.error) {
+        setProvider(next)
+      }
+    } finally {
+      setProviderBusy(false)
     }
   }
 
@@ -297,29 +335,76 @@ export function SettingsPanel({ onClose, docsAPI, onAddDocSource, onRecrawlDocSo
             <section className="settings-section">
               <h3 className="settings-section-title">Account</h3>
               <div className="settings-account-card">
-                {accountInfo ? (
-                  <>
-                    <div className="settings-account-details">
-                      {accountInfo.email && <div className="settings-account-email">{accountInfo.email}</div>}
+                <div className="settings-account-identity">
+                  {user?.imageUrl && (
+                    <img
+                      className="settings-account-avatar"
+                      src={user.imageUrl}
+                      alt={user.fullName || 'User avatar'}
+                      referrerPolicy="no-referrer"
+                    />
+                  )}
+                  <div className="settings-account-info">
+                    {user?.fullName && (
+                      <div className="settings-account-name">{user.fullName}</div>
+                    )}
+                    <div className="settings-account-email">
+                      {user?.primaryEmailAddress?.emailAddress || (accountInfo?.email ?? 'Loading...')}
+                    </div>
+                    {providerStatus && (
                       <div className="settings-account-badges">
-                        {accountInfo.subscriptionType && (
-                          <span className="settings-account-badge">{accountInfo.subscriptionType}</span>
+                        {providerStatus.claude.installed && (
+                          <span className={`settings-account-badge settings-badge-claude${providerStatus.claude.loggedIn ? ' settings-badge-active' : ''}`}>
+                            {providerStatus.claude.loggedIn
+                              ? (providerStatus.claude.detail || 'Claude')
+                              : 'Claude · not logged in'}
+                          </span>
                         )}
-                        {accountInfo.apiKeySource && (
-                          <span className="settings-account-badge">{accountInfo.apiKeySource}</span>
+                        {providerStatus.codex.installed && (
+                          <span className={`settings-account-badge settings-badge-codex${providerStatus.codex.loggedIn ? ' settings-badge-active' : ''}`}>
+                            {providerStatus.codex.loggedIn
+                              ? (providerStatus.codex.detail && providerStatus.codex.detail !== 'Ready' ? `Codex · ${providerStatus.codex.detail}` : 'Codex')
+                              : 'Codex · not logged in'}
+                          </span>
                         )}
                       </div>
-                    </div>
-                    <button className="btn-sign-out-settings" onClick={() => {
-                      window.claude.disconnectRemote?.()
-                      signOut()
-                    }}>
-                      Sign out
-                    </button>
-                  </>
-                ) : (
-                  <div className="settings-account-loading">Loading account info...</div>
-                )}
+                    )}
+                  </div>
+                </div>  {/* settings-account-identity */}
+                <button className="btn-sign-out-settings" onClick={() => {
+                  window.claude.disconnectRemote?.()
+                  signOut()
+                }}>
+                  Sign out
+                </button>
+              </div>
+            </section>
+
+            <section className="settings-section">
+              <h3 className="settings-section-title">Agent Provider</h3>
+              <div className="settings-account-card">
+                <div className="settings-account-details">
+                  <div className="settings-account-email">Select runtime provider</div>
+                  <div className="settings-account-badges">
+                    <span className="settings-account-badge">Current: {provider}</span>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    className="btn-lab-action"
+                    onClick={() => handleProviderChange('claude')}
+                    disabled={providerBusy || provider === 'claude'}
+                  >
+                    Claude
+                  </button>
+                  <button
+                    className="btn-lab-action"
+                    onClick={() => handleProviderChange('codex')}
+                    disabled={providerBusy || provider === 'codex'}
+                  >
+                    Codex
+                  </button>
+                </div>
               </div>
             </section>
           </div>
@@ -538,6 +623,7 @@ export function SettingsPanel({ onClose, docsAPI, onAddDocSource, onRecrawlDocSo
                         </div>
                         <div className="lab-session-meta">
                           <span>{s.sessionId.slice(0, 8)}</span>
+                          {s.provider && <span>{s.provider}</span>}
                           {s.cwd && <span>{s.cwd.split('/').pop()}</span>}
                           <span>{new Date(s.lastModified).toLocaleDateString()}</span>
                         </div>

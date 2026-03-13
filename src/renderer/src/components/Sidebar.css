@@ -466,18 +466,57 @@
   background: #2a2a3a;
 }
 
+.auth-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid #333;
+}
+
+.auth-name {
+  color: #ccc;
+  font-size: 0.85em;
+  margin-bottom: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .auth-badges {
   display: flex;
   gap: 4px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow: hidden;
 }
 
 .auth-badge {
   background: #2a2a3d;
-  color: #aaa;
+  color: #888;
   padding: 1px 6px;
   border-radius: 3px;
-  font-size: 0.85em;
+  font-size: 0.78em;
+}
+
+.auth-badge-claude {
+  background: #2a2835;
+  color: #9a7fc0;
+}
+
+.auth-badge-claude.auth-badge-active {
+  background: #2d1f3d;
+  color: #b89de0;
+}
+
+.auth-badge-codex {
+  background: #1e2a2a;
+  color: #6aab9c;
+}
+
+.auth-badge-codex.auth-badge-active {
+  background: #192d28;
+  color: #7ecfbd;
 }
 
 .auth-status-unknown {

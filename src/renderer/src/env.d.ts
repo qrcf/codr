@@ -10,8 +10,10 @@ interface ImportMeta {
   readonly env: ImportMetaEnv
 }
 
-// Protocol/API types — sourced from @codr-works/types
-type SessionInfo = import('@codr-works/types').SessionInfo
+// Protocol/API types — sourced from @codr-works/types plus local provider metadata
+type SessionInfo = import('@codr-works/types').SessionInfo & {
+  provider?: 'claude' | 'codex'
+}
 type AccountInfo = import('@codr-works/types').AccountInfo
 type PermissionRequest = import('@codr-works/types').PermissionRequest
 type QuestionOption = import('@codr-works/types').QuestionOption
@@ -69,8 +71,10 @@ interface RawSessionMessage {
 }
 
 interface ClaudeAPI {
-  query: (prompt: string, options?: { resumeSessionId?: string; planMode?: boolean; cwd?: string }) => Promise<void>
+  query: (prompt: string, options?: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; cwd?: string }) => Promise<void>
   interrupt: (sessionId?: string) => Promise<void>
+  getProvider?: () => Promise<'claude' | 'codex'>
+  setProvider?: (provider: 'claude' | 'codex') => Promise<{ provider?: 'claude' | 'codex'; error?: string }>
   getAgentState?: (sessionId?: string) => Promise<{
     isLoading: boolean
     streamingText: string
@@ -122,6 +126,12 @@ interface ClaudeAPI {
   // CLI status check (desktop only)
   checkCliStatus?: () => Promise<CliStatus>
 
+  // Provider status — independent check for both Claude and Codex (desktop only)
+  getProviderStatus?: () => Promise<{
+    claude: { installed: boolean; loggedIn: boolean; detail?: string }
+    codex: { installed: boolean; loggedIn: boolean; detail?: string }
+  }>
+
   // Docs feature
   addDocSource?: (source: { url: string; name: string; crawlDepth?: number; prefix?: string }) => Promise<DocSource | { error: string }>
   removeDocSource?: (sourceId: number) => Promise<{ ok?: boolean; error?: string }>
@@ -139,4 +149,5 @@ type CliStatus =
 
 interface Window {
   claude: ClaudeAPI
+  agent?: ClaudeAPI
 }

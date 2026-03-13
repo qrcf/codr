@@ -1,12 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-contextBridge.exposeInMainWorld('claude', {
+const agentApi = {
   isElectron: true,
 
   query: (prompt: string, opts?: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean }) =>
     ipcRenderer.invoke('agent:query', prompt, opts),
   interrupt: (sessionId?: string) => ipcRenderer.invoke('agent:interrupt', sessionId),
   getAgentState: (sessionId?: string) => ipcRenderer.invoke('agent:get-state', sessionId),
+  getProvider: () => ipcRenderer.invoke('agent:get-provider') as Promise<'claude' | 'codex'>,
+  setProvider: (provider: 'claude' | 'codex') => ipcRenderer.invoke('agent:set-provider', provider) as Promise<{ provider?: 'claude' | 'codex'; error?: string }>,
 
   onMessage: (callback: (message: unknown, querySessionId?: string | null) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, message: unknown, qsid?: string | null) => callback(message, qsid ?? null)
@@ -142,6 +144,12 @@ contextBridge.exposeInMainWorld('claude', {
   // CLI status check
   checkCliStatus: () => ipcRenderer.invoke('cli:check-status'),
 
+  // Provider status (independent check for both Claude and Codex)
+  getProviderStatus: () => ipcRenderer.invoke('providers:get-status') as Promise<{
+    claude: { installed: boolean; loggedIn: boolean; detail?: string }
+    codex: { installed: boolean; loggedIn: boolean; detail?: string }
+  }>,
+
   // Docs feature
   addDocSource: (source: { url: string; name: string; crawlDepth?: number; prefix?: string }) =>
     ipcRenderer.invoke('docs:add-source', source),
@@ -156,4 +164,7 @@ contextBridge.exposeInMainWorld('claude', {
     ipcRenderer.on('docs:crawl-progress', listener)
     return () => { ipcRenderer.removeListener('docs:crawl-progress', listener) }
   },
-})
+}
+
+contextBridge.exposeInMainWorld('claude', agentApi)
+contextBridge.exposeInMainWorld('agent', agentApi)

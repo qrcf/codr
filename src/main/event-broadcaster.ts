@@ -193,6 +193,8 @@ export class EventBroadcaster {
                     planFilePath: lastPlanWrite.filePath,
                     planContent: lastPlanWrite.content,
                     allowedPrompts: block.input?.allowedPrompts as Array<{ tool: string; prompt: string }> | undefined,
+                    provider: 'claude',
+                    sourceSessionId: querySessionId,
                   }
                 }
               }

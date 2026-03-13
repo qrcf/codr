@@ -20,9 +20,10 @@
     "deploy": "tsx scripts/deploy.ts"
   },
   "dependencies": {
-    "@codr-works/types": "^0.1.0",
     "@anthropic-ai/claude-agent-sdk": "^0.2.72",
     "@clerk/clerk-react": "^5.61.3",
+    "@codr-works/types": "^0.1.0",
+    "@openai/codex-sdk": "^0.114.0",
     "cheerio": "^1.2.0",
     "diff": "^8.0.3",
     "fix-path": "^5.0.0",

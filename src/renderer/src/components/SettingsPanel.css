@@ -91,16 +91,52 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   background: #1a1a2a;
   border: 1px solid #2a2a3a;
   border-radius: 8px;
   padding: 16px;
 }
 
-.settings-account-email {
+.settings-account-identity {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-account-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid #333;
+}
+
+.settings-account-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-account-name {
   color: #e0e0e0;
   font-size: 15px;
-  margin-bottom: 4px;
+  font-weight: 500;
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-account-email {
+  color: #999;
+  font-size: 13px;
+  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .settings-account-badges {
@@ -111,10 +147,30 @@
 
 .settings-account-badge {
   background: #2a2a3d;
-  color: #aaa;
+  color: #888;
   padding: 2px 8px;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 11px;
+}
+
+.settings-badge-claude {
+  background: #2a2835;
+  color: #9a7fc0;
+}
+
+.settings-badge-claude.settings-badge-active {
+  background: #2d1f3d;
+  color: #b89de0;
+}
+
+.settings-badge-codex {
+  background: #1e2a2a;
+  color: #6aab9c;
+}
+
+.settings-badge-codex.settings-badge-active {
+  background: #192d28;
+  color: #7ecfbd;
 }
 
 .settings-account-loading {

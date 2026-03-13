@@ -25,9 +25,9 @@ if (!CLERK_PUBLISHABLE_KEY) {
   throw new Error('VITE_CLERK_PUBLISHABLE_KEY is required')
 }
 
-// No-op stub so window.claude is never undefined when shared components mount.
+// No-op stub so window.agent/window.claude are never undefined when shared components mount.
 // The real WebSocket-backed implementation replaces this in ConnectedApp's useEffect.
-function createStubClaudeAPI() {
+function createStubAgentAPI() {
   const noopUnsub = () => () => {}
   return {
     query: async () => {},
@@ -66,7 +66,9 @@ const isElectron = !!(window as any).claude?.isElectron
 
 // Only install the stub if the preload script hasn't already provided window.claude
 if (!isElectron) {
-  ;(window as unknown as { claude: ReturnType<typeof createStubClaudeAPI> }).claude = createStubClaudeAPI()
+  const stub = createStubAgentAPI()
+  ;(window as unknown as { claude: ReturnType<typeof createStubAgentAPI>; agent: ReturnType<typeof createStubAgentAPI> }).claude = stub
+  ;(window as unknown as { claude: ReturnType<typeof createStubAgentAPI>; agent: ReturnType<typeof createStubAgentAPI> }).agent = stub
 }
 
 function ConnectedApp() {
@@ -92,8 +94,9 @@ function ConnectedApp() {
     const api = createWebSocketClaudeAPI(RELAY_URL, getClerkToken)
     apiRef.current = api
 
-    // Assign to window.claude so the shared App component can use it
-    ;(window as unknown as { claude: typeof api }).claude = api
+    // Keep both names during migration.
+    ;(window as unknown as { claude: typeof api; agent: typeof api }).claude = api
+    ;(window as unknown as { claude: typeof api; agent: typeof api }).agent = api
 
     const unsubDesktop = api.onDesktopStatus((online) => setDesktopOnline(online))
     const unsubVersion = api.onDesktopVersion((version) => setDesktopVersion(version))
@@ -104,7 +107,9 @@ function ConnectedApp() {
       unsubDesktop()
       unsubVersion()
       api.disconnect()
-      ;(window as unknown as { claude: ReturnType<typeof createStubClaudeAPI> }).claude = createStubClaudeAPI()
+      const stub = createStubAgentAPI()
+      ;(window as unknown as { claude: ReturnType<typeof createStubAgentAPI>; agent: ReturnType<typeof createStubAgentAPI> }).claude = stub
+      ;(window as unknown as { claude: ReturnType<typeof createStubAgentAPI>; agent: ReturnType<typeof createStubAgentAPI> }).agent = stub
     }
   }, [getClerkToken])
 

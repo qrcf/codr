@@ -15,8 +15,8 @@ importers:
         specifier: ^5.61.3
         version: 5.61.3(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@codr-works/types':
-        specifier: ^0.1.0
-        version: 0.1.1
+        specifier: ^0.1.2
+        version: 0.1.2
       '@openai/codex-sdk':
         specifier: ^0.114.0
         version: 0.114.0
@@ -262,6 +262,9 @@ packages:
 
   '@codr-works/types@0.1.1':
     resolution: {integrity: sha512-4E6QHB1tdpb2IPoCASJSV5r7/Ey6Yj8PSbn5/ndahx/QWZjMaCD1MRRa3slnIMNsEb87MbgDlyohrvkx69MLww==}
+
+  '@codr-works/types@0.1.2':
+    resolution: {integrity: sha512-g/elLDJiHvhnxkc4Pv1uz/GeZP7uLEitbZU4YWiSps63+JV6QwrQqpGRj3vKWO6gYo+z7aTMXP56xOlOqidUNA==}
 
   '@develar/schema-utils@2.6.5':
     resolution: {integrity: sha512-0cp4PsWQ/9avqTVMCtZ+GirikIA36ikvjtHweU4/j8yLtgObI0+JUPhYFScgwlteveGB1rt3Cm8UhN04XayDig==}
@@ -3324,6 +3327,8 @@ snapshots:
       react-dom: 19.2.4(react@19.2.4)
 
   '@codr-works/types@0.1.1': {}
+
+  '@codr-works/types@0.1.2': {}
 
   '@develar/schema-utils@2.6.5':
     dependencies:

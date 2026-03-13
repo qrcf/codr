@@ -11,8 +11,9 @@ export default defineConfig(({ mode }) => {
   return {
     main: {
       define: {
-        __WEB_URL__: JSON.stringify(env.VITE_WEB_URL || ''),
+        __WEB_URL__: JSON.stringify(''),  // Always load bundled renderer locally
         __API_URL__: JSON.stringify(env.VITE_API_URL || ''),
+        __RELAY_URL__: JSON.stringify(env.VITE_RELAY_URL || ''),
       },
     },
     preload: {},

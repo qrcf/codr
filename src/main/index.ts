@@ -1,10 +1,11 @@
 declare const __WEB_URL__: string
 declare const __API_URL__: string
+declare const __RELAY_URL__: string
 
 import fixPath from 'fix-path'
 import path from 'node:path'
-import { readFile, writeFile, stat } from 'node:fs/promises'
-import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, shell } from 'electron'
+import { readFile, writeFile, stat, unlink } from 'node:fs/promises'
+import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, safeStorage, shell } from 'electron'
 
 // macOS GUI apps get a minimal PATH (/usr/bin:/bin). Restore the user's full
 // shell PATH so the Claude Agent SDK can find the `claude` CLI binary.
@@ -51,6 +52,41 @@ if (!gotTheLock) {
   app.quit()
 }
 
+// --- Token storage (safeStorage + file on disk) ---
+const TOKEN_PATH = path.join(app.getPath('userData'), 'auth-token')
+
+async function loadStoredToken(): Promise<string | null> {
+  try {
+    const data = await readFile(TOKEN_PATH)
+    if (safeStorage.isEncryptionAvailable()) {
+      return safeStorage.decryptString(data)
+    }
+    // Fallback: stored as plain text
+    return data.toString('utf-8')
+  } catch {
+    return null
+  }
+}
+
+async function storeToken(token: string): Promise<void> {
+  if (safeStorage.isEncryptionAvailable()) {
+    const encrypted = safeStorage.encryptString(token)
+    await writeFile(TOKEN_PATH, encrypted)
+  } else {
+    await writeFile(TOKEN_PATH, token, 'utf-8')
+  }
+}
+
+async function clearStoredToken(): Promise<void> {
+  try { await unlink(TOKEN_PATH) } catch { /* ignore */ }
+}
+
+async function getAuthToken(): Promise<string> {
+  const token = await loadStoredToken()
+  if (!token) throw new Error('No auth token')
+  return token
+}
+
 // Store deep link URL if received before window is ready
 let pendingDeepLink: string | null = null
 
@@ -59,10 +95,19 @@ function handleDeepLink(url: string) {
     const parsed = new URL(url)
     if (parsed.protocol === 'codr:' && parsed.hostname === 'auth') {
       const token = parsed.searchParams.get('token')
-      if (token && mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('auth:sign-in-token', token)
-      } else if (token) {
-        pendingDeepLink = url
+      if (token) {
+        storeToken(token).then(() => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('auth:token-stored', token)
+          }
+          // Auto-connect relay with new token
+          if (__RELAY_URL__) {
+            relayClient.connect(__RELAY_URL__, token, app.getVersion())
+          }
+        })
+        if (!mainWindow || mainWindow.isDestroyed()) {
+          pendingDeepLink = url
+        }
       }
     }
   } catch {
@@ -149,30 +194,12 @@ function createWindow() {
   }
 }
 
-// Request a fresh Clerk token from the renderer on demand
-function requestFreshToken(): Promise<string> {
-  return new Promise((resolve) => {
-    const timeout = setTimeout(() => {
-      // Fallback to cached token if renderer doesn't respond
-      resolve(relayClient.getClerkToken())
-    }, 3000)
-
-    ipcMain.once('auth:fresh-token', (_event, token: string) => {
-      clearTimeout(timeout)
-      relayClient.updateClerkToken(token)
-      resolve(token)
-    })
-
-    mainWindow?.webContents.send('auth:need-token')
-  })
-}
-
 // Initialize docs manager (lazy)
 function ensureDocsManager(): DocsManager {
   if (!docsManager) {
     docsManager = createDocsManager({
       apiUrl: relayClient.getApiBaseUrl() || '',
-      getAuthToken: () => requestFreshToken(),
+      getAuthToken: () => getAuthToken(),
       broadcaster,
     })
   }
@@ -232,7 +259,7 @@ relayClient.onMessage(async (msg) => {
       try {
         switch (method) {
           case 'list_sessions':
-            data = await listSessionsData(relayClient, requestFreshToken)
+            data = await listSessionsData(relayClient, getAuthToken)
             break
           case 'get_session_messages':
             data = await getSessionMessagesData(params?.sessionId as string, params?.dir as string | undefined)
@@ -373,7 +400,7 @@ app.whenReady().then(() => {
     const pendingVersion = getUpdateState()
     const updateMenuItem: Electron.MenuItemConstructorOptions = pendingVersion
       ? { label: `Restart to Update (v${pendingVersion})`, click: () => quitAndInstall() }
-      : { label: 'Check for Update...', click: () => checkForUpdates() }
+      : { label: 'Check for Update...', click: () => checkForUpdates(true) }
 
     const template: Electron.MenuItemConstructorOptions[] = [
       {
@@ -400,8 +427,8 @@ app.whenReady().then(() => {
 
   buildAppMenu()
 
-  agentHandlers = registerAgentHandlers(() => mainWindow, broadcaster, relayClient, requestFreshToken)
-  registerSessionHandlers(relayClient, broadcaster, requestFreshToken)
+  agentHandlers = registerAgentHandlers(() => mainWindow, broadcaster, relayClient, getAuthToken)
+  registerSessionHandlers(relayClient, broadcaster, getAuthToken)
   sessionWatcherInterval = startSessionWatcher(broadcaster)
 
   // Expose current agent state (isLoading, streaming content) to renderer
@@ -430,8 +457,11 @@ app.whenReady().then(() => {
   })
 
   // Remote access IPC handlers
-  ipcMain.handle('remote:connect', async (_event, relayUrl: string, clerkToken: string) => {
-    relayClient.connect(relayUrl, clerkToken, app.getVersion())
+  ipcMain.handle('remote:connect', async () => {
+    const token = await loadStoredToken()
+    if (token && __RELAY_URL__) {
+      relayClient.connect(__RELAY_URL__, token, app.getVersion())
+    }
   })
 
   ipcMain.handle('remote:disconnect', async () => {
@@ -445,6 +475,30 @@ app.whenReady().then(() => {
   // Auth: open web client in system browser for OAuth
   ipcMain.handle('auth:open-browser', async (_event, url: string) => {
     shell.openExternal(url)
+  })
+
+  // Auth: get stored token
+  ipcMain.handle('auth:get-token', async () => loadStoredToken())
+
+  // Auth: sign out (clear token + disconnect relay)
+  ipcMain.handle('auth:sign-out', async () => {
+    await clearStoredToken()
+    relayClient.disconnect()
+  })
+
+  // User profile from Clerk (via API)
+  ipcMain.handle('user:get-profile', async () => {
+    const token = await loadStoredToken()
+    if (!token || !__API_URL__) return null
+    try {
+      const res = await fetch(`${__API_URL__}/api/profile`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) return null
+      return await res.json()
+    } catch {
+      return null
+    }
   })
 
   // Project CLAUDE.md reader/writer
@@ -552,6 +606,16 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+
+  // Auto-connect relay if we have a stored token
+  loadStoredToken().then((token) => {
+    if (token && __RELAY_URL__) {
+      relayClient.connect(__RELAY_URL__, token, app.getVersion())
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('auth:token-stored', token)
+      }
+    }
+  })
 
   // Auto-updater (packaged builds only)
   if (app.isPackaged) {

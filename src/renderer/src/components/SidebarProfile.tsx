@@ -1,37 +1,40 @@
-import { useUser } from '@clerk/clerk-react'
 import { Settings } from 'lucide-react'
 import { RemotePanel } from './RemotePanel'
 
 interface SidebarProfileProps {
-  user: ReturnType<typeof useUser>['user']
+  accountInfo: AccountInfo | null
   accountError: string | null
   onOpenSettings?: () => void
+  userProfile?: { email: string | null; fullName: string | null; imageUrl: string | null } | null
 }
 
-export function SidebarProfile({ user, accountError, onOpenSettings }: SidebarProfileProps) {
+export function SidebarProfile({ accountInfo, accountError, onOpenSettings, userProfile }: SidebarProfileProps) {
+  const displayEmail = userProfile?.email || accountInfo?.email
+  const displayName = userProfile?.fullName
+
   return (
     <div className="flex items-center gap-2.5">
-      {user?.imageUrl && (
+      {userProfile?.imageUrl && (
         <img
-          className="w-[32px] h-[32px] rounded-full object-cover shrink-0 border border-[#333]"
-          src={user.imageUrl}
-          alt={user.fullName || 'User avatar'}
+          className="w-7 h-7 rounded-full object-cover shrink-0 border border-[#333]"
+          src={userProfile.imageUrl}
+          alt={displayName || 'User avatar'}
           referrerPolicy="no-referrer"
         />
       )}
       <div className="flex-1 min-w-0">
-        <div className="text-[#ddd] text-[0.9em] font-medium overflow-hidden text-ellipsis whitespace-nowrap leading-tight">
-          {user?.fullName || (
+        {displayName && (
+          <div className="text-[#ddd] text-[0.9em] font-medium overflow-hidden text-ellipsis whitespace-nowrap leading-tight">
+            {displayName}
+          </div>
+        )}
+        <div className={`text-[#999] text-[0.8em] overflow-hidden text-ellipsis whitespace-nowrap ${displayName ? '' : 'text-[0.9em] text-[#ddd] font-medium leading-tight'}`}>
+          {displayEmail || (
             <span className="text-[#666] italic" title={accountError || undefined}>
               {accountError ? 'Auth failed' : 'Checking auth...'}
             </span>
           )}
         </div>
-        {user?.primaryEmailAddress?.emailAddress && (
-          <div className="text-[#666] text-[0.75em] overflow-hidden text-ellipsis whitespace-nowrap leading-tight mt-[1px]">
-            {user.primaryEmailAddress.emailAddress}
-          </div>
-        )}
         <div className="mt-[3px]">
           <RemotePanel />
         </div>

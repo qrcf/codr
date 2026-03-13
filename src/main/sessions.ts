@@ -96,7 +96,7 @@ export async function listSessionsData(relayClient?: RelayClient, getAuthToken?:
     baseUrl
       ? (async () => {
           try {
-            const token = getAuthToken ? await getAuthToken() : relayClient!.getClerkToken()
+            const token = getAuthToken ? await getAuthToken() : relayClient!.getAuthToken()
             const resp = await fetch(`${baseUrl}/api/sessions`, {
               headers: { Authorization: `Bearer ${token}` },
             })
@@ -248,7 +248,7 @@ async function storeSessionMetadataUnlocked(
   }
 
   try {
-    const token = getAuthToken ? await getAuthToken() : relayClient.getClerkToken()
+    const token = getAuthToken ? await getAuthToken() : relayClient.getAuthToken()
     const payload: { firstPrompt: string; name?: string } = { firstPrompt: prompt.slice(0, 500) }
     if (title) payload.name = title
     await fetch(`${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}`, {
@@ -509,7 +509,7 @@ export async function ensureSessionTitle(
 
   // Check DB before generating — title may exist but not be cached yet
   try {
-    const token = getAuthToken ? await getAuthToken() : relayClient.getClerkToken()
+    const token = getAuthToken ? await getAuthToken() : relayClient.getAuthToken()
     const resp = await fetch(`${baseUrl}/api/sessions`, {
       headers: { Authorization: `Bearer ${token}` },
     })

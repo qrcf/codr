@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { useUser } from '@clerk/clerk-react'
 import { RefreshCw, ChevronRight, ChevronDown, X, Settings, Archive, ArchiveRestore, Sparkles, Terminal, Search, MoreVertical, Plus, FolderOpen, EyeOff, GitBranch } from 'lucide-react'
 import { timeAgo } from '../utils/timeAgo'
 import { parseSessionMessages, extractTokenUsageFromRaw, extractModelFromRaw } from '../utils/sessionParser'
@@ -26,6 +25,7 @@ interface SidebarProps {
   onToggleShowArchived?: () => void
   onArchiveSession?: (id: string) => void
   onUnarchiveSession?: (id: string) => void
+  userProfile?: { email: string | null; fullName: string | null; imageUrl: string | null } | null
 }
 
 function folderName(path: string): string {
@@ -49,11 +49,11 @@ export function Sidebar({
   onToggleShowArchived,
   onArchiveSession,
   onUnarchiveSession,
+  userProfile,
 }: SidebarProps) {
-  const { user } = useUser()
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [sessionsLoaded, setSessionsLoaded] = useState(false)
-  const [, setAccountInfo] = useState<AccountInfo | null>(null)
+  const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(null)
   const [accountError, setAccountError] = useState<string | null>(null)
   const [loadingSession, setLoadingSession] = useState<string | null>(null)
   const [projects, setProjects] = useState<string[]>(() => {
@@ -764,7 +764,7 @@ export function Sidebar({
 
         {/* Footer */}
         <div className="p-3 border-t border-[#2a2a3a] text-[0.85em] max-[768px]:p-4 max-[768px]:pb-[max(16px,env(safe-area-inset-bottom))]">
-          <SidebarProfile user={user} accountError={accountError} onOpenSettings={onOpenSettings} />
+          <SidebarProfile accountInfo={accountInfo} accountError={accountError} onOpenSettings={onOpenSettings} userProfile={userProfile} />
         </div>
       </div>
     </>

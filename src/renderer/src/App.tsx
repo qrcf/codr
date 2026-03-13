@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useAuth } from '@clerk/clerk-react'
 import { Sidebar } from './components/Sidebar'
 import { SettingsPanel } from './components/SettingsPanel'
 import { ManageProjectPanel } from './components/ManageProjectPanel'
@@ -18,15 +17,22 @@ import { useDraftSessions } from './hooks/useDraftSessions'
 import { useArchivedSessions } from './hooks/useArchivedSessions'
 
 export default function App() {
-  const { getToken } = useAuth()
-  const stableGetToken = useCallback(() => getToken(), [getToken])
+  const stableGetToken = useCallback(async () => {
+    return window.claude.getAuthToken?.() ?? null
+  }, [])
   const docsAPI = useDocsAPI(stableGetToken)
 
-  // Register token provider so main process can request fresh Clerk tokens on demand
+  // User profile (from Clerk via API, cached at app level)
+  const [userProfile, setUserProfile] = useState<{
+    email: string | null
+    fullName: string | null
+    imageUrl: string | null
+  } | null>(null)
   useEffect(() => {
-    const cleanup = window.claude.registerTokenProvider?.(stableGetToken)
-    return cleanup
-  }, [stableGetToken])
+    window.claude.getUserProfile?.().then((p) => {
+      if (p) setUserProfile(p)
+    }).catch(() => {})
+  }, [])
 
   // Auto-updater
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
@@ -414,6 +420,7 @@ export default function App() {
         onToggleShowArchived={() => archive.setShowArchived(!archive.showArchived)}
         onArchiveSession={archive.archiveSession}
         onUnarchiveSession={archive.unarchiveSession}
+        userProfile={userProfile}
       />
       {sidebarOpen && <div className="hidden max-[768px]:block fixed inset-0 bg-black/50 z-40" onClick={() => setSidebarOpen(false)} />}
 
@@ -426,6 +433,7 @@ export default function App() {
         <SettingsPanel
           onClose={() => setSettingsOpen(false)}
           docsAPI={docsAPI}
+          userProfile={userProfile}
           onAddDocSource={async (url, name, crawlDepth, prefix) => {
             if (window.claude.addDocSource) {
               const result = await window.claude.addDocSource({ url, name, crawlDepth, prefix })

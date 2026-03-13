@@ -128,8 +128,8 @@ const agentApi = {
     ipcRenderer.invoke('plan:read-file', filePath),
 
   // Remote access
-  connectRemote: (relayUrl: string, clerkToken: string) =>
-    ipcRenderer.invoke('remote:connect', relayUrl, clerkToken),
+  connectRemote: () =>
+    ipcRenderer.invoke('remote:connect'),
   disconnectRemote: () =>
     ipcRenderer.invoke('remote:disconnect'),
   getRemoteStatus: () =>
@@ -140,14 +140,25 @@ const agentApi = {
     return () => { ipcRenderer.removeListener('remote:status-change', listener) }
   },
 
-  // Auth via system browser (deep link OAuth)
-  onAuthToken: (callback: (token: string) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, token: string) => callback(token)
-    ipcRenderer.on('auth:sign-in-token', listener)
-    return () => { ipcRenderer.removeListener('auth:sign-in-token', listener) }
+  // Auth
+  getAuthToken: () => ipcRenderer.invoke('auth:get-token') as Promise<string | null>,
+  signOut: () => ipcRenderer.invoke('auth:sign-out') as Promise<void>,
+  onTokenStored: (callback: () => void) => {
+    const listener = () => callback()
+    ipcRenderer.on('auth:token-stored', listener)
+    return () => { ipcRenderer.removeListener('auth:token-stored', listener) }
   },
   openAuthInBrowser: (webUrl: string) =>
     ipcRenderer.invoke('auth:open-browser', webUrl),
+
+  // User profile (fetched from API via Clerk)
+  getUserProfile: () => ipcRenderer.invoke('user:get-profile') as Promise<{
+    email: string | null
+    firstName: string | null
+    lastName: string | null
+    fullName: string | null
+    imageUrl: string | null
+  } | null>,
 
   // CLI status check
   checkCliStatus: () => ipcRenderer.invoke('cli:check-status'),
@@ -190,15 +201,6 @@ const agentApi = {
     return () => { ipcRenderer.removeListener('updater:status', listener) }
   },
 
-  // Token provider: main process can request a fresh Clerk token on demand
-  registerTokenProvider: (getToken: () => Promise<string | null>) => {
-    const listener = async () => {
-      const token = await getToken()
-      if (token) ipcRenderer.send('auth:fresh-token', token)
-    }
-    ipcRenderer.on('auth:need-token', listener)
-    return () => { ipcRenderer.removeListener('auth:need-token', listener) }
-  },
 }
 
 contextBridge.exposeInMainWorld('claude', agentApi)

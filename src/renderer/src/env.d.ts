@@ -3,7 +3,6 @@
 declare const __APP_VERSION__: string
 
 interface ImportMetaEnv {
-  readonly VITE_CLERK_PUBLISHABLE_KEY: string
   readonly VITE_RELAY_URL?: string
   readonly VITE_WEB_URL?: string
 }
@@ -122,14 +121,25 @@ interface ClaudeAPI {
   onSessionUpdated?: (callback: (data: { sessionId: string }) => void) => () => void
 
   // Remote access (desktop only)
-  connectRemote?: (relayUrl: string, clerkToken: string) => Promise<void>
+  connectRemote?: () => Promise<void>
   disconnectRemote?: () => Promise<void>
   getRemoteStatus?: () => Promise<RemoteStatus | null>
   onRemoteStatusChange?: (callback: (status: RemoteStatus) => void) => () => void
 
-  // Auth via system browser (desktop only)
-  onAuthToken?: (callback: (token: string) => void) => () => void
+  // Auth (desktop only)
+  getAuthToken?: () => Promise<string | null>
+  signOut?: () => Promise<void>
+  onTokenStored?: (callback: () => void) => () => void
   openAuthInBrowser?: (webUrl: string) => Promise<void>
+
+  // User profile (desktop only, from Clerk via API)
+  getUserProfile?: () => Promise<{
+    email: string | null
+    firstName: string | null
+    lastName: string | null
+    fullName: string | null
+    imageUrl: string | null
+  } | null>
 
   // State sync (web only)
   onStateSync?: (callback: (state: StateSyncPayload) => void) => () => void
@@ -158,8 +168,6 @@ interface ClaudeAPI {
   installUpdate?: () => Promise<void>
   onUpdateStatus?: (cb: (status: UpdateStatus) => void) => () => void
 
-  // Token provider (desktop only) — lets main process request fresh Clerk tokens
-  registerTokenProvider?: (getToken: () => Promise<string | null>) => () => void
 }
 
 interface UpdateStatus {

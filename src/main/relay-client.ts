@@ -11,7 +11,7 @@ export class RelayClient {
   private ws: WebSocket | null = null
   private relayUrl: string = ''
   private apiUrl: string = ''
-  private clerkToken: string = ''
+  private authToken: string = ''
   private appVersion: string = ''
   private status: RelayStatus = 'disconnected'
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -52,12 +52,12 @@ export class RelayClient {
     return this.relayUrl
   }
 
-  getClerkToken(): string {
-    return this.clerkToken
+  getAuthToken(): string {
+    return this.authToken
   }
 
-  updateClerkToken(token: string) {
-    this.clerkToken = token
+  updateAuthToken(token: string) {
+    this.authToken = token
   }
 
   setApiUrl(url: string) {
@@ -68,9 +68,9 @@ export class RelayClient {
     return this.apiUrl || null
   }
 
-  connect(relayUrl: string, clerkToken: string, appVersion?: string) {
+  connect(relayUrl: string, authToken: string, appVersion?: string) {
     this.relayUrl = relayUrl
-    this.clerkToken = clerkToken
+    this.authToken = authToken
     this.appVersion = appVersion || ''
     this.shouldReconnect = true
     this.reconnectDelay = 1000
@@ -115,7 +115,7 @@ export class RelayClient {
 
     this.ws.on('open', () => {
       // Authenticate
-      this.send({ type: 'auth', token: this.clerkToken, role: 'desktop', version: this.appVersion })
+      this.send({ type: 'auth', token: this.authToken, role: 'desktop', version: this.appVersion })
     })
 
     this.ws.on('message', (raw) => {

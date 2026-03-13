@@ -1,4 +1,3 @@
-import { useAuth, useSignIn } from '@clerk/clerk-react'
 import { useState, useEffect } from 'react'
 import type { ReactNode } from 'react'
 
@@ -9,30 +8,25 @@ interface AuthGateProps {
 }
 
 export function AuthGate({ children }: AuthGateProps) {
-  const { isSignedIn, isLoaded } = useAuth()
-  const { signIn, setActive, isLoaded: signInLoaded } = useSignIn()
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null) // null = checking
   const [waitingForBrowser, setWaitingForBrowser] = useState(false)
 
-  // Listen for sign-in token from deep link (codr://auth/callback?token=...)
   useEffect(() => {
-    if (!signInLoaded) return
+    // Check for existing stored token
+    window.claude.getAuthToken?.().then((token) => {
+      setAuthenticated(!!token)
+    })
 
-    const cleanup = window.claude.onAuthToken?.(async (token: string) => {
-      try {
-        const result = await signIn!.create({ strategy: 'ticket', ticket: token })
-        if (result.status === 'complete' && result.createdSessionId) {
-          await setActive!({ session: result.createdSessionId })
-        }
-      } catch (err) {
-        console.error('[auth] Ticket sign-in failed:', err)
-        setWaitingForBrowser(false)
-      }
+    // Listen for token stored via deep link
+    const cleanup = window.claude.onTokenStored?.(() => {
+      setAuthenticated(true)
+      setWaitingForBrowser(false)
     })
 
     return () => cleanup?.()
-  }, [signIn, setActive, signInLoaded])
+  }, [])
 
-  if (!isLoaded) {
+  if (authenticated === null) {
     return (
       <div className="flex items-center justify-center h-screen bg-[#0d0d1a]">
         <div className="text-[#666] font-mono text-[14px]">Loading...</div>
@@ -40,7 +34,7 @@ export function AuthGate({ children }: AuthGateProps) {
     )
   }
 
-  if (!isSignedIn) {
+  if (!authenticated) {
     const handleSignIn = () => {
       if (!WEB_URL) {
         console.error('[auth] VITE_WEB_URL not configured')

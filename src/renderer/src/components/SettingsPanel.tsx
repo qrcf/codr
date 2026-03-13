@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { useClerk, useUser } from '@clerk/clerk-react'
 import { Sparkles, Terminal } from 'lucide-react'
 import { DocsPanel } from './DocsPanel'
 import type { DocsAPI } from './DocsPanel'
@@ -8,15 +7,14 @@ import { LabPanel } from './LabPanel'
 interface SettingsPanelProps {
   onClose: () => void
   docsAPI?: DocsAPI
+  userProfile?: { email: string | null; fullName: string | null; imageUrl: string | null } | null
   onAddDocSource?: (url: string, name: string, crawlDepth?: number, prefix?: string) => Promise<void>
   onRecrawlDocSource?: (sourceId: number, url: string, crawlDepth: number, prefix?: string) => Promise<void>
 }
 
 type Tab = 'general' | 'docs' | 'lab'
 
-export function SettingsPanel({ onClose, docsAPI, onAddDocSource, onRecrawlDocSource }: SettingsPanelProps) {
-  const { signOut } = useClerk()
-  const { user } = useUser()
+export function SettingsPanel({ onClose, docsAPI, userProfile, onAddDocSource, onRecrawlDocSource }: SettingsPanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>('general')
   const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(null)
   const [providerStatus, setProviderStatus] = useState<{
@@ -115,20 +113,20 @@ export function SettingsPanel({ onClose, docsAPI, onAddDocSource, onRecrawlDocSo
               <h3 className={sectionTitleClass}>Account</h3>
               <div className="flex items-center justify-between gap-3 bg-[#1a1a2a] border border-[#2a2a3a] rounded-lg p-4 max-[768px]:flex-col max-[768px]:items-start max-[768px]:gap-3">
                 <div className="flex items-start gap-3 flex-1 min-w-0">
-                  {user?.imageUrl && (
+                  {userProfile?.imageUrl && (
                     <img
                       className="w-10 h-10 rounded-full object-cover shrink-0 border border-[#333]"
-                      src={user.imageUrl}
-                      alt={user.fullName || 'User avatar'}
+                      src={userProfile.imageUrl}
+                      alt={userProfile.fullName || 'User avatar'}
                       referrerPolicy="no-referrer"
                     />
                   )}
                   <div className="flex-1 min-w-0">
-                    {user?.fullName && (
-                      <div className="text-[#e0e0e0] text-[15px] font-medium mb-0.5 overflow-hidden text-ellipsis whitespace-nowrap">{user.fullName}</div>
+                    {userProfile?.fullName && (
+                      <div className="text-[#e0e0e0] text-[15px] font-medium mb-0.5 overflow-hidden text-ellipsis whitespace-nowrap">{userProfile.fullName}</div>
                     )}
                     <div className="text-[#999] text-[13px] mb-2 overflow-hidden text-ellipsis whitespace-nowrap">
-                      {user?.primaryEmailAddress?.emailAddress || (accountInfo?.email ?? 'Loading...')}
+                      {userProfile?.email || accountInfo?.email || 'Loading...'}
                     </div>
                     {providerStatus && (
                       <div className="flex gap-1.5 flex-wrap">
@@ -160,7 +158,7 @@ export function SettingsPanel({ onClose, docsAPI, onAddDocSource, onRecrawlDocSo
                 </div>
                 <button
                   className="bg-transparent border border-[#333] text-[#888] py-2 px-4 rounded-md text-[13px] cursor-pointer transition-colors duration-150 shrink-0 hover:bg-[#2a2a3a] hover:text-[#ccc]"
-                  onClick={() => { window.claude.disconnectRemote?.(); signOut() }}
+                  onClick={() => { window.claude.disconnectRemote?.(); window.claude.signOut?.().then(() => window.location.reload()) }}
                 >
                   Sign out
                 </button>

@@ -19,6 +19,7 @@ import '@styles/index.css'
 
 const CLERK_PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string
 const RELAY_URL = import.meta.env.VITE_RELAY_URL as string || 'ws://localhost:8080'
+const API_URL = import.meta.env.VITE_API_URL as string || 'http://localhost:3001'
 
 if (!CLERK_PUBLISHABLE_KEY) {
   throw new Error('VITE_CLERK_PUBLISHABLE_KEY is required')
@@ -218,8 +219,7 @@ function ElectronAuthCallback() {
         const jwt = await getToken()
         if (!jwt || cancelled) return
 
-        const relayHttp = RELAY_URL.replace(/^ws/, 'http')
-        const res = await fetch(`${relayHttp}/auth/sign-in-token`, {
+        const res = await fetch(`${API_URL}/auth/desktop-token`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token: jwt }),

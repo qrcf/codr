@@ -66,7 +66,6 @@ export function Sidebar({
   })
   const [showRecents, setShowRecents] = useState(false)
   const [visibleCount, setVisibleCount] = useState(30)
-  const [titlesLoaded, setTitlesLoaded] = useState(false)
 
   const addProject = useCallback((folder: string) => {
     setProjects(prev => {
@@ -78,6 +77,7 @@ export function Sidebar({
   }, [])
   const [repoNames, setRepoNames] = useState<Record<string, string>>({})
   const recentsRef = useRef<HTMLDivElement>(null)
+  const pendingTitleRequestsRef = useRef<Set<string>>(new Set())
 
   // Resolve repo names (@org/name) for all known folders
   useEffect(() => {
@@ -113,11 +113,22 @@ export function Sidebar({
     return repoNames[path] || folderName(path)
   }
 
+  const requestTitleBackfill = useCallback((sessionId: string, firstPrompt?: string) => {
+    if (!window.claude.ensureTitle) return
+    const pending = pendingTitleRequestsRef.current
+    if (pending.has(sessionId)) return
+    pending.add(sessionId)
+    window.claude.ensureTitle(sessionId, firstPrompt).catch(() => {
+      // Silent failure — title generation can be retried on next refresh
+    }).finally(() => {
+      pending.delete(sessionId)
+    })
+  }, [])
+
   const fetchSessions = useCallback(async () => {
     try {
       const result = await window.claude.listSessions()
       const list = result.sessions as SessionInfo[]
-      if (result.titlesLoaded) setTitlesLoaded(true)
       setSessions(prev => {
         // Preserve previously known DB-enriched fields across refreshes
         const prevMap = new Map<string, SessionInfo>()
@@ -136,16 +147,20 @@ export function Sidebar({
 
       // Backfill title for first untitled session — only after DB titles are confirmed loaded
       if (result.titlesLoaded) {
-        const untitled = list.filter(s => !s.generatedTitle && !s.customTitle)
-        if (untitled.length > 0 && window.claude.ensureTitle) {
-          window.claude.ensureTitle(untitled[0].sessionId, untitled[0].firstPrompt || untitled[0].summary).catch(() => {})
+        const untitled = list.find(
+          s => !s.generatedTitle
+            && !s.customTitle
+            && !pendingTitleRequestsRef.current.has(s.sessionId),
+        )
+        if (untitled) {
+          requestTitleBackfill(untitled.sessionId, untitled.firstPrompt || untitled.summary)
         }
       }
     } catch {
       setSessionsLoaded(true)
       // Silently handle — sessions may not be available
     }
-  }, [])
+  }, [requestTitleBackfill])
 
   useEffect(() => {
     fetchSessions()
@@ -309,11 +324,6 @@ export function Sidebar({
         localStorage.setItem('selected-folder', session.cwd)
         onFolderChange?.(session.cwd)
         addProject(session.cwd)
-      }
-
-      // Backfill title for sessions that don't have one yet — only if DB titles loaded
-      if (titlesLoaded && session && !session.generatedTitle && window.claude.ensureTitle) {
-        window.claude.ensureTitle(sessionId).catch(() => {})
       }
 
       // Auto-close sidebar on mobile

@@ -56,6 +56,7 @@ const IGNORED_DIRS = new Set([
 
 // --- Local title cache: survives relay failures so titles never disappear ---
 const titleCache = new Map<string, { name: string; firstPrompt: string | null }>()
+const titleGenerationBySession = new Map<string, Promise<void>>()
 
 export function cacheTitleLocally(sessionId: string, name: string, firstPrompt?: string | null) {
   titleCache.set(sessionId, { name, firstPrompt: firstPrompt ?? null })
@@ -122,7 +123,7 @@ export async function listSessionsData(relayClient?: RelayClient) {
   return { sessions: sdkSessions, titlesLoaded }
 }
 
-export async function storeSessionMetadata(
+async function storeSessionMetadataUnlocked(
   sessionId: string,
   prompt: string,
   relayClient: RelayClient,
@@ -196,19 +197,48 @@ export async function storeSessionMetadata(
 
   try {
     const token = relayClient.getClerkToken()
+    const payload: { firstPrompt: string; name?: string } = { firstPrompt: prompt.slice(0, 500) }
+    if (title) payload.name = title
     await fetch(`${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}`, {
       method: 'PUT',
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ name: title || null, firstPrompt: prompt.slice(0, 500) }),
+      body: JSON.stringify(payload),
     })
     if (title) {
       broadcaster.send('sessions:refresh-hint')
     }
   } catch {
     // Silent failure — title is still cached locally
+  }
+}
+
+export async function storeSessionMetadata(
+  sessionId: string,
+  prompt: string,
+  relayClient: RelayClient,
+  broadcaster: EventBroadcaster,
+): Promise<void> {
+  const trimmedPrompt = prompt.trim()
+  if (!trimmedPrompt) return
+
+  const existingGeneration = titleGenerationBySession.get(sessionId)
+  if (existingGeneration) {
+    await existingGeneration
+    return
+  }
+
+  const generation = storeSessionMetadataUnlocked(sessionId, trimmedPrompt, relayClient, broadcaster)
+  titleGenerationBySession.set(sessionId, generation)
+  try {
+    await generation
+  } finally {
+    const active = titleGenerationBySession.get(sessionId)
+    if (active === generation) {
+      titleGenerationBySession.delete(sessionId)
+    }
   }
 }
 
@@ -369,6 +399,12 @@ export async function ensureSessionTitle(
   broadcaster: EventBroadcaster,
   knownFirstPrompt?: string,
 ): Promise<void> {
+  const existingGeneration = titleGenerationBySession.get(sessionId)
+  if (existingGeneration) {
+    await existingGeneration
+    return
+  }
+
   const baseUrl = relayClient.getApiBaseUrl()
   if (!baseUrl) return
 

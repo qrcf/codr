@@ -53,12 +53,12 @@ async function retrieveDocsContext(
   searchQuery: string,
   docNames: string[],
 ): Promise<string> {
-  const httpBaseUrl = relayClient.getHttpBaseUrl()
+  const apiBaseUrl = relayClient.getApiBaseUrl()
   const token = relayClient.getClerkToken()
-  if (!httpBaseUrl || !token) return ''
+  if (!apiBaseUrl || !token) return ''
 
   try {
-    const res = await fetch(`${httpBaseUrl}/api/docs/search`, {
+    const res = await fetch(`${apiBaseUrl}/api/docs/search`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,

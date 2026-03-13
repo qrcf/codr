@@ -10,6 +10,7 @@ interface RelayMessage {
 export class RelayClient {
   private ws: WebSocket | null = null
   private relayUrl: string = ''
+  private apiUrl: string = ''
   private clerkToken: string = ''
   private appVersion: string = ''
   private status: RelayStatus = 'disconnected'
@@ -55,9 +56,12 @@ export class RelayClient {
     return this.clerkToken
   }
 
-  getHttpBaseUrl(): string | null {
-    if (!this.relayUrl || !this.isConnected()) return null
-    return this.relayUrl.replace(/^ws/, 'http')
+  setApiUrl(url: string) {
+    this.apiUrl = url
+  }
+
+  getApiBaseUrl(): string | null {
+    return this.apiUrl || null
   }
 
   connect(relayUrl: string, clerkToken: string, appVersion?: string) {

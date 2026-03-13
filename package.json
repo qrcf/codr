@@ -4,6 +4,7 @@
   "author": "Quinn Finney",
   "description": "Desktop chat UI for the Claude Agent SDK with remote web access",
   "private": true,
+  "license": "MIT",
   "version": "0.1.6",
   "type": "module",
   "main": "./out/main/index.js",

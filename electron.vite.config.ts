@@ -8,6 +8,7 @@ export default defineConfig(({ mode }) => {
     main: {
       define: {
         __WEB_URL__: JSON.stringify(env.VITE_WEB_URL || ''),
+        __API_URL__: JSON.stringify(env.VITE_API_URL || ''),
       },
     },
     preload: {},

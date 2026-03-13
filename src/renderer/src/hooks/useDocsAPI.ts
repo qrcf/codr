@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 
-const RELAY_URL = import.meta.env.VITE_RELAY_URL || 'wss://coder-ai.fly.dev'
-const HTTP_URL = RELAY_URL.replace(/^wss:\/\//, 'https://').replace(/^ws:\/\//, 'http://')
+const API_URL = import.meta.env.VITE_API_URL || 'https://codr-api.fly.dev'
 
 /**
  * Hook for interacting with the docs API on the relay server.
@@ -15,7 +14,7 @@ export function useDocsAPI(getToken: () => Promise<string | null>) {
   const fetchWithAuth = useCallback(async (path: string, options: RequestInit = {}) => {
     const token = await getToken()
     if (!token) throw new Error('Not authenticated')
-    const res = await fetch(`${HTTP_URL}${path}`, {
+    const res = await fetch(`${API_URL}${path}`, {
       ...options,
       headers: {
         'Authorization': `Bearer ${token}`,

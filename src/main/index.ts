@@ -1,4 +1,5 @@
 declare const __WEB_URL__: string
+declare const __API_URL__: string
 
 import fixPath from 'fix-path'
 import path from 'node:path'
@@ -23,6 +24,7 @@ let sessionWatcherInterval: ReturnType<typeof setInterval> | null = null
 let docsManager: DocsManager | null = null
 
 const relayClient = new RelayClient()
+relayClient.setApiUrl(__API_URL__)
 const broadcaster = new EventBroadcaster(() => mainWindow)
 broadcaster.setRelayClient(relayClient)
 
@@ -128,7 +130,7 @@ function createWindow() {
   if (!app.isPackaged && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else if (__WEB_URL__) {
-    mainWindow.loadURL(`${__WEB_URL__}/app`)
+    mainWindow.loadURL(__WEB_URL__)
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
   }
@@ -144,7 +146,7 @@ function createWindow() {
 function ensureDocsManager(): DocsManager {
   if (!docsManager) {
     docsManager = createDocsManager({
-      relayUrl: relayClient.getRelayUrl(),
+      apiUrl: relayClient.getApiBaseUrl() || '',
       getAuthToken: () => relayClient.getClerkToken(),
       broadcaster,
     })

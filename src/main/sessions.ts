@@ -64,7 +64,7 @@ export function cacheTitleLocally(sessionId: string, name: string, firstPrompt?:
 // --- Reusable data functions (called by both IPC and relay) ---
 
 export async function listSessionsData(relayClient?: RelayClient) {
-  const baseUrl = relayClient?.getHttpBaseUrl()
+  const baseUrl = relayClient?.getApiBaseUrl()
 
   // Load SDK and DB sessions in parallel
   const [sdkSessions, dbSessions] = await Promise.all([
@@ -128,7 +128,7 @@ export async function storeSessionMetadata(
   relayClient: RelayClient,
   broadcaster: EventBroadcaster,
 ): Promise<void> {
-  const baseUrl = relayClient.getHttpBaseUrl()
+  const baseUrl = relayClient.getApiBaseUrl()
   if (!baseUrl) return
 
   // Generate a short title via Claude
@@ -142,7 +142,9 @@ export async function storeSessionMetadata(
         prompt: `Respond with ONLY a 3-6 word title in proper case summarizing this message. No quotes, no punctuation at end, no extra text.\n\nMessage: ${truncatedPrompt}`,
         options: {
           model: 'claude-haiku-4-5-20251001',
-          thinking: false,
+          thinking: {
+              type: 'disabled'
+          },
           maxTurns: 1,
           persistSession: false,
           ...(cliPath ? { pathToClaudeCodeExecutable: cliPath } : {}),
@@ -367,23 +369,35 @@ export async function ensureSessionTitle(
   broadcaster: EventBroadcaster,
   knownFirstPrompt?: string,
 ): Promise<void> {
-  const baseUrl = relayClient.getHttpBaseUrl()
+  const baseUrl = relayClient.getApiBaseUrl()
   if (!baseUrl) return
 
-  // Check if DB already has a title
+  // Check if local cache already has a title (populated by listSessionsData)
+  const cached = titleCache.get(sessionId)
+  if (cached?.name) return
+
+  // Check DB before generating — title may exist but not be cached yet
   try {
     const token = relayClient.getClerkToken()
     const resp = await fetch(`${baseUrl}/api/sessions`, {
       headers: { Authorization: `Bearer ${token}` },
     })
     if (resp.ok) {
-      const dbSessions = (await resp.json()) as Array<{ sessionId: string; name: string | null }>
-      const existing = dbSessions.find(s => s.sessionId === sessionId)
-      if (existing?.name) return
+      const dbSessions = await resp.json() as Array<{
+        sessionId: string; name: string | null; firstPrompt: string | null
+      }>
+      // Populate cache with all DB results
+      for (const s of dbSessions) {
+        if (s.name) titleCache.set(s.sessionId, { name: s.name, firstPrompt: s.firstPrompt })
+      }
+      // If this session now has a title, we're done
+      const dbEntry = dbSessions.find(s => s.sessionId === sessionId)
+      if (dbEntry?.name) {
+        broadcaster.send('sessions:refresh-hint')
+        return
+      }
     }
-  } catch {
-    // Can't check — proceed anyway
-  }
+  } catch {}
 
   // Use provided prompt to avoid expensive getSessionMessages call
   let firstPrompt = knownFirstPrompt || ''
@@ -456,7 +470,7 @@ export function registerSessionHandlers(relayClient?: RelayClient, broadcaster?:
         stdio: ['pipe', 'pipe', 'pipe'],
       }).trim()
       // SSH: git@github.com:org/repo.git
-      const sshMatch = url.match(/[:\/]([^/]+\/[^/]+?)(?:\.git)?$/)
+      const sshMatch = url.match(/[:/]([^/]+\/[^/]+?)(?:\.git)?$/)
       if (sshMatch) return '@' + sshMatch[1]
       // HTTPS: https://github.com/org/repo.git
       try {

@@ -18,7 +18,7 @@ export interface DocSource {
 }
 
 interface DocsManagerOptions {
-  relayUrl: string
+  apiUrl: string
   getAuthToken: () => string | null
   broadcaster: EventBroadcaster
 }
@@ -27,17 +27,15 @@ interface DocsManagerOptions {
 const activeCrawls = new Map<number, AbortController>()
 
 /**
- * Helper to call relay HTTP endpoints with auth
+ * Helper to call API HTTP endpoints with auth
  */
-async function relayFetch(
-  relayUrl: string,
+async function apiFetch(
+  apiUrl: string,
   path: string,
   token: string,
   options: RequestInit = {}
 ): Promise<Response> {
-  // Convert wss:// or ws:// to https:// or http://
-  const httpUrl = relayUrl.replace(/^wss:\/\//, 'https://').replace(/^ws:\/\//, 'http://')
-  return fetch(`${httpUrl}${path}`, {
+  return fetch(`${apiUrl}${path}`, {
     ...options,
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -48,7 +46,7 @@ async function relayFetch(
 }
 
 export function createDocsManager(options: DocsManagerOptions) {
-  const { relayUrl, getAuthToken, broadcaster } = options
+  const { apiUrl, getAuthToken, broadcaster } = options
 
   function getToken(): string {
     const token = getAuthToken()
@@ -60,7 +58,7 @@ export function createDocsManager(options: DocsManagerOptions) {
    * List all doc sources for the current user
    */
   async function listSources(): Promise<DocSource[]> {
-    const res = await relayFetch(relayUrl, '/api/docs', getToken())
+    const res = await apiFetch(apiUrl, '/api/docs', getToken())
     if (!res.ok) throw new Error(`Failed to list doc sources: ${res.status}`)
     return res.json() as Promise<DocSource[]>
   }
@@ -70,7 +68,7 @@ export function createDocsManager(options: DocsManagerOptions) {
    */
   async function addSource(url: string, name: string, crawlDepth: number = 3, prefix?: string): Promise<DocSource> {
     // 1. Create source record on relay (status=pending)
-    const createRes = await relayFetch(relayUrl, '/api/docs', getToken(), {
+    const createRes = await apiFetch(apiUrl, '/api/docs', getToken(), {
       method: 'POST',
       body: JSON.stringify({ url, name, crawlDepth, prefix: prefix || null }),
     })
@@ -92,7 +90,7 @@ export function createDocsManager(options: DocsManagerOptions) {
    * Remove a doc source
    */
   async function removeSource(sourceId: number): Promise<void> {
-    const res = await relayFetch(relayUrl, `/api/docs/${sourceId}`, getToken(), {
+    const res = await apiFetch(apiUrl, `/api/docs/${sourceId}`, getToken(), {
       method: 'DELETE',
     })
     if (!res.ok) throw new Error(`Failed to delete doc source: ${res.status}`)
@@ -103,7 +101,7 @@ export function createDocsManager(options: DocsManagerOptions) {
    */
   async function recrawlSource(sourceId: number, url: string, crawlDepth: number, prefix?: string): Promise<void> {
     // Clear existing chunks
-    const deleteRes = await relayFetch(relayUrl, `/api/docs/${sourceId}/chunks`, getToken(), {
+    const deleteRes = await apiFetch(apiUrl, `/api/docs/${sourceId}/chunks`, getToken(), {
       method: 'DELETE',
     })
     if (!deleteRes.ok) throw new Error(`Failed to clear chunks: ${deleteRes.status}`)
@@ -132,7 +130,7 @@ export function createDocsManager(options: DocsManagerOptions) {
     try {
       // Update status to crawling
       console.log(`[docs] Setting status to crawling for source ${sourceId}`)
-      const statusRes = await relayFetch(relayUrl, `/api/docs/${sourceId}`, getToken(), {
+      const statusRes = await apiFetch(apiUrl, `/api/docs/${sourceId}`, getToken(), {
         method: 'PUT',
         body: JSON.stringify({ status: 'crawling' }),
       })
@@ -171,7 +169,7 @@ export function createDocsManager(options: DocsManagerOptions) {
                 chunkIndex: idx,
               })),
             }]
-            const uploadRes = await relayFetch(relayUrl, `/api/docs/${sourceId}/chunks`, getToken(), {
+            const uploadRes = await apiFetch(apiUrl, `/api/docs/${sourceId}/chunks`, getToken(), {
               method: 'POST',
               body: JSON.stringify({ pages: payload }),
             })
@@ -200,7 +198,7 @@ export function createDocsManager(options: DocsManagerOptions) {
         console.log(`[docs] Crawl cancelled for source ${sourceId} after ${pagesCrawled} pages`)
         // Set status to ready with whatever pages we got, or pending if none
         const finalStatus = pagesCrawled > 0 ? 'ready' : 'pending'
-        await relayFetch(relayUrl, `/api/docs/${sourceId}`, getToken(), {
+        await apiFetch(apiUrl, `/api/docs/${sourceId}`, getToken(), {
           method: 'PUT',
           body: JSON.stringify({
             status: finalStatus,
@@ -222,7 +220,7 @@ export function createDocsManager(options: DocsManagerOptions) {
       }
 
       // Update source status to ready
-      const readyRes = await relayFetch(relayUrl, `/api/docs/${sourceId}`, getToken(), {
+      const readyRes = await apiFetch(apiUrl, `/api/docs/${sourceId}`, getToken(), {
         method: 'PUT',
         body: JSON.stringify({
           status: 'ready',
@@ -244,7 +242,7 @@ export function createDocsManager(options: DocsManagerOptions) {
       if (abortController.signal.aborted) {
         console.log(`[docs] Crawl cancelled for source ${sourceId}`)
         const finalStatus = pagesCrawled > 0 ? 'ready' : 'pending'
-        await relayFetch(relayUrl, `/api/docs/${sourceId}`, getToken(), {
+        await apiFetch(apiUrl, `/api/docs/${sourceId}`, getToken(), {
           method: 'PUT',
           body: JSON.stringify({
             status: finalStatus,
@@ -264,7 +262,7 @@ export function createDocsManager(options: DocsManagerOptions) {
       console.error(`[docs] Crawl failed for source ${sourceId}:`, errorMessage)
 
       // Update source status to error (best effort with fresh token)
-      await relayFetch(relayUrl, `/api/docs/${sourceId}`, getToken(), {
+      await apiFetch(apiUrl, `/api/docs/${sourceId}`, getToken(), {
         method: 'PUT',
         body: JSON.stringify({ status: 'error', errorMessage }),
       }).catch((e) => {
@@ -288,7 +286,7 @@ export function createDocsManager(options: DocsManagerOptions) {
    * Search docs via relay
    */
   async function searchDocs(query: string, sourceIds?: number[], limit?: number) {
-    const res = await relayFetch(relayUrl, '/api/docs/search', getToken(), {
+    const res = await apiFetch(apiUrl, '/api/docs/search', getToken(), {
       method: 'POST',
       body: JSON.stringify({ query, sourceIds, limit }),
     })

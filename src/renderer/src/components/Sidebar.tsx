@@ -134,10 +134,12 @@ export function Sidebar({
       })
       setSessionsLoaded(true)
 
-      // Backfill title for first untitled session — refresh-hint will trigger next one
-      const untitled = list.filter(s => !s.generatedTitle && !s.customTitle)
-      if (untitled.length > 0 && window.claude.ensureTitle) {
-        window.claude.ensureTitle(untitled[0].sessionId, untitled[0].firstPrompt || untitled[0].summary).catch(() => {})
+      // Backfill title for first untitled session — only after DB titles are confirmed loaded
+      if (result.titlesLoaded) {
+        const untitled = list.filter(s => !s.generatedTitle && !s.customTitle)
+        if (untitled.length > 0 && window.claude.ensureTitle) {
+          window.claude.ensureTitle(untitled[0].sessionId, untitled[0].firstPrompt || untitled[0].summary).catch(() => {})
+        }
       }
     } catch {
       setSessionsLoaded(true)
@@ -309,8 +311,8 @@ export function Sidebar({
         addProject(session.cwd)
       }
 
-      // Backfill title for sessions that don't have one yet
-      if (session && !session.generatedTitle && window.claude.ensureTitle) {
+      // Backfill title for sessions that don't have one yet — only if DB titles loaded
+      if (titlesLoaded && session && !session.generatedTitle && window.claude.ensureTitle) {
         window.claude.ensureTitle(sessionId).catch(() => {})
       }
 
@@ -445,7 +447,7 @@ export function Sidebar({
                       const title = status === 'question' ? 'Waiting for answer' : status === 'plan-review' ? 'Review plan' : 'Needs approval'
                       return <span className={`session-status-pill session-status-${status}`} title={title}>{label}</span>
                     })()}
-                    {session.customTitle || session.generatedTitle || (isDraft ? 'New Chat' : (!titlesLoaded && <span className="session-title-loading" />))}
+                    {session.customTitle || session.generatedTitle || (isDraft ? 'New Chat' : <span className="session-title-loading" />)}
                   </div>
                   <div className="session-meta">
                     <span>{timeAgo(session.lastModified)}</span>

@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useAuth } from '@clerk/clerk-react'
-import './RemotePanel.css'
 
-const RELAY_URL = import.meta.env.VITE_RELAY_URL || 'wss://coder-ai.fly.dev'
+const RELAY_URL = import.meta.env.VITE_RELAY_URL || 'wss://codr-relay.fly.dev'
 
 export function RemotePanel() {
   const { getToken } = useAuth()
@@ -64,17 +63,24 @@ export function RemotePanel() {
     return () => unsub?.()
   }, [])
 
+  const dotColor =
+    status === 'connected'
+      ? 'bg-[#4caf50]'
+      : status === 'connecting'
+        ? 'bg-[#f0c040] animate-[pulse-dot_1.5s_ease-in-out_infinite]'
+        : 'bg-[#666]'
+
   return (
-    <div className="remote-panel">
-      <div className="remote-status">
-        <span className={`status-dot ${status}`} />
-        <span className="remote-status-text">
+    <div>
+      <div className="flex items-center gap-1.5 text-[12px] text-[#aaa]">
+        <span className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
+        <span className="text-[#888] text-[11px]">
           {status === 'connected' && 'Remote'}
           {status === 'connecting' && 'Connecting...'}
           {status === 'disconnected' && 'Offline'}
         </span>
         {status === 'connected' && webClients > 0 && (
-          <span className="remote-clients">
+          <span className="text-[#666] text-[11px] ml-auto">
             {webClients} viewer{webClients !== 1 ? 's' : ''}
           </span>
         )}

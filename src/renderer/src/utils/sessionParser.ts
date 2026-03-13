@@ -129,6 +129,21 @@ export function extractTokenUsageFromRaw(raw: RawSessionMessage[]): TokenUsage |
   return null
 }
 
+/**
+ * Extract the model ID from the last assistant message in raw session data.
+ */
+export function extractModelFromRaw(raw: RawSessionMessage[]): string | null {
+  for (let i = raw.length - 1; i >= 0; i--) {
+    const msg = raw[i]
+    if (msg.type !== 'assistant') continue
+    const message = msg.message as Record<string, unknown> | undefined
+    if (!message) continue
+    const model = message.model as string | undefined
+    if (model) return model
+  }
+  return null
+}
+
 function extractContentBlocks(message: unknown): ContentBlock[] {
   if (!message || typeof message !== 'object') return []
   const msg = message as Record<string, unknown>

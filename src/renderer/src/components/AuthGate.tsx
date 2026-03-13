@@ -1,7 +1,6 @@
 import { useAuth, useSignIn } from '@clerk/clerk-react'
 import { useState, useEffect } from 'react'
 import type { ReactNode } from 'react'
-import './AuthGate.css'
 
 const WEB_URL = import.meta.env.VITE_WEB_URL as string | undefined
 
@@ -35,8 +34,8 @@ export function AuthGate({ children }: AuthGateProps) {
 
   if (!isLoaded) {
     return (
-      <div className="auth-gate">
-        <div className="auth-loading">Loading...</div>
+      <div className="flex items-center justify-center h-screen bg-[#0d0d1a]">
+        <div className="text-[#666] font-mono text-[14px]">Loading...</div>
       </div>
     )
   }
@@ -52,13 +51,13 @@ export function AuthGate({ children }: AuthGateProps) {
     }
 
     return (
-      <div className="auth-gate">
-        <div className="auth-container">
-          <h1 className="auth-title">Codr</h1>
-          <p className="auth-subtitle">Remote AI coding assistant</p>
+      <div className="flex items-center justify-center h-screen bg-[#0d0d1a]">
+        <div className="flex flex-col items-center gap-4">
+          <h1 className="text-[#e0e0e0] text-[32px] font-semibold m-0 font-mono">Codr</h1>
+          <p className="text-[#555] font-mono text-[14px] m-0">Remote AI coding assistant</p>
 
           <button
-            className="auth-sign-in-btn"
+            className="bg-[#8142c7] border-none text-white px-12 py-3.5 rounded-lg font-mono text-[15px] font-medium cursor-pointer mt-2 transition-colors duration-150 hover:enabled:bg-[#6e35ab] disabled:bg-[#3a3560] disabled:cursor-default"
             onClick={handleSignIn}
             disabled={waitingForBrowser}
           >
@@ -66,9 +65,12 @@ export function AuthGate({ children }: AuthGateProps) {
           </button>
 
           {waitingForBrowser && (
-            <p className="auth-hint">
+            <p className="text-[#555] font-mono text-[13px] m-0">
               Complete sign-in in your browser.{' '}
-              <button className="auth-cancel" onClick={() => setWaitingForBrowser(false)}>
+              <button
+                className="bg-transparent border-none text-[#8142c7] font-mono text-[13px] cursor-pointer p-0 underline hover:text-[#9a63d9]"
+                onClick={() => setWaitingForBrowser(false)}
+              >
                 Cancel
               </button>
             </p>

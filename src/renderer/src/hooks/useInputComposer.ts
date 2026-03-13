@@ -100,67 +100,66 @@ export function useInputComposer({
     setIsDragOver(false)
   }, [])
 
+  const resolveFilePath = useCallback((file: File): string => {
+    if (window.claude.getPathForFile) return window.claude.getPathForFile(file)
+    return (file as File & { path?: string }).path || ''
+  }, [])
+
+  const addFilePaths = useCallback((filePaths: string[]) => {
+    const folder = projectFolderRef.current
+    const paths: string[] = []
+    for (const filePath of filePaths) {
+      if (!filePath) continue
+      if (folder && filePath.startsWith(folder + '/')) {
+        paths.push(filePath.slice(folder.length + 1))
+      } else {
+        paths.push(filePath)
+      }
+    }
+    if (paths.length) {
+      setSelectedFiles(prev => {
+        const set = new Set(prev)
+        for (const p of paths) set.add(p)
+        return [...set]
+      })
+    }
+  }, [projectFolderRef])
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     setIsDragOver(false)
     const files = e.dataTransfer.files
     if (!files.length) return
-    const paths: string[] = []
-    const folder = projectFolderRef.current
+    const filePaths: string[] = []
     for (let i = 0; i < files.length; i++) {
-      const filePath = (files[i] as File & { path: string }).path
-      if (!filePath) continue
-      if (folder && filePath.startsWith(folder + '/')) {
-        paths.push(filePath.slice(folder.length + 1))
-      } else {
-        paths.push(filePath)
-      }
+      filePaths.push(resolveFilePath(files[i]))
     }
-    if (paths.length) {
-      setSelectedFiles(prev => {
-        const set = new Set(prev)
-        for (const p of paths) set.add(p)
-        return [...set]
-      })
-    }
+    addFilePaths(filePaths)
     textareaRef.current?.focus()
-  }, [projectFolderRef])
+  }, [resolveFilePath, addFilePaths])
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     const files = e.clipboardData.files
-    if (!files.length) return
-    e.preventDefault()
-    const paths: string[] = []
-    const folder = projectFolderRef.current
-    for (let i = 0; i < files.length; i++) {
-      const filePath = (files[i] as File & { path: string }).path
-      if (!filePath) continue
-      if (folder && filePath.startsWith(folder + '/')) {
-        paths.push(filePath.slice(folder.length + 1))
-      } else {
-        paths.push(filePath)
-      }
-    }
-    if (paths.length) {
-      setSelectedFiles(prev => {
-        const set = new Set(prev)
-        for (const p of paths) set.add(p)
-        return [...set]
-      })
-    }
-  }, [projectFolderRef])
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Tab' && e.shiftKey) {
+    if (files.length) {
+      // Files from clipboard (e.g. screenshot paste)
       e.preventDefault()
-      setMode(prev => {
-        const modes = ['plan', 'code', 'ask'] as const
-        const idx = modes.indexOf(prev)
-        return modes[(idx + 1) % 3]
-      })
+      const filePaths: string[] = []
+      for (let i = 0; i < files.length; i++) {
+        filePaths.push(resolveFilePath(files[i]))
+      }
+      addFilePaths(filePaths)
       return
     }
 
+    // No File objects — try native pasteboard for Finder-copied files
+    if (window.claude.readClipboardFilePaths) {
+      window.claude.readClipboardFilePaths().then(nativePaths => {
+        if (nativePaths.length) addFilePaths(nativePaths)
+      })
+    }
+  }, [resolveFilePath, addFilePaths])
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (mentionActive) {
       const totalItems = getMentionItemCount(fileCache, docsAPI.sources, mentionQuery)
       if (e.key === 'ArrowDown') {

@@ -4,20 +4,26 @@ declare const __API_URL__: string
 import fixPath from 'fix-path'
 import path from 'node:path'
 import { readFile, writeFile, stat } from 'node:fs/promises'
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, shell } from 'electron'
 
 // macOS GUI apps get a minimal PATH (/usr/bin:/bin). Restore the user's full
 // shell PATH so the Claude Agent SDK can find the `claude` CLI binary.
 fixPath()
 
+// The Claude Agent SDK bundles graceful-fs which registers multiple process exit
+// listeners. Raise the limit to suppress the spurious MaxListenersExceededWarning.
+process.setMaxListeners(20)
+
 import { registerAgentHandlers } from './agent'
 import { registerSessionHandlers, listSessionsData, getSessionMessagesData, getAccountInfoData, listFilesData, startSessionWatcher } from './sessions'
 import { resolvePermission, resolveQuestion, updateSettings, approveToolForSession, type MessageOrigin } from './permissions'
-import { getSelectedProvider, setSelectedProvider } from './runtime/provider-config'
+import { getSelectedProvider, setSelectedProvider, getSelectedModel, setSelectedModel } from './runtime/provider-config'
+import { getModelsForProvider } from './runtime/models'
 import { EventBroadcaster } from './event-broadcaster'
 import { RelayClient } from './relay-client'
-import { createDocsManager, type DocsManager } from './docs/manager'
+import {createDocsManager, type DocsManager, fetchPageTitle} from './docs/manager'
 import { loadWindowState, trackWindowState } from './window-state'
+import { initAutoUpdater, checkForUpdates, quitAndInstall, getUpdateState } from './auto-updater'
 
 let mainWindow: BrowserWindow | null = null
 let initialized = false
@@ -143,12 +149,30 @@ function createWindow() {
   }
 }
 
+// Request a fresh Clerk token from the renderer on demand
+function requestFreshToken(): Promise<string> {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      // Fallback to cached token if renderer doesn't respond
+      resolve(relayClient.getClerkToken())
+    }, 3000)
+
+    ipcMain.once('auth:fresh-token', (_event, token: string) => {
+      clearTimeout(timeout)
+      relayClient.updateClerkToken(token)
+      resolve(token)
+    })
+
+    mainWindow?.webContents.send('auth:need-token')
+  })
+}
+
 // Initialize docs manager (lazy)
 function ensureDocsManager(): DocsManager {
   if (!docsManager) {
     docsManager = createDocsManager({
       apiUrl: relayClient.getApiBaseUrl() || '',
-      getAuthToken: () => relayClient.getClerkToken(),
+      getAuthToken: () => requestFreshToken(),
       broadcaster,
     })
   }
@@ -156,7 +180,7 @@ function ensureDocsManager(): DocsManager {
 }
 
 // Handle relay-forwarded messages from web clients
-let agentHandlers: { runQuery: (prompt: string, resumeSessionId?: string, planMode?: boolean, cwd?: string, askMode?: boolean, origin?: MessageOrigin) => Promise<void>; interruptQuery: (sessionId?: string) => Promise<void> } | null = null
+let agentHandlers: { runQuery: (prompt: string, resumeSessionId?: string, planMode?: boolean, cwd?: string, askMode?: boolean, origin?: MessageOrigin, model?: string, thinkingBudget?: 'low' | 'medium' | 'high') => Promise<void>; interruptQuery: (sessionId?: string) => Promise<void> } | null = null
 
 relayClient.onMessage(async (msg) => {
   switch (msg.type) {
@@ -166,8 +190,10 @@ relayClient.onMessage(async (msg) => {
       const planMode = msg.planMode as boolean | undefined
       const cwd = msg.cwd as string | undefined
       const askMode = msg.askMode as boolean | undefined
+      const model = msg.model as string | undefined
+      const thinkingBudget = msg.thinkingBudget as 'low' | 'medium' | 'high' | undefined
       if (agentHandlers && prompt) {
-        await agentHandlers.runQuery(prompt, resumeSessionId, planMode, cwd, askMode, 'remote')
+        await agentHandlers.runQuery(prompt, resumeSessionId, planMode, cwd, askMode, 'remote', model, thinkingBudget)
       }
       break
     }
@@ -206,7 +232,7 @@ relayClient.onMessage(async (msg) => {
       try {
         switch (method) {
           case 'list_sessions':
-            data = await listSessionsData(relayClient)
+            data = await listSessionsData(relayClient, requestFreshToken)
             break
           case 'get_session_messages':
             data = await getSessionMessagesData(params?.sessionId as string, params?.dir as string | undefined)
@@ -231,6 +257,26 @@ relayClient.onMessage(async (msg) => {
               const selected = await setSelectedProvider(provider)
               broadcaster.send('sessions:refresh-hint')
               data = { provider: selected }
+            }
+            break
+          }
+          case 'get_models': {
+            const p = (params?.provider as AgentProviderId) || await getSelectedProvider()
+            const [models, selectedModel] = await Promise.all([
+              getModelsForProvider(p),
+              getSelectedModel(p),
+            ])
+            data = { models, selectedModel }
+            break
+          }
+          case 'set_model': {
+            const smProvider = params?.provider as AgentProviderId
+            const smModel = params?.model as string | undefined
+            if (smProvider === 'claude' || smProvider === 'codex') {
+              await setSelectedModel(smProvider, smModel)
+              data = { model: smModel }
+            } else {
+              data = { error: 'Invalid provider' }
             }
             break
           }
@@ -267,6 +313,11 @@ relayClient.onMessage(async (msg) => {
             data = { ok: mgr.cancelCrawl(params?.sourceId as number) }
             break
           }
+          case 'fetch_doc_title': {
+            const title = await fetchPageTitle(params?.url as string)
+            data = { title }
+            break
+          }
           case 'read_plan_file': {
             const filePath = params?.filePath as string
             if (!filePath?.includes('.claude/plans/')) {
@@ -301,6 +352,8 @@ relayClient.onStatusChange((status, webClients) => {
   // Refresh sessions when relay connects so titles load from DB
   if (status === 'connected') {
     broadcaster.send('sessions:refresh-hint')
+    // Reset any doc sources stuck in 'crawling' from a previous session
+    ensureDocsManager()
   }
 })
 
@@ -315,12 +368,19 @@ app.whenReady().then(() => {
     app.dock?.setIcon(icon)
   }
 
-  if (process.platform === 'darwin') {
+  function buildAppMenu() {
+    if (process.platform !== 'darwin') return
+    const pendingVersion = getUpdateState()
+    const updateMenuItem: Electron.MenuItemConstructorOptions = pendingVersion
+      ? { label: `Restart to Update (v${pendingVersion})`, click: () => quitAndInstall() }
+      : { label: 'Check for Update...', click: () => checkForUpdates() }
+
     const template: Electron.MenuItemConstructorOptions[] = [
       {
         label: 'Codr',
         submenu: [
           { role: 'about' },
+          updateMenuItem,
           { type: 'separator' },
           { role: 'services' },
           { type: 'separator' },
@@ -338,12 +398,36 @@ app.whenReady().then(() => {
     Menu.setApplicationMenu(Menu.buildFromTemplate(template))
   }
 
-  agentHandlers = registerAgentHandlers(() => mainWindow, broadcaster, relayClient)
-  registerSessionHandlers(relayClient, broadcaster)
+  buildAppMenu()
+
+  agentHandlers = registerAgentHandlers(() => mainWindow, broadcaster, relayClient, requestFreshToken)
+  registerSessionHandlers(relayClient, broadcaster, requestFreshToken)
   sessionWatcherInterval = startSessionWatcher(broadcaster)
 
   // Expose current agent state (isLoading, streaming content) to renderer
   ipcMain.handle('agent:get-state', (_event, sessionId?: string) => broadcaster.getState(sessionId))
+
+  // Clipboard: read file paths from native pasteboard (macOS Finder Cmd+C)
+  ipcMain.handle('clipboard:read-file-paths', () => {
+    const formats = clipboard.availableFormats()
+    if (formats.some(f => f.includes('FileName') || f.includes('file-url'))) {
+      try {
+        const plistXml = clipboard.read('NSFilenamesPboardType')
+        if (!plistXml) return []
+        const paths: string[] = []
+        const regex = /<string>(.*?)<\/string>/g
+        let match: RegExpExecArray | null
+        while ((match = regex.exec(plistXml)) !== null) {
+          const p = match[1]
+          if (p && p.startsWith('/')) paths.push(p)
+        }
+        return paths
+      } catch {
+        return []
+      }
+    }
+    return []
+  })
 
   // Remote access IPC handlers
   ipcMain.handle('remote:connect', async (_event, relayUrl: string, clerkToken: string) => {
@@ -452,7 +536,29 @@ app.whenReady().then(() => {
     }
   })
 
+  ipcMain.handle('docs:reinstall-runtime', async () => {
+    try {
+      const { resetPythonRuntime } = await import('./docs/python-runtime.js')
+      await resetPythonRuntime()
+      return { ok: true }
+    } catch (err) {
+      return { error: String(err) }
+    }
+  })
+
+  ipcMain.handle('docs:fetch-title', async (_event, url: string) => {
+    const title = await fetchPageTitle(url)
+    return { title }
+  })
+
   createWindow()
+
+  // Auto-updater (packaged builds only)
+  if (app.isPackaged) {
+    initAutoUpdater(mainWindow!, buildAppMenu)
+  }
+
+  ipcMain.handle('updater:install', () => quitAndInstall())
 
   // Check if launched via deep link (cold start)
   const deepLinkArg = process.argv.find(arg => arg.startsWith('codr://'))

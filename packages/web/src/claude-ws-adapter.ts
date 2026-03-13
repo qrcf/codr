@@ -53,6 +53,7 @@ export function createWebSocketAgentAPI(relayUrl: string, getToken: () => Promis
   const sessionUpdatedCallbacks: Array<(data: { sessionId: string }) => void> = []
   const desktopStatusCallbacks: Array<(online: boolean) => void> = []
   const docCrawlProgressCallbacks: Array<(progress: { sourceId: number; status: string; pagesCrawled: number; currentUrl?: string; error?: string }) => void> = []
+  const docsSetupProgressCallbacks: Array<(progress: { step: string; detail?: string; stepIndex: number; totalSteps: number }) => void> = []
   const pendingRequests = new Map<string, PendingRequest>()
 
   function subscribe<T>(arr: Array<Callback<T>>, cb: Callback<T>): () => void {
@@ -137,6 +138,11 @@ export function createWebSocketAgentAPI(relayUrl: string, getToken: () => Promis
       case 'doc_crawl_progress':
         for (const cb of docCrawlProgressCallbacks) {
           cb(data as unknown as { sourceId: number; status: string; pagesCrawled: number; currentUrl?: string; error?: string })
+        }
+        break
+      case 'setup_progress':
+        for (const cb of docsSetupProgressCallbacks) {
+          cb(data as unknown as { step: string; detail?: string; stepIndex: number; totalSteps: number })
         }
         break
       case 'desktop_status':
@@ -252,8 +258,14 @@ export function createWebSocketAgentAPI(relayUrl: string, getToken: () => Promis
     setProvider: async (provider: 'claude' | 'codex') => {
       return request('set_provider', { provider }) as Promise<{ provider?: 'claude' | 'codex'; error?: string }>
     },
-    query: async (prompt: string, options?: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; cwd?: string }) => {
-      sendJson({ type: 'query', prompt, resumeSessionId: options?.resumeSessionId, planMode: options?.planMode, askMode: options?.askMode, cwd: options?.cwd })
+    getModels: async (provider?: 'claude' | 'codex') => {
+      return request('get_models', provider ? { provider } : undefined) as Promise<{ models: Array<{ value: string; displayName: string }>; selectedModel?: string }>
+    },
+    setModel: async (provider: 'claude' | 'codex', model: string | undefined) => {
+      return request('set_model', { provider, model }) as Promise<{ model?: string }>
+    },
+    query: async (prompt: string, options?: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; cwd?: string; model?: string; thinkingBudget?: 'low' | 'medium' | 'high' }) => {
+      sendJson({ type: 'query', prompt, resumeSessionId: options?.resumeSessionId, planMode: options?.planMode, askMode: options?.askMode, cwd: options?.cwd, model: options?.model, thinkingBudget: options?.thinkingBudget })
     },
     interrupt: async (sessionId?: string) => {
       sendJson({ type: 'interrupt', sessionId })
@@ -307,6 +319,10 @@ export function createWebSocketAgentAPI(relayUrl: string, getToken: () => Promis
       request('cancel_doc_crawl', { sourceId }),
     onDocsCrawlProgress: (cb: (progress: { sourceId: number; status: string; pagesCrawled: number; currentUrl?: string; error?: string }) => void) =>
       subscribe(docCrawlProgressCallbacks, cb),
+    onDocsSetupProgress: (cb: (progress: { step: string; detail?: string; stepIndex: number; totalSteps: number }) => void) =>
+      subscribe(docsSetupProgressCallbacks, cb),
+    fetchDocTitle: (url: string) =>
+      request('fetch_doc_title', { url }) as Promise<{ title: string | null }>,
 
     // Web-only extensions
     onStateSync: (cb: (state: StateSyncPayload) => void) => subscribe(stateSyncCallbacks, cb),

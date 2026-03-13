@@ -21,6 +21,8 @@ export interface SessionListInput {
 
 export interface SessionInfoWithProvider extends SessionInfo {
   provider: AgentProviderId
+  model?: string
+  thinkingBudget?: string
 }
 
 interface ChooseTitleInput {
@@ -93,6 +95,8 @@ export function buildSessionList(input: SessionListInput): {
       gitBranch: sdkSession?.gitBranch,
       cwd: indexed.workspaceDir || sdkSession?.cwd,
       provider: indexed.provider,
+      model: indexed.model,
+      thinkingBudget: indexed.thinkingBudget,
     }
   })
 

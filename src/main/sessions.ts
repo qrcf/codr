@@ -86,7 +86,7 @@ export function cacheTitleLocally(sessionId: string, name: string, firstPrompt?:
 
 // --- Reusable data functions (called by both IPC and relay) ---
 
-export async function listSessionsData(relayClient?: RelayClient) {
+export async function listSessionsData(relayClient?: RelayClient, getAuthToken?: () => Promise<string>) {
   const baseUrl = relayClient?.getApiBaseUrl()
 
   // listCodexThreads is synchronous (node:sqlite) — run it alongside async calls
@@ -96,7 +96,7 @@ export async function listSessionsData(relayClient?: RelayClient) {
     baseUrl
       ? (async () => {
           try {
-            const token = relayClient!.getClerkToken()
+            const token = getAuthToken ? await getAuthToken() : relayClient!.getClerkToken()
             const resp = await fetch(`${baseUrl}/api/sessions`, {
               headers: { Authorization: `Bearer ${token}` },
             })
@@ -179,6 +179,7 @@ async function storeSessionMetadataUnlocked(
   prompt: string,
   relayClient: RelayClient,
   broadcaster: EventBroadcaster,
+  getAuthToken?: () => Promise<string>,
 ): Promise<void> {
   const baseUrl = relayClient.getApiBaseUrl()
   if (!baseUrl) return
@@ -247,7 +248,7 @@ async function storeSessionMetadataUnlocked(
   }
 
   try {
-    const token = relayClient.getClerkToken()
+    const token = getAuthToken ? await getAuthToken() : relayClient.getClerkToken()
     const payload: { firstPrompt: string; name?: string } = { firstPrompt: prompt.slice(0, 500) }
     if (title) payload.name = title
     await fetch(`${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}`, {
@@ -271,6 +272,7 @@ export async function storeSessionMetadata(
   prompt: string,
   relayClient: RelayClient,
   broadcaster: EventBroadcaster,
+  getAuthToken?: () => Promise<string>,
 ): Promise<void> {
   const trimmedPrompt = prompt.trim()
   if (!trimmedPrompt) return
@@ -281,7 +283,7 @@ export async function storeSessionMetadata(
     return
   }
 
-  const generation = storeSessionMetadataUnlocked(sessionId, trimmedPrompt, relayClient, broadcaster)
+  const generation = storeSessionMetadataUnlocked(sessionId, trimmedPrompt, relayClient, broadcaster, getAuthToken)
   titleGenerationBySession.set(sessionId, generation)
   try {
     await generation
@@ -490,6 +492,7 @@ export async function ensureSessionTitle(
   relayClient: RelayClient,
   broadcaster: EventBroadcaster,
   knownFirstPrompt?: string,
+  getAuthToken?: () => Promise<string>,
 ): Promise<void> {
   const existingGeneration = titleGenerationBySession.get(sessionId)
   if (existingGeneration) {
@@ -506,7 +509,7 @@ export async function ensureSessionTitle(
 
   // Check DB before generating — title may exist but not be cached yet
   try {
-    const token = relayClient.getClerkToken()
+    const token = getAuthToken ? await getAuthToken() : relayClient.getClerkToken()
     const resp = await fetch(`${baseUrl}/api/sessions`, {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -549,7 +552,7 @@ export async function ensureSessionTitle(
   }
 
   if (!firstPrompt) return
-  await storeSessionMetadata(sessionId, firstPrompt, relayClient, broadcaster)
+  await storeSessionMetadata(sessionId, firstPrompt, relayClient, broadcaster, getAuthToken)
 }
 
 // --- Provider status (independent check for both Claude and Codex) ---
@@ -558,11 +561,18 @@ export interface ProviderStatusInfo {
   installed: boolean
   loggedIn: boolean
   detail?: string
+  email?: string
+  org?: string
 }
 
 export interface AllProviderStatus {
   claude: ProviderStatusInfo
   codex: ProviderStatusInfo
+}
+
+function normalizeOrg(raw?: string): string {
+  if (!raw || raw.endsWith('\u2019s Organization') || raw.endsWith("'s Organization")) return 'Personal'
+  return raw
 }
 
 export async function getProviderStatusData(): Promise<AllProviderStatus> {
@@ -584,7 +594,11 @@ export async function getProviderStatusData(): Promise<AllProviderStatus> {
 
       if (cachedAccountInfo) {
         const detail = cachedAccountInfo.subscriptionType || cachedAccountInfo.apiKeySource
-        return { installed: true, loggedIn: true, detail: detail || undefined }
+        return {
+          installed: true, loggedIn: true, detail: detail || undefined,
+          email: cachedAccountInfo.email,
+          org: normalizeOrg(cachedAccountInfo.organization),
+        }
       }
 
       let probeQuery: ReturnType<typeof query> | null = null
@@ -603,7 +617,11 @@ export async function getProviderStatusData(): Promise<AllProviderStatus> {
         if (info) {
           cachedAccountInfo = info
           const detail = info.subscriptionType || info.apiKeySource
-          return { installed: true, loggedIn: true, detail: detail || undefined }
+          return {
+            installed: true, loggedIn: true, detail: detail || undefined,
+            email: info.email,
+            org: normalizeOrg(info.organization),
+          }
         }
         return { installed: true, loggedIn: false }
       } catch {
@@ -615,39 +633,100 @@ export async function getProviderStatusData(): Promise<AllProviderStatus> {
 
     (async (): Promise<ProviderStatusInfo> => {
       const codexHome = join(homedir(), '.codex')
-      const sqliteDb = join(codexHome, 'state_5.sqlite')
       const installed = existsSync(codexHome)
       if (!installed) return { installed: false, loggedIn: false }
 
-      // If the session database exists, the user has run Codex queries before (auth worked)
-      if (existsSync(sqliteDb)) {
-        return { installed: true, loggedIn: true, detail: 'Ready' }
-      }
+      // Determine auth method and base status
+      const sqliteDb = join(codexHome, 'state_5.sqlite')
+      const authJsonPath = join(codexHome, 'auth.json')
+      let loggedIn = false
+      let baseDetail: string | undefined
 
-      // Fallback: check OPENAI_API_KEY in env
-      if (process.env.OPENAI_API_KEY) {
-        return { installed: true, loggedIn: true, detail: 'API Key' }
-      }
-
-      // Check common config file locations
-      const configPaths = [
-        join(codexHome, 'config.json'),
-        join(codexHome, '.config.json'),
-      ]
-      for (const cfgPath of configPaths) {
-        if (existsSync(cfgPath)) {
-          try {
-            const { readFileSync } = await import('node:fs')
-            const raw = readFileSync(cfgPath, 'utf-8')
-            const cfg = JSON.parse(raw) as Record<string, unknown>
-            if (cfg.api_key || cfg.apiKey || cfg.openai_api_key) {
-              return { installed: true, loggedIn: true, detail: 'API Key' }
-            }
-          } catch { /* ignore */ }
+      if (existsSync(sqliteDb) || existsSync(authJsonPath)) {
+        loggedIn = true
+      } else if (process.env.OPENAI_API_KEY) {
+        loggedIn = true
+        baseDetail = 'API Key'
+      } else {
+        const configPaths = [join(codexHome, 'config.json'), join(codexHome, '.config.json')]
+        for (const cfgPath of configPaths) {
+          if (existsSync(cfgPath)) {
+            try {
+              const { readFileSync } = await import('node:fs')
+              const cfg = JSON.parse(readFileSync(cfgPath, 'utf-8')) as Record<string, unknown>
+              if (cfg.api_key || cfg.apiKey || cfg.openai_api_key) {
+                loggedIn = true
+                baseDetail = 'API Key'
+                break
+              }
+            } catch { /* ignore */ }
+          }
         }
       }
 
-      return { installed: true, loggedIn: false }
+      if (!loggedIn) return { installed: true, loggedIn: false }
+
+      // Try to fetch rich account info from auth.json + OpenAI API
+      try {
+        if (existsSync(authJsonPath)) {
+          const { readFileSync } = await import('node:fs')
+          const authData = JSON.parse(readFileSync(authJsonPath, 'utf-8')) as {
+            tokens?: { access_token?: string; id_token?: string }
+          }
+          const accessToken = authData.tokens?.access_token
+          const idToken = authData.tokens?.id_token
+
+          let planType: string | undefined
+          // Decode JWT id_token payload for plan type
+          if (idToken) {
+            try {
+              const payload = JSON.parse(Buffer.from(idToken.split('.')[1], 'base64').toString())
+              const authClaim = payload['https://api.openai.com/auth'] as Record<string, unknown> | undefined
+              if (authClaim?.chatgpt_plan_type) {
+                planType = String(authClaim.chatgpt_plan_type)
+                planType = planType.charAt(0).toUpperCase() + planType.slice(1)
+              }
+            } catch { /* JWT decode failed */ }
+          }
+
+          // Fetch email/org from /v1/me
+          if (accessToken) {
+            const ctrl = new AbortController()
+            const timer = setTimeout(() => ctrl.abort(), 5_000)
+            try {
+              const resp = await fetch('https://api.openai.com/v1/me', {
+                headers: { Authorization: `Bearer ${accessToken}` },
+                signal: ctrl.signal,
+              })
+              if (resp.ok) {
+                const me = await resp.json() as {
+                  email?: string
+                  orgs?: { data?: Array<{ personal?: boolean; title?: string }> }
+                }
+                // Find org name: use first real org, or "Personal"
+                const orgs = me.orgs?.data || []
+                const namedOrg = orgs.find(o => !o.personal && normalizeOrg(o.title) !== 'Personal')
+                const orgLabel = namedOrg?.title || 'Personal'
+                return {
+                  installed: true,
+                  loggedIn: true,
+                  detail: planType || baseDetail,
+                  email: me.email,
+                  org: orgLabel,
+                }
+              }
+            } catch { /* API call failed — fall through */ }
+            finally { clearTimeout(timer) }
+          }
+
+          // Had auth.json but API call failed — still use plan from JWT
+          if (planType) {
+            return { installed: true, loggedIn: true, detail: planType }
+          }
+        }
+      } catch { /* auth.json read failed */ }
+
+      return { installed: true, loggedIn: true, detail: baseDetail }
     })(),
   ])
 
@@ -656,9 +735,9 @@ export async function getProviderStatusData(): Promise<AllProviderStatus> {
 
 // --- IPC handlers ---
 
-export function registerSessionHandlers(relayClient?: RelayClient, broadcaster?: EventBroadcaster) {
+export function registerSessionHandlers(relayClient?: RelayClient, broadcaster?: EventBroadcaster, getAuthToken?: () => Promise<string>) {
   ipcMain.handle('sessions:list', async () => {
-    return listSessionsData(relayClient)
+    return listSessionsData(relayClient, getAuthToken)
   })
 
   ipcMain.handle('sessions:get-messages', async (_event, sessionId: string, dir?: string) => {
@@ -692,7 +771,7 @@ export function registerSessionHandlers(relayClient?: RelayClient, broadcaster?:
 
   ipcMain.handle('sessions:ensure-title', async (_event, sessionId: string, firstPrompt?: string) => {
     if (!relayClient || !broadcaster) return
-    await ensureSessionTitle(sessionId, relayClient, broadcaster, firstPrompt)
+    await ensureSessionTitle(sessionId, relayClient, broadcaster, firstPrompt, getAuthToken)
   })
 
   ipcMain.handle('sessions:get-repo-name', async (_event, folderPath: string) => {

@@ -11,15 +11,7 @@ import type {
   ProviderRunCallbacks,
   ProviderRunResult,
 } from '../provider'
-
-interface DocSearchResult {
-  sourceName: string
-  sourceUrl: string
-  pageUrl: string
-  pageTitle: string | null
-  heading: string | null
-  content: string
-}
+import { preprocessPromptForDocs } from '../prompt-preprocessor'
 
 /**
  * In packaged builds the SDK can't resolve cli.js via import.meta.url because
@@ -35,58 +27,6 @@ export function getClaudeCliPath(): string | undefined {
     'claude-agent-sdk',
     'cli.js'
   )
-}
-
-function parseDocRefs(prompt: string): { cleanedPrompt: string; docNames: string[] } {
-  const docNames: string[] = []
-  const cleaned = prompt.replace(/@docs:(\S+)/g, (_, name) => {
-    docNames.push(name)
-    return ''
-  }).trim()
-  return { cleanedPrompt: cleaned, docNames }
-}
-
-async function retrieveDocsContext(
-  ctx: AgentProviderContext,
-  searchQuery: string,
-  docNames: string[],
-): Promise<string> {
-  const apiBaseUrl = ctx.relayClient.getApiBaseUrl()
-  const token = ctx.relayClient.getClerkToken()
-  if (!apiBaseUrl || !token) return ''
-
-  try {
-    const res = await fetch(`${apiBaseUrl}/api/docs/search`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        query: searchQuery,
-        limit: 8,
-      }),
-    })
-    if (!res.ok) return ''
-
-    const results = await res.json() as DocSearchResult[]
-    if (!results.length) return ''
-
-    const filtered = docNames.length > 0
-      ? results.filter(r => docNames.some(name => r.sourceName.toLowerCase() === name.toLowerCase()))
-      : results
-    if (!filtered.length) return ''
-
-    const chunks = filtered.map(r => {
-      const source = `${r.sourceName} (${r.pageUrl})`
-      const heading = r.heading ? `## ${r.heading}\n` : ''
-      return `--- ${source} ---\n${heading}${r.content}`
-    }).join('\n\n')
-    return `<documentation_context>\n${chunks}\n</documentation_context>`
-  } catch (err) {
-    console.error('[docs] Failed to retrieve docs context:', err)
-    return ''
-  }
 }
 
 export class ClaudeProvider implements AgentProvider {
@@ -110,11 +50,7 @@ export class ClaudeProvider implements AgentProvider {
       ? `[ASK MODE] You are in Ask mode. Your job is to ANSWER the user's question — do NOT edit any code, create files, or make changes. Only read, search, and explain. Do not use Edit, Write, or NotebookEdit tools.\n\n${req.prompt}`
       : req.prompt
 
-    const { cleanedPrompt, docNames } = parseDocRefs(finalPrompt)
-    if (docNames.length > 0) {
-      const docsContext = await retrieveDocsContext(this.ctx, cleanedPrompt, docNames)
-      finalPrompt = docsContext ? `${docsContext}\n\n${cleanedPrompt}` : cleanedPrompt
-    }
+    finalPrompt = await preprocessPromptForDocs(this.ctx, finalPrompt)
 
     const cliPath = getClaudeCliPath()
     const q = query({
@@ -127,6 +63,8 @@ export class ClaudeProvider implements AgentProvider {
         ...(req.resumeSessionId ? { resume: req.resumeSessionId } : {}),
         ...(req.planMode ? { permissionMode: 'plan' as const } : {}),
         ...(req.cwd ? { cwd: req.cwd } : {}),
+        ...(req.model ? { model: req.model } : {}),
+        ...(req.thinkingBudget ? { thinking: { type: 'enabled' as const, budget_tokens: { low: 3000, medium: 8000, high: 20000 }[req.thinkingBudget] } } : {}),
       },
     })
 
@@ -149,7 +87,7 @@ export class ClaudeProvider implements AgentProvider {
 
           if (isNewSession) {
             this.ctx.broadcaster.send('sessions:refresh-hint')
-            storeSessionMetadata(capturedSessionId, req.prompt, this.ctx.relayClient, this.ctx.broadcaster).catch(() => {})
+            storeSessionMetadata(capturedSessionId, req.prompt, this.ctx.relayClient, this.ctx.broadcaster, this.ctx.getAuthToken).catch(() => {})
           }
         }
         callbacks.onMessage(message, currentKey)

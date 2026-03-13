@@ -11,11 +11,11 @@ export function EditRenderer({ tool }: { tool: ToolCallInfo }) {
   const fileName = filePath.split('/').pop() || filePath
 
   return (
-    <div className="edit-renderer">
-      <div className="edit-file-header">
-        <span className="edit-file-icon">~</span>
-        <span className="edit-file-name" title={filePath}>{fileName}</span>
-        {replaceAll && <span className="edit-replace-all-badge">replace all</span>}
+    <div className="border-t border-[#3a3a4a]">
+      <div className="flex items-center gap-[6px] px-[10px] py-[6px] text-[#aaa] text-[0.85em]">
+        <span className="text-[#f0c040] font-bold">~</span>
+        <span className="font-['SF_Mono','Fira_Code',monospace] overflow-hidden text-ellipsis whitespace-nowrap" title={filePath}>{fileName}</span>
+        {replaceAll && <span className="bg-[#444460] text-[#ccc] px-[6px] py-[1px] rounded-[3px] text-[0.85em] ml-auto">replace all</span>}
       </div>
       <DiffView oldString={oldString} newString={newString} />
     </div>

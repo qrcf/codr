@@ -11,14 +11,14 @@ export function WriteRenderer({ tool }: { tool: ToolCallInfo }) {
   const hasMore = lineCount > 5
 
   return (
-    <div className="write-renderer">
-      <div className="write-file-header">
-        <span className="write-file-icon">+</span>
-        <span className="write-file-name" title={filePath}>{fileName}</span>
-        <span className="write-line-count">{lineCount} lines</span>
+    <div className="border-t border-[#3a3a4a]">
+      <div className="flex items-center gap-[6px] px-[10px] py-[6px] text-[#aaa] text-[0.85em]">
+        <span className="text-[#4caf50] font-bold">+</span>
+        <span className="font-['SF_Mono','Fira_Code',monospace] overflow-hidden text-ellipsis whitespace-nowrap" title={filePath}>{fileName}</span>
+        <span className="text-[#666] ml-auto text-[0.9em]">{lineCount} lines</span>
       </div>
       {content && (
-        <pre className="write-preview">
+        <pre className="m-0 px-[10px] py-[6px] bg-[#0d0d1a] font-['SF_Mono','Fira_Code',monospace] text-[0.82em] leading-[1.4] whitespace-pre-wrap break-words text-[#888] border-t border-[#3a3a4a]">
           {preview}{hasMore ? '\n...' : ''}
         </pre>
       )}

@@ -46,14 +46,14 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
 
   if (message.role === 'system') {
     return (
-      <div className="message message-system">
-        <span className="system-label">{message.content}</span>
+      <div className="message-system flex items-center justify-center gap-[10px] px-4 py-2 my-3 text-[#777] text-[0.8em]">
+        <span className="whitespace-nowrap">{message.content}</span>
       </div>
     )
   }
 
   return (
-    <div className={`message message-${message.role}`}>
+    <div className={`max-w-full ${message.role === 'user' ? 'self-end max-w-[80%] bg-[#2a2a3d] px-[14px] py-2 rounded-[16px_16px_4px_16px] mt-2' : 'py-1'}`}>
       {message.content && (
         <div className="message-content">
           <Markdown remarkPlugins={[remarkGfm]}>{formatMessageContent(message.content)}</Markdown>
@@ -66,13 +66,13 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
         <PlanWriteRenderer key={pw.id} tool={pw} />
       ))}
       {otherTools.length > 0 && (
-        <div className="tool-calls-group">
-          <div className="tool-group-header" onClick={() => setGroupExpanded(!groupExpanded)}>
-            <span className="tool-group-chevron">{groupExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
-            <span className="tool-group-summary">{buildToolSummary(otherTools)}</span>
+        <div className="mt-2">
+          <div className="flex items-center gap-[6px] px-2 py-1 cursor-pointer select-none text-[#999] text-[0.85em] rounded hover:bg-[#2a2a3a] hover:text-[#ccc]" onClick={() => setGroupExpanded(!groupExpanded)}>
+            <span className="text-[0.8em] text-[#666] flex-shrink-0">{groupExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
+            <span className="font-['SF_Mono','Fira_Code',monospace]">{buildToolSummary(otherTools)}</span>
           </div>
           {groupExpanded && (
-            <div className="tool-calls">
+            <div className="flex flex-col gap-[1px] mt-1">
               {otherTools.map((tool) => (
                 <ToolCallBlock key={tool.id} tool={tool} />
               ))}

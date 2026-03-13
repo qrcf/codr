@@ -1,14 +1,22 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 const agentApi = {
   isElectron: true,
+  getPathForFile: (file: File) => webUtils.getPathForFile(file),
+  readClipboardFilePaths: () => ipcRenderer.invoke('clipboard:read-file-paths') as Promise<string[]>,
 
-  query: (prompt: string, opts?: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean }) =>
+  query: (prompt: string, opts?: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; model?: string; thinkingBudget?: 'low' | 'medium' | 'high' }) =>
     ipcRenderer.invoke('agent:query', prompt, opts),
   interrupt: (sessionId?: string) => ipcRenderer.invoke('agent:interrupt', sessionId),
   getAgentState: (sessionId?: string) => ipcRenderer.invoke('agent:get-state', sessionId),
   getProvider: () => ipcRenderer.invoke('agent:get-provider') as Promise<'claude' | 'codex'>,
   setProvider: (provider: 'claude' | 'codex') => ipcRenderer.invoke('agent:set-provider', provider) as Promise<{ provider?: 'claude' | 'codex'; error?: string }>,
+  getModels: (provider?: 'claude' | 'codex') =>
+    ipcRenderer.invoke('agent:get-models', provider) as Promise<{ models: Array<{ value: string; displayName: string }>; selectedModel?: string }>,
+  setModel: (provider: 'claude' | 'codex', model: string | undefined) =>
+    ipcRenderer.invoke('agent:set-model', provider, model) as Promise<{ model?: string }>,
+  getDefaults: () =>
+    ipcRenderer.invoke('agent:get-defaults') as Promise<{ effortLevel?: string }>,
 
   onMessage: (callback: (message: unknown, querySessionId?: string | null) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, message: unknown, qsid?: string | null) => callback(message, qsid ?? null)
@@ -163,6 +171,33 @@ const agentApi = {
     const listener = (_event: Electron.IpcRendererEvent, progress: { sourceId: number; status: string; pagesCrawled: number; currentUrl?: string; error?: string }) => callback(progress)
     ipcRenderer.on('docs:crawl-progress', listener)
     return () => { ipcRenderer.removeListener('docs:crawl-progress', listener) }
+  },
+  onDocsSetupProgress: (callback: (progress: { step: string; detail?: string; stepIndex: number; totalSteps: number }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, progress: { step: string; detail?: string; stepIndex: number; totalSteps: number }) => callback(progress)
+    ipcRenderer.on('docs:setup-progress', listener)
+    return () => { ipcRenderer.removeListener('docs:setup-progress', listener) }
+  },
+  reinstallDocsRuntime: () =>
+    ipcRenderer.invoke('docs:reinstall-runtime') as Promise<{ ok?: boolean; error?: string }>,
+  fetchDocTitle: (url: string) =>
+    ipcRenderer.invoke('docs:fetch-title', url) as Promise<{ title: string | null }>,
+
+  // Auto-updater (desktop only)
+  installUpdate: () => ipcRenderer.invoke('updater:install'),
+  onUpdateStatus: (callback: (status: { status: string; version?: string; error?: string }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: { status: string; version?: string; error?: string }) => callback(status)
+    ipcRenderer.on('updater:status', listener)
+    return () => { ipcRenderer.removeListener('updater:status', listener) }
+  },
+
+  // Token provider: main process can request a fresh Clerk token on demand
+  registerTokenProvider: (getToken: () => Promise<string | null>) => {
+    const listener = async () => {
+      const token = await getToken()
+      if (token) ipcRenderer.send('auth:fresh-token', token)
+    }
+    ipcRenderer.on('auth:need-token', listener)
+    return () => { ipcRenderer.removeListener('auth:need-token', listener) }
   },
 }
 

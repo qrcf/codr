@@ -45,15 +45,12 @@ export function useSessionManager({
 }: UseSessionManagerParams) {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [activeSession, setActiveSession] = useState<SessionInfo | null>(null)
-  const [selectedFolder, setSelectedFolder] = useState<string | null>(() => {
-    return localStorage.getItem('selected-folder') || null
-  })
   // resolvedRepoName is only set by the async getRepoName call
   const [resolvedRepoName, setResolvedRepoName] = useState<{ folder: string; name: string } | null>(null)
   const projectFolderRef = useRef<string | null>(null)
 
   // Derive project folder and title synchronously (no setState in effects)
-  const projectFolder = selectedFolder || activeSession?.cwd || null
+  const projectFolder = activeSession?.cwd || null
   const projectTitle = resolvedRepoName && resolvedRepoName.folder === projectFolder
     ? resolvedRepoName.name
     : projectFolder
@@ -176,12 +173,13 @@ export function useSessionManager({
     loadSession(sessionId, sessionMessages, initialTokenUsage)
   }, [loadSession])
 
-  const handleNewChat = useCallback(() => {
-    const draft = draftActions.createDraft(selectedFolder || undefined)
+  const handleNewChat = useCallback(async (provider?: 'claude' | 'codex', cwd?: string) => {
+    await window.claude.setProvider?.(provider || 'claude')
+    const draft = draftActions.createDraft(cwd || activeSession?.cwd || undefined)
     loadSession(draft.draftId, [])
     resetInput()
     setMode('code')
-  }, [loadSession, resetInput, setMode, draftActions, selectedFolder])
+  }, [loadSession, resetInput, setMode, draftActions, activeSession])
 
   return {
     activeSessionId,
@@ -189,8 +187,6 @@ export function useSessionManager({
     activeSessionIdRef,
     activeSession,
     setActiveSession,
-    selectedFolder,
-    setSelectedFolder,
     projectTitle,
     projectFolderRef,
     loadSession,

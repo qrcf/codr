@@ -6,12 +6,13 @@ import type {
   ProviderRunResult,
 } from '../provider'
 import type { Codex, Thread, ThreadEvent, ThreadItem, ThreadOptions } from '@openai/codex-sdk'
+import { preprocessPromptFull } from '../prompt-preprocessor'
 
 type CodexModule = { Codex: new (options?: Record<string, unknown>) => InstanceType<typeof Codex> }
 
-async function createCodexInstance(): Promise<InstanceType<typeof Codex>> {
+async function createCodexInstance(config?: Record<string, unknown>): Promise<InstanceType<typeof Codex>> {
   const mod = await import('@openai/codex-sdk') as unknown as CodexModule
-  return new mod.Codex()
+  return new mod.Codex(config ? { config } : undefined)
 }
 
 // Item types that map to tool_use / tool_result blocks in the renderer
@@ -57,6 +58,18 @@ function itemToolIsError(item: ThreadItem): boolean {
   }
 }
 
+/** Map Codex todo_list items to Claude TodoWrite format for the renderer */
+function mapTodoListToTodoWrite(item: ThreadItem): Record<string, unknown> {
+  if (item.type !== 'todo_list') return {}
+  return {
+    todos: item.items.map(todo => ({
+      content: todo.text,
+      status: todo.completed ? 'completed' : 'pending',
+      activeForm: todo.text,
+    })),
+  }
+}
+
 export class CodexProvider implements AgentProvider {
   readonly id = 'codex' as const
   private readonly abortControllers = new Map<string, AbortController>()
@@ -64,19 +77,23 @@ export class CodexProvider implements AgentProvider {
 
   constructor(ctx: AgentProviderContext) {
     this.ctx = ctx
-    void this.ctx
   }
 
   async runQuery(req: AgentQueryRequest, callbacks: ProviderRunCallbacks): Promise<ProviderRunResult> {
-    const codex = await createCodexInstance()
+    const codex = await createCodexInstance(
+      req.planMode ? { include_plan_tool: true } : undefined
+    )
 
     const isResume = !!req.resumeSessionId
     let sessionId = req.resumeSessionId || ''
 
     const controller = new AbortController()
 
+    const CODEX_REASONING_MAP = { low: 'low', medium: 'medium', high: 'high' } as const
     const threadOptions: ThreadOptions = {
       ...(req.cwd ? { workingDirectory: req.cwd } : {}),
+      ...(req.model ? { model: req.model } : {}),
+      ...(req.thinkingBudget ? { modelReasoningEffort: CODEX_REASONING_MAP[req.thinkingBudget] } : {}),
     }
 
     const thread: Thread = isResume
@@ -84,8 +101,18 @@ export class CodexProvider implements AgentProvider {
       : codex.startThread(threadOptions)
 
     let prompt = req.prompt
-    if (req.askMode) prompt = `[ASK MODE] Answer the question without making edits or executing side effects.\n\n${prompt}`
-    if (req.planMode) prompt = `[PLAN MODE] Provide a clear implementation plan before coding.\n\n${prompt}`
+
+    // Append mode instructions after the user's prompt so they don't pollute
+    // the prompt text used for title generation by the Codex SDK.
+    if (req.askMode) {
+      prompt = `${prompt}\n\n<system_instruction>You are in ask mode. Answer the question without making edits or executing side effects. Only read, search, and explain.</system_instruction>`
+    }
+    if (req.planMode) {
+      prompt = `${prompt}\n\n<system_instruction>You are in plan mode. Explore the codebase and create an implementation plan. Do not edit source code — only read, search, and plan. You may write plan files to .claude/plans/ directory. When your plan is ready, call ExitPlanMode.</system_instruction>`
+    }
+
+    // Resolve @docs: references and @file references into context blocks
+    prompt = await preprocessPromptFull(this.ctx, prompt, req.cwd)
 
     // For resumed sessions we know the ID upfront; emit setup immediately
     if (isResume) {
@@ -152,6 +179,22 @@ export class CodexProvider implements AgentProvider {
                 }, sessionId)
                 prevItemTextLen.set(item.id, item.text.length)
               }
+            } else if (item.type === 'todo_list') {
+              // Emit todo_list as a TodoWrite tool_use so the renderer displays it
+              const input = mapTodoListToTodoWrite(item)
+              callbacks.onMessage({
+                type: 'stream_event',
+                session_id: sessionId,
+                event: {
+                  type: 'content_block_start',
+                  content_block: { type: 'tool_use', id: item.id, name: 'TodoWrite' },
+                },
+              }, sessionId)
+              callbacks.onMessage({
+                type: 'assistant',
+                session_id: sessionId,
+                message: { content: [{ type: 'tool_use', id: item.id, name: 'TodoWrite', input }] },
+              }, sessionId)
             } else if (TOOL_ITEM_TYPES.has(item.type) && event.type === 'item.started') {
               // Announce the tool call to the renderer for live display
               callbacks.onMessage({
@@ -171,6 +214,21 @@ export class CodexProvider implements AgentProvider {
 
             if (item.type === 'agent_message') {
               agentText = item.text
+            } else if (item.type === 'todo_list') {
+              // Emit final todo_list state
+              const input = mapTodoListToTodoWrite(item)
+              callbacks.onMessage({
+                type: 'assistant',
+                session_id: sessionId,
+                message: { content: [{ type: 'tool_use', id: item.id, name: 'TodoWrite', input }] },
+              }, sessionId)
+              callbacks.onMessage({
+                type: 'user',
+                session_id: sessionId,
+                message: {
+                  content: [{ type: 'tool_result', tool_use_id: item.id, content: 'Plan updated', is_error: false }],
+                },
+              }, sessionId)
             } else if (TOOL_ITEM_TYPES.has(item.type)) {
               const name = itemToolName(item)
               const input = itemToolInput(item)

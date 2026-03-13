@@ -1,6 +1,7 @@
-import { crawlSite } from './crawler.js'
-import { extractAndChunk } from './chunker.js'
+import { Crawl4AIBridge } from './crawl4ai-bridge.js'
+import { chunkMarkdown } from './chunker.js'
 import type { EventBroadcaster } from '../event-broadcaster.js'
+import type { SetupProgress } from './python-runtime.js'
 
 export interface DocSource {
   id: number
@@ -19,12 +20,12 @@ export interface DocSource {
 
 interface DocsManagerOptions {
   apiUrl: string
-  getAuthToken: () => string | null
+  getAuthToken: () => Promise<string> | string | null
   broadcaster: EventBroadcaster
 }
 
-// In-memory map of active crawl source IDs → AbortController
-const activeCrawls = new Map<number, AbortController>()
+// In-memory map of active crawl source IDs → bridge instance
+const activeCrawls = new Map<number, Crawl4AIBridge>()
 
 /**
  * Helper to call API HTTP endpoints with auth
@@ -45,11 +46,30 @@ async function apiFetch(
   })
 }
 
+export async function fetchPageTitle(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(5000),
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Codr/1.0)' },
+    })
+    if (!res.ok) return null
+    const text = await res.text()
+    const match = text.match(/<title[^>]*>([^<]+)<\/title>/i)
+    if (!match) return null
+    return match[1]
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&#39;/g, "'").replace(/&quot;/g, '"')
+      .trim() || null
+  } catch {
+    return null
+  }
+}
+
 export function createDocsManager(options: DocsManagerOptions) {
   const { apiUrl, getAuthToken, broadcaster } = options
 
-  function getToken(): string {
-    const token = getAuthToken()
+  async function getToken(): Promise<string> {
+    const token = await getAuthToken()
     if (!token) throw new Error('Not authenticated')
     return token
   }
@@ -58,7 +78,7 @@ export function createDocsManager(options: DocsManagerOptions) {
    * List all doc sources for the current user
    */
   async function listSources(): Promise<DocSource[]> {
-    const res = await apiFetch(apiUrl, '/api/docs', getToken())
+    const res = await apiFetch(apiUrl, '/api/docs', await getToken())
     if (!res.ok) throw new Error(`Failed to list doc sources: ${res.status}`)
     return res.json() as Promise<DocSource[]>
   }
@@ -68,7 +88,7 @@ export function createDocsManager(options: DocsManagerOptions) {
    */
   async function addSource(url: string, name: string, crawlDepth: number = 3, prefix?: string): Promise<DocSource> {
     // 1. Create source record on relay (status=pending)
-    const createRes = await apiFetch(apiUrl, '/api/docs', getToken(), {
+    const createRes = await apiFetch(apiUrl, '/api/docs', await getToken(), {
       method: 'POST',
       body: JSON.stringify({ url, name, crawlDepth, prefix: prefix || null }),
     })
@@ -90,7 +110,7 @@ export function createDocsManager(options: DocsManagerOptions) {
    * Remove a doc source
    */
   async function removeSource(sourceId: number): Promise<void> {
-    const res = await apiFetch(apiUrl, `/api/docs/${sourceId}`, getToken(), {
+    const res = await apiFetch(apiUrl, `/api/docs/${sourceId}`, await getToken(), {
       method: 'DELETE',
     })
     if (!res.ok) throw new Error(`Failed to delete doc source: ${res.status}`)
@@ -101,7 +121,7 @@ export function createDocsManager(options: DocsManagerOptions) {
    */
   async function recrawlSource(sourceId: number, url: string, crawlDepth: number, prefix?: string): Promise<void> {
     // Clear existing chunks
-    const deleteRes = await apiFetch(apiUrl, `/api/docs/${sourceId}/chunks`, getToken(), {
+    const deleteRes = await apiFetch(apiUrl, `/api/docs/${sourceId}/chunks`, await getToken(), {
       method: 'DELETE',
     })
     if (!deleteRes.ok) throw new Error(`Failed to clear chunks: ${deleteRes.status}`)
@@ -111,7 +131,7 @@ export function createDocsManager(options: DocsManagerOptions) {
   }
 
   /**
-   * Start a crawl job for a source
+   * Start a crawl job for a source using Crawl4AI
    */
   async function startCrawl(sourceId: number, baseUrl: string, maxDepth: number, prefix?: string): Promise<void> {
     if (activeCrawls.has(sourceId)) {
@@ -119,18 +139,16 @@ export function createDocsManager(options: DocsManagerOptions) {
       return
     }
 
-    const abortController = new AbortController()
-    activeCrawls.set(sourceId, abortController)
+    const bridge = new Crawl4AIBridge()
+    activeCrawls.set(sourceId, bridge)
     console.log(`[docs] Starting crawl for source ${sourceId}: ${baseUrl} (depth=${maxDepth})`)
 
-    // Track progress incrementally (outside try so catch can access)
     let pagesCrawled = 0
     let totalChunks = 0
 
     try {
       // Update status to crawling
-      console.log(`[docs] Setting status to crawling for source ${sourceId}`)
-      const statusRes = await apiFetch(apiUrl, `/api/docs/${sourceId}`, getToken(), {
+      const statusRes = await apiFetch(apiUrl, `/api/docs/${sourceId}`, await getToken(), {
         method: 'PUT',
         body: JSON.stringify({ status: 'crawling' }),
       })
@@ -144,87 +162,62 @@ export function createDocsManager(options: DocsManagerOptions) {
         currentUrl: baseUrl,
       })
 
-      // Crawl — chunk and upload each page as it arrives
-      console.log(`[docs] Beginning site crawl: ${baseUrl}`)
-      const pages = await crawlSite({
-        baseUrl,
-        maxDepth,
-        maxPages: 500,
-        prefix,
-        signal: abortController.signal,
-        onPage: async (page) => {
-          // Chunk this page
-          const chunked = extractAndChunk(page.html, page.url)
-          const chunkCount = chunked.chunks.length
-          console.log(`[docs] Page ${pagesCrawled + 1}: ${page.url} → ${chunkCount} chunks`)
+      // Start bridge with setup progress broadcasting
+      const onSetupProgress = (progress: SetupProgress) => {
+        broadcaster.send('docs:setup-progress', progress)
+      }
 
-          // Upload immediately
-          if (chunkCount > 0) {
-            const payload = [{
-              url: chunked.url,
-              title: chunked.title,
-              chunks: chunked.chunks.map((c, idx) => ({
-                heading: c.heading,
-                content: c.content,
-                chunkIndex: idx,
-              })),
-            }]
-            const uploadRes = await apiFetch(apiUrl, `/api/docs/${sourceId}/chunks`, getToken(), {
-              method: 'POST',
-              body: JSON.stringify({ pages: payload }),
-            })
-            if (!uploadRes.ok) {
-              const body = await uploadRes.text().catch(() => '')
-              throw new Error(`Failed to upload page ${page.url}: ${uploadRes.status} ${body}`)
-            }
-          }
+      await bridge.start(onSetupProgress)
 
-          pagesCrawled++
-          totalChunks += chunkCount
+      // Run the crawl — Crawl4AI handles BFS, link discovery, JS rendering
+      console.log(`[docs] Beginning Crawl4AI site crawl: ${baseUrl}`)
+      const total = await bridge.crawlSite(baseUrl, maxDepth, 500, prefix || undefined, async (page) => {
+        // Chunk the markdown
+        const chunked = chunkMarkdown(page.markdown, page.url, page.title)
+        const chunkCount = chunked.chunks.length
+        console.log(`[docs] Page ${pagesCrawled + 1}: ${page.url} → ${chunkCount} chunks`)
 
-          // Broadcast progress after each page
-          broadcaster.send('docs:crawl-progress', {
-            sourceId,
-            status: 'crawling' as const,
-            pagesCrawled,
-            currentUrl: page.url,
+        // Upload chunks to relay (getToken() fetches a fresh Clerk JWT on each call)
+        if (chunkCount > 0) {
+          const payload = [{
+            url: chunked.url,
+            title: chunked.title,
+            chunks: chunked.chunks.map((c, idx) => ({
+              heading: c.heading,
+              content: c.content,
+              chunkIndex: idx,
+            })),
+          }]
+          const uploadRes = await apiFetch(apiUrl, `/api/docs/${sourceId}/chunks`, await getToken(), {
+            method: 'POST',
+            body: JSON.stringify({ pages: payload }),
           })
-        },
-      })
-      console.log(`[docs] Crawl fetched ${pages.length} pages from ${baseUrl}`)
+          if (!uploadRes.ok) {
+            const body = await uploadRes.text().catch(() => '')
+            throw new Error(`Failed to upload page ${page.url}: ${uploadRes.status} ${body}`)
+          }
+        }
 
-      // Check if cancelled
-      if (abortController.signal.aborted) {
-        console.log(`[docs] Crawl cancelled for source ${sourceId} after ${pagesCrawled} pages`)
-        // Set status to ready with whatever pages we got, or pending if none
-        const finalStatus = pagesCrawled > 0 ? 'ready' : 'pending'
-        await apiFetch(apiUrl, `/api/docs/${sourceId}`, getToken(), {
-          method: 'PUT',
-          body: JSON.stringify({
-            status: finalStatus,
-            pageCount: pagesCrawled,
-            lastCrawledAt: pagesCrawled > 0 ? new Date().toISOString() : undefined,
-          }),
-        }).catch(() => {})
+        pagesCrawled++
+        totalChunks += chunkCount
 
+        // Broadcast progress after each page
         broadcaster.send('docs:crawl-progress', {
           sourceId,
-          status: 'complete' as const,
+          status: 'crawling' as const,
           pagesCrawled,
+          currentUrl: page.url,
         })
-        return
-      }
+      })
 
-      if (pages.length === 0) {
-        console.warn(`[docs] Crawl returned 0 pages for ${baseUrl}`)
-      }
+      console.log(`[docs] Crawl fetched ${total} pages from ${baseUrl}`)
 
       // Update source status to ready
-      const readyRes = await apiFetch(apiUrl, `/api/docs/${sourceId}`, getToken(), {
+      const readyRes = await apiFetch(apiUrl, `/api/docs/${sourceId}`, await getToken(), {
         method: 'PUT',
         body: JSON.stringify({
           status: 'ready',
-          pageCount: pages.length,
+          pageCount: pagesCrawled,
           lastCrawledAt: new Date().toISOString(),
         }),
       })
@@ -233,16 +226,18 @@ export function createDocsManager(options: DocsManagerOptions) {
       broadcaster.send('docs:crawl-progress', {
         sourceId,
         status: 'complete' as const,
-        pagesCrawled: pages.length,
+        pagesCrawled,
       })
 
-      console.log(`[docs] Crawl complete for source ${sourceId}: ${pages.length} pages, ${totalChunks} chunks`)
+      console.log(`[docs] Crawl complete for source ${sourceId}: ${pagesCrawled} pages, ${totalChunks} chunks`)
     } catch (err) {
-      // Abort errors are expected when cancelling — don't treat as failure
-      if (abortController.signal.aborted) {
-        console.log(`[docs] Crawl cancelled for source ${sourceId}`)
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+
+      // If the bridge was killed (abort), treat as cancellation
+      if (errorMessage === 'Crawl aborted' || errorMessage.includes('Worker killed')) {
+        console.log(`[docs] Crawl cancelled for source ${sourceId} after ${pagesCrawled} pages`)
         const finalStatus = pagesCrawled > 0 ? 'ready' : 'pending'
-        await apiFetch(apiUrl, `/api/docs/${sourceId}`, getToken(), {
+        await apiFetch(apiUrl, `/api/docs/${sourceId}`, await getToken(), {
           method: 'PUT',
           body: JSON.stringify({
             status: finalStatus,
@@ -258,11 +253,9 @@ export function createDocsManager(options: DocsManagerOptions) {
         return
       }
 
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error'
       console.error(`[docs] Crawl failed for source ${sourceId}:`, errorMessage)
 
-      // Update source status to error (best effort with fresh token)
-      await apiFetch(apiUrl, `/api/docs/${sourceId}`, getToken(), {
+      await apiFetch(apiUrl, `/api/docs/${sourceId}`, await getToken(), {
         method: 'PUT',
         body: JSON.stringify({ status: 'error', errorMessage }),
       }).catch((e) => {
@@ -278,6 +271,8 @@ export function createDocsManager(options: DocsManagerOptions) {
 
       throw err
     } finally {
+      // Always clean up the bridge
+      try { await bridge.stop() } catch { /* ignore */ }
       activeCrawls.delete(sourceId)
     }
   }
@@ -286,7 +281,7 @@ export function createDocsManager(options: DocsManagerOptions) {
    * Search docs via relay
    */
   async function searchDocs(query: string, sourceIds?: number[], limit?: number) {
-    const res = await apiFetch(apiUrl, '/api/docs/search', getToken(), {
+    const res = await apiFetch(apiUrl, '/api/docs/search', await getToken(), {
       method: 'POST',
       body: JSON.stringify({ query, sourceIds, limit }),
     })
@@ -298,14 +293,55 @@ export function createDocsManager(options: DocsManagerOptions) {
    * Cancel an active crawl
    */
   function cancelCrawl(sourceId: number): boolean {
-    const controller = activeCrawls.get(sourceId)
-    if (controller) {
+    const bridge = activeCrawls.get(sourceId)
+    if (bridge) {
       console.log(`[docs] Cancelling crawl for source ${sourceId}`)
-      controller.abort()
+      bridge.kill()
       return true
     }
+    // No active bridge — source may be stuck in 'crawling' from a crashed/restarted session
+    console.warn(`[docs] No active crawl for source ${sourceId}, resetting status to pending`)
+    getToken().then(token =>
+      apiFetch(apiUrl, `/api/docs/${sourceId}`, token, {
+        method: 'PUT',
+        body: JSON.stringify({ status: 'pending' }),
+      })
+    ).catch((e) => {
+      console.error(`[docs] Failed to reset status for source ${sourceId}:`, e)
+    })
     return false
   }
+
+  /**
+   * On startup, reset any sources stuck in 'crawling' — they have no active process.
+   */
+  async function resetStuckCrawls(): Promise<void> {
+    try {
+      const sources = await listSources()
+      const stuck = sources.filter(s => s.status === 'crawling')
+      if (stuck.length === 0) return
+      console.log(`[docs] Resetting ${stuck.length} stuck crawl(s) to pending on startup`)
+      const token = await getToken()
+      await Promise.all(stuck.map(async s => {
+        await apiFetch(apiUrl, `/api/docs/${s.id}`, token, {
+          method: 'PUT',
+          body: JSON.stringify({ status: 'pending' }),
+        }).catch((e) => {
+          console.error(`[docs] Failed to reset source ${s.id}:`, e)
+        })
+        broadcaster.send('docs:crawl-progress', {
+          sourceId: s.id,
+          status: 'complete' as const,
+          pagesCrawled: 0,
+        })
+      }))
+    } catch (e) {
+      console.warn('[docs] Could not reset stuck crawls on startup:', e)
+    }
+  }
+
+  // Fire-and-forget on creation — resets any sources left in 'crawling' from a prior session
+  resetStuckCrawls()
 
   return {
     listSources,

@@ -15,19 +15,22 @@ pnpm install
 # Electron app
 pnpm dev          # Run Electron app in dev mode with HMR
 pnpm build        # Build Electron app (electron-vite)
-pnpm dist         # Build + package DMG with electron-builder
 pnpm lint         # ESLint
+
+# Build + package locally (downloads uv, runs electron-vite build + electron-builder)
+pnpm dist
+
+# Build, package, version bump, and upload to Vercel Blob
+pnpm deploy --upload              # patch bump (default)
+pnpm deploy --upload --minor      # minor bump
+pnpm deploy --upload --major      # major bump
 
 # Web client (packages/web)
 pnpm web:dev      # Run web client dev server (Vite, port 5174)
 pnpm web:build    # Build web client (tsc + vite build)
-
-# Deployment
-pnpm deploy       # Version bump + upload DMG to Vercel Blob (tsx scripts/deploy.ts)
-                  # Accepts --major, --minor, --patch flags
 ```
 
-No test framework is configured — there are no tests.
+No test framework is configured. `src/main/runtime/session-records.ts` has a small test using Node's built-in `node:test` module.
 
 ## Architecture
 
@@ -43,6 +46,20 @@ No test framework is configured — there are no tests.
 - **`@codr-works/types`** — External npm package defining shared message types (`DesktopToWebMessageType`, `WebToDesktopMessageType`, `SystemMessageType`, `ConversationStatePayload`, etc.)
 
 The relay server is **not in this repo** — it's an external service. The desktop app connects to it as a client (`src/main/relay-client.ts`), and the relay exposes HTTP API endpoints (`/api/sessions`, `/api/docs`, `/api/docs/search`) plus WebSocket routing.
+
+### Agent runtime & provider system (`src/main/runtime/`)
+
+Pluggable provider abstraction that lets the app run either Claude or Codex as the backend agent:
+
+- **`agent-runtime.ts`** — Orchestrates provider lifecycle, exposes a unified interface to the rest of the main process
+- **`provider.ts`** — Abstract provider interface that Claude and Codex providers implement
+- **`providers/claude-provider.ts`** — Uses `@anthropic-ai/claude-agent-sdk`, handles sessions, token counting, streaming
+- **`providers/codex-provider.ts`** — Uses `@openai/codex-sdk` (dynamic import), maps Codex thread items to Claude SDK message format
+- **`provider-config.ts`** — Persists selected provider/model to `app.getPath('userData')/agent-runtime/provider-config.json`
+- **`models.ts`** — In-memory model cache, fetches available models per provider
+- **`codex-discovery.ts`** — Reads Codex threads from `~/.codex/state_5.sqlite` (requires Node 24+ built-in `sqlite`)
+- **`session-index.ts` / `session-records.ts`** — Indexes raw messages with provider info
+- **`prompt-preprocessor.ts`** — Preprocesses prompts (e.g., `@docs:` expansion)
 
 ### Key design pattern: Unified `window.claude` API
 

@@ -76,7 +76,14 @@ jobs:
         run: |
           npm i -g vercel
 
-          # Assemble Vercel Build Output API structure from pre-built dist
+          # Link project so Vercel CLI knows which project to deploy to
+          mkdir -p .vercel
+          cat > .vercel/project.json << EOF
+          {"orgId":"$VERCEL_ORG_ID","projectId":"$VERCEL_PROJECT_ID"}
+          EOF
+
+          # Assemble Vercel Build Output API structure inside packages/web/
+          # (Vercel's Root Directory setting resolves to packages/web/)
           mkdir -p packages/web/.vercel/output/static
           cp -r packages/web/dist/* packages/web/.vercel/output/static/
           cat > packages/web/.vercel/output/config.json << 'EOF'
@@ -89,7 +96,7 @@ jobs:
           }
           EOF
 
-          cd packages/web
+          # Deploy from repo root — Vercel's Root Directory setting handles the rest
           vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}

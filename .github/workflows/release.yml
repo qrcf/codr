@@ -50,6 +50,7 @@ jobs:
           cat > .env << 'ENVEOF'
           VITE_RELAY_URL=${{ vars.VITE_RELAY_URL }}
           VITE_API_URL=${{ vars.VITE_API_URL }}
+          VITE_WEB_URL=${{ vars.VITE_WEB_URL }}
           ENVEOF
 
           cat > packages/web/.env << 'ENVEOF'

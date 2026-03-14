@@ -2,8 +2,9 @@ appId: com.integerstudios.codr
 productName: Codr
 
 publish:
-  provider: generic
-  url: https://tqxf75s51oolyowp.public.blob.vercel-storage.com/releases/
+  provider: github
+  owner: qrcf
+  repo: codr
 
 directories:
   output: dist

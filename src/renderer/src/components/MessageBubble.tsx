@@ -43,6 +43,9 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
   const otherTools = message.toolCalls.filter((t) => t.name !== 'Agent' && !isPlanWrite(t))
   const hasRunning = otherTools.some((t) => t.status === 'running')
   const [groupExpanded, setGroupExpanded] = useState(hasRunning)
+  const isLong = message.role === 'user' && !!message.content &&
+    (message.content.split('\n').length > 4 || message.content.length > 280)
+  const [expanded, setExpanded] = useState(false)
 
   if (message.role === 'system') {
     return (
@@ -55,8 +58,25 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
   return (
     <div className={`max-w-full ${message.role === 'user' ? 'self-end max-w-[80%] bg-[#2a2a3d] px-[14px] py-2 rounded-[16px_16px_4px_16px] mt-2' : 'py-1'}`}>
       {message.content && (
-        <div className="message-content">
-          <Markdown remarkPlugins={[remarkGfm]}>{formatMessageContent(message.content)}</Markdown>
+        <div>
+          <div
+            className={`message-content${isLong && !expanded ? ' relative overflow-hidden cursor-pointer' : ''}`}
+            style={isLong && !expanded ? { maxHeight: '5.5em' } : undefined}
+            onClick={isLong && !expanded ? () => setExpanded(true) : undefined}
+          >
+            <Markdown remarkPlugins={[remarkGfm]}>{formatMessageContent(message.content)}</Markdown>
+            {isLong && !expanded && (
+              <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-[#2a2a3d] to-transparent pointer-events-none" />
+            )}
+          </div>
+          {isLong && expanded && (
+            <button
+              className="text-[0.8em] text-[#8a7faf] mt-1 hover:text-[#b0a8d0] cursor-pointer bg-transparent border-none p-0"
+              onClick={() => setExpanded(false)}
+            >
+              Show less
+            </button>
+          )}
         </div>
       )}
       {agents.map((agent) => (

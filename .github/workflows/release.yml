@@ -1,0 +1,109 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g. 0.3.0)'
+        required: true
+
+jobs:
+  build-and-release:
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Set version
+        run: npm version ${{ steps.version.outputs.version }} --no-git-tag-version
+
+      - name: Create env files
+        run: |
+          cat > .env << 'ENVEOF'
+          VITE_RELAY_URL=${{ vars.VITE_RELAY_URL }}
+          VITE_API_URL=${{ vars.VITE_API_URL }}
+          ENVEOF
+
+          cat > packages/web/.env << 'ENVEOF'
+          VITE_RELAY_URL=${{ vars.VITE_RELAY_URL }}
+          VITE_CLERK_PUBLISHABLE_KEY=${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+          ENVEOF
+
+      - name: Download uv binary
+        run: pnpm tsx scripts/download-uv.ts
+
+      - name: Build Electron app
+        run: pnpm build
+
+      - name: Package, sign, and notarize
+        run: pnpm exec electron-builder
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+
+      - name: Build web client
+        run: pnpm web:build
+
+      - name: Deploy web client to Vercel
+        run: |
+          npm i -g vercel
+
+          # Assemble Vercel Build Output API structure from pre-built dist
+          mkdir -p packages/web/.vercel/output/static
+          cp -r packages/web/dist/* packages/web/.vercel/output/static/
+          cat > packages/web/.vercel/output/config.json << 'EOF'
+          {
+            "version": 3,
+            "routes": [
+              { "handle": "filesystem" },
+              { "src": "/(.*)", "dest": "/index.html" }
+            ]
+          }
+          EOF
+
+          cd packages/web
+          vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Upload to Vercel Blob
+        run: pnpm tsx scripts/upload.ts
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/Codr-${{ steps.version.outputs.version }}-arm64.dmg
+          generate_release_notes: true

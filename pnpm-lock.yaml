@@ -12,8 +12,8 @@ importers:
         specifier: ^0.2.72
         version: 0.2.74(zod@4.3.6)
       '@codr-works/types':
-        specifier: ^0.1.2
-        version: 0.1.2
+        specifier: ^0.1.3
+        version: 0.1.3
       '@openai/codex-sdk':
         specifier: ^0.114.0
         version: 0.114.0
@@ -266,8 +266,8 @@ packages:
   '@codr-works/types@0.1.1':
     resolution: {integrity: sha512-4E6QHB1tdpb2IPoCASJSV5r7/Ey6Yj8PSbn5/ndahx/QWZjMaCD1MRRa3slnIMNsEb87MbgDlyohrvkx69MLww==}
 
-  '@codr-works/types@0.1.2':
-    resolution: {integrity: sha512-g/elLDJiHvhnxkc4Pv1uz/GeZP7uLEitbZU4YWiSps63+JV6QwrQqpGRj3vKWO6gYo+z7aTMXP56xOlOqidUNA==}
+  '@codr-works/types@0.1.3':
+    resolution: {integrity: sha512-5L2U9Fq1hW56e87IFn+7EhNKZY7rcKSrNUVjPC43U7KRMg2PauQ/JSwetkYDPxp/hoSv0g9nMzx+uoeFBqewvg==}
 
   '@develar/schema-utils@2.6.5':
     resolution: {integrity: sha512-0cp4PsWQ/9avqTVMCtZ+GirikIA36ikvjtHweU4/j8yLtgObI0+JUPhYFScgwlteveGB1rt3Cm8UhN04XayDig==}
@@ -3417,7 +3417,7 @@ snapshots:
 
   '@codr-works/types@0.1.1': {}
 
-  '@codr-works/types@0.1.2': {}
+  '@codr-works/types@0.1.3': {}
 
   '@develar/schema-utils@2.6.5':
     dependencies:

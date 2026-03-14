@@ -107,7 +107,6 @@ export function Sidebar({
     })
   }, [])
   const [repoNames, setRepoNames] = useState<Record<string, string>>({})
-  const pendingTitleRequestsRef = useRef<Set<string>>(new Set())
 
   // Resolve repo names (@org/name) for all known folders
   useEffect(() => {
@@ -151,17 +150,6 @@ export function Sidebar({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- displayName is derived from repoNames (in deps)
   }, [projects, repoNames, hiddenProjects, onProjectsUpdate])
 
-  const requestTitleBackfill = useCallback((sessionId: string, firstPrompt?: string) => {
-    if (!window.claude.ensureTitle) return
-    const pending = pendingTitleRequestsRef.current
-    if (pending.has(sessionId)) return
-    pending.add(sessionId)
-    window.claude.ensureTitle(sessionId, firstPrompt).catch(() => {
-    }).finally(() => {
-      pending.delete(sessionId)
-    })
-  }, [])
-
   const fetchSessions = useCallback(async () => {
     try {
       const result = await window.claude.listSessions()
@@ -180,22 +168,10 @@ export function Sidebar({
         })
       })
       setSessionsLoaded(true)
-
-      if (result.titlesLoaded) {
-        const untitled = list.find(
-          s => s.provider !== 'codex'
-            && !s.generatedTitle
-            && !s.customTitle
-            && !pendingTitleRequestsRef.current.has(s.sessionId),
-        )
-        if (untitled) {
-          requestTitleBackfill(untitled.sessionId, untitled.firstPrompt || untitled.summary)
-        }
-      }
     } catch {
       setSessionsLoaded(true)
     }
-  }, [requestTitleBackfill])
+  }, [])
 
   useEffect(() => {
     fetchSessions()

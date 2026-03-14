@@ -11,6 +11,7 @@ import { CodexProvider } from './runtime/providers/codex-provider'
 import type { AgentProvider, AgentProviderId, AgentProviderContext } from './runtime/provider'
 import { resolveSessionProvider } from './runtime/session-records'
 import type { IndexerManager } from './indexer/manager'
+import type { AttachmentMeta } from '../shared/attachments'
 
 export function getCliPath(): string | undefined {
   return getClaudeCliPath()
@@ -53,7 +54,7 @@ export function registerAgentHandlers(
   }
 
   // Run a query (used by both IPC and relay-forwarded commands)
-  async function runQuery(prompt: string, resumeSessionId?: string, planMode?: boolean, cwd?: string, askMode?: boolean, origin: MessageOrigin = 'local', model?: string, thinkingBudget?: 'low' | 'medium' | 'high') {
+  async function runQuery(prompt: string, resumeSessionId?: string, planMode?: boolean, cwd?: string, askMode?: boolean, origin: MessageOrigin = 'local', model?: string, thinkingBudget?: 'low' | 'medium' | 'high', attachments?: AttachmentMeta[]) {
     const selectedProvider = await getSelectedProvider()
     const storedSession = resumeSessionId ? await getIndexedSessionMeta(resumeSessionId) : null
     const providerId = resolveSessionProvider(selectedProvider, storedSession?.provider)
@@ -66,7 +67,7 @@ export function registerAgentHandlers(
     let errorOccurred = false
 
     await provider.runQuery(
-      { prompt, resumeSessionId, planMode, cwd, askMode, origin, model: resolvedModel, thinkingBudget },
+      { prompt, resumeSessionId, planMode, cwd, askMode, origin, model: resolvedModel, thinkingBudget, attachments },
       {
         onSessionIdentified: (sessionId) => {
           if (sessionId === currentKey) {
@@ -135,10 +136,10 @@ export function registerAgentHandlers(
   }
 
   // IPC handlers (Electron renderer)
-  ipcMain.handle('agent:query', async (_event, prompt: string, opts?: { resumeSessionId?: string; planMode?: boolean; cwd?: string; askMode?: boolean; model?: string; thinkingBudget?: 'low' | 'medium' | 'high' }) => {
+  ipcMain.handle('agent:query', async (_event, prompt: string, opts?: { resumeSessionId?: string; planMode?: boolean; cwd?: string; askMode?: boolean; model?: string; thinkingBudget?: 'low' | 'medium' | 'high'; attachments?: AttachmentMeta[] }) => {
     const win = getMainWindow()
     if (!win) return
-    await runQuery(prompt, opts?.resumeSessionId, opts?.planMode, opts?.cwd, opts?.askMode, 'local', opts?.model, opts?.thinkingBudget)
+    await runQuery(prompt, opts?.resumeSessionId, opts?.planMode, opts?.cwd, opts?.askMode, 'local', opts?.model, opts?.thinkingBudget, opts?.attachments)
   })
 
   ipcMain.handle('agent:interrupt', async (_event, sessionId?: string) => {

@@ -13,17 +13,26 @@ export function AuthGate({ children }: AuthGateProps) {
 
   useEffect(() => {
     // Check for existing stored token
-    window.claude.getAuthToken?.().then((token) => {
+    window.claude?.getAuthToken?.().then((token) => {
       setAuthenticated(!!token)
     })
 
     // Listen for token stored via deep link
-    const cleanup = window.claude.onTokenStored?.(() => {
+    const cleanup = window.claude?.onTokenStored?.(() => {
       setAuthenticated(true)
       setWaitingForBrowser(false)
     })
 
-    return () => cleanup?.()
+    // Listen for token invalidation (401 from relay or API)
+    const cleanupUnauthorized = window.claude?.onAuthUnauthorized?.(() => {
+      setAuthenticated(false)
+      setWaitingForBrowser(false)
+    })
+
+    return () => {
+      cleanup?.()
+      cleanupUnauthorized?.()
+    }
   }, [])
 
   if (authenticated === null) {

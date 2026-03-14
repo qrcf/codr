@@ -17,5 +17,5 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src/preload/**/*"]
+  "include": ["src/preload/**/*", "src/shared/**/*"]
 }

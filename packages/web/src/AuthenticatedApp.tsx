@@ -78,7 +78,7 @@ function ConnectedApp() {
     return <App />
   }
 
-  const { getToken } = useAuth()
+  const { getToken, signOut } = useAuth()
   const [ready, setReady] = useState(false)
   const [desktopOnline, setDesktopOnline] = useState<boolean | null>(null)
   const [desktopVersion, setDesktopVersion] = useState<string | null>(null)
@@ -100,18 +100,20 @@ function ConnectedApp() {
 
     const unsubDesktop = api.onDesktopStatus((online) => setDesktopOnline(online))
     const unsubVersion = api.onDesktopVersion((version) => setDesktopVersion(version))
+    const unsubAuthFailed = api.onAuthFailed(() => { void signOut() })
 
     setReady(true)
 
     return () => {
       unsubDesktop()
       unsubVersion()
+      unsubAuthFailed()
       api.disconnect()
       const stub = createStubAgentAPI()
       ;(window as unknown as { claude: ReturnType<typeof createStubAgentAPI>; agent: ReturnType<typeof createStubAgentAPI> }).claude = stub
       ;(window as unknown as { claude: ReturnType<typeof createStubAgentAPI>; agent: ReturnType<typeof createStubAgentAPI> }).agent = stub
     }
-  }, [getClerkToken])
+  }, [getClerkToken, signOut])
 
   // Show version mismatch overlay in production when desktop version doesn't match web version
   const webVersion = __APP_VERSION__

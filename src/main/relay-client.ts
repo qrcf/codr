@@ -20,6 +20,7 @@ export class RelayClient {
   private shouldReconnect = false
   private messageHandler: ((msg: RelayMessage) => void) | null = null
   private statusHandlers: Array<(status: RelayStatus, webClients: number) => void> = []
+  private authFailedHandlers: Array<() => void> = []
   private webClientCount = 0
 
   onMessage(handler: (msg: RelayMessage) => void) {
@@ -30,6 +31,13 @@ export class RelayClient {
     this.statusHandlers.push(handler)
     return () => {
       this.statusHandlers = this.statusHandlers.filter((h) => h !== handler)
+    }
+  }
+
+  onAuthFailed(handler: () => void): () => void {
+    this.authFailedHandlers.push(handler)
+    return () => {
+      this.authFailedHandlers = this.authFailedHandlers.filter((h) => h !== handler)
     }
   }
 
@@ -133,6 +141,7 @@ export class RelayClient {
           console.log('[relay] Connected and authenticated')
         } else {
           console.error('[relay] Auth failed:', msg.error)
+          for (const handler of this.authFailedHandlers) handler()
           this.shouldReconnect = false
           this.ws?.close()
           this.setStatus('disconnected')

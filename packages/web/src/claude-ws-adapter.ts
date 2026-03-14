@@ -54,6 +54,7 @@ export function createWebSocketAgentAPI(relayUrl: string, getToken: () => Promis
   const desktopStatusCallbacks: Array<(online: boolean) => void> = []
   const docCrawlProgressCallbacks: Array<(progress: { sourceId: number; status: string; pagesCrawled: number; currentUrl?: string; error?: string }) => void> = []
   const docsSetupProgressCallbacks: Array<(progress: { step: string; detail?: string; stepIndex: number; totalSteps: number }) => void> = []
+  const authFailedCallbacks: Array<() => void> = []
   const pendingRequests = new Map<string, PendingRequest>()
 
   function subscribe<T>(arr: Array<Callback<T>>, cb: Callback<T>): () => void {
@@ -158,6 +159,8 @@ export function createWebSocketAgentAPI(relayUrl: string, getToken: () => Promis
         if (data.success) {
           authenticated = true
           authResolve()
+        } else {
+          for (const cb of authFailedCallbacks) cb()
         }
         if (data.desktopOnline !== undefined) {
           desktopOnline = data.desktopOnline as boolean
@@ -343,6 +346,7 @@ export function createWebSocketAgentAPI(relayUrl: string, getToken: () => Promis
     onStateSync: (cb: (state: StateSyncPayload) => void) => subscribe(stateSyncCallbacks, cb),
     onDesktopStatus: (cb: (online: boolean) => void) => subscribe(desktopStatusCallbacks, cb),
     onDesktopVersion: (cb: (version: string | null) => void) => subscribe(desktopVersionCallbacks, cb),
+    onAuthFailed: (cb: () => void) => subscribe(authFailedCallbacks, cb),
     disconnect,
   }
 }

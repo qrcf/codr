@@ -2,6 +2,23 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { getMentionItemCount, resolveMentionIndex } from '../utils/mentionUtils'
 import type { useDocsAPI } from './useDocsAPI'
 
+// Extensions that should always become binary attachments (not @file text refs)
+const ATTACHMENT_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico', '.heic',
+  '.pdf',
+  '.zip', '.tar', '.gz', '.rar', '.7z',
+  '.mp3', '.wav', '.ogg', '.mp4', '.mov', '.avi', '.mkv',
+  '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+])
+
+function shouldStoreAsAttachment(filePath: string, projectFolder: string | null): boolean {
+  const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase()
+  if (ATTACHMENT_EXTENSIONS.has(ext)) return true
+  // Files outside the project folder are always attachments
+  if (projectFolder && !filePath.startsWith(projectFolder + '/')) return true
+  return false
+}
+
 interface UseInputComposerParams {
   onSend: () => void
   docsAPI: ReturnType<typeof useDocsAPI>
@@ -21,6 +38,7 @@ export function useInputComposer({
   const [fileCache, setFileCache] = useState<string[]>([])
   const [selectedFiles, setSelectedFiles] = useState<string[]>([])
   const [selectedDocs, setSelectedDocs] = useState<DocSource[]>([])
+  const [attachments, setAttachments] = useState<AttachmentMeta[]>([])
   const [isDragOver, setIsDragOver] = useState(false)
   const [refFinderOpen, setRefFinderOpen] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -123,18 +141,54 @@ export function useInputComposer({
     }
   }, [projectFolderRef])
 
+  // Store files as persistent attachments (images, PDFs, binary files, files outside project)
+  const addAttachments = useCallback(async (filePaths: string[]) => {
+    if (!window.claude.storeAttachments || !filePaths.length) return
+    try {
+      const stored = await window.claude.storeAttachments(filePaths)
+      if (stored.length) {
+        setAttachments(prev => {
+          const existingIds = new Set(prev.map(a => a.id))
+          const newAtts = stored.filter(a => !existingIds.has(a.id))
+          return newAtts.length ? [...prev, ...newAtts] : prev
+        })
+      }
+    } catch {
+      // Storage failed — silently ignore
+    }
+  }, [])
+
+  // Store a raw buffer as attachment (for clipboard screenshot paste)
+  const addAttachmentBuffer = useCallback(async (buffer: ArrayBuffer, filename: string) => {
+    if (!window.claude.storeAttachmentBuffer) return
+    try {
+      const stored = await window.claude.storeAttachmentBuffer(new Uint8Array(buffer), filename)
+      setAttachments(prev => [...prev, stored])
+    } catch {
+      // Storage failed — silently ignore
+    }
+  }, [])
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     setIsDragOver(false)
     const files = e.dataTransfer.files
     if (!files.length) return
-    const filePaths: string[] = []
+    const attachmentPaths: string[] = []
+    const textPaths: string[] = []
     for (let i = 0; i < files.length; i++) {
-      filePaths.push(resolveFilePath(files[i]))
+      const fp = resolveFilePath(files[i])
+      if (!fp) continue
+      if (shouldStoreAsAttachment(fp, projectFolderRef.current)) {
+        attachmentPaths.push(fp)
+      } else {
+        textPaths.push(fp)
+      }
     }
-    addFilePaths(filePaths)
+    if (textPaths.length) addFilePaths(textPaths)
+    if (attachmentPaths.length) addAttachments(attachmentPaths)
     textareaRef.current?.focus()
-  }, [resolveFilePath, addFilePaths])
+  }, [resolveFilePath, addFilePaths, addAttachments, projectFolderRef])
 
   // Scan the textarea backward from the cursor for a @word pattern and activate mention mode.
   // Used after paste to handle pasted @ symbols and paths.
@@ -169,11 +223,23 @@ export function useInputComposer({
     if (files.length) {
       // Files from clipboard (e.g. screenshot paste)
       e.preventDefault()
-      const filePaths: string[] = []
       for (let i = 0; i < files.length; i++) {
-        filePaths.push(resolveFilePath(files[i]))
+        const file = files[i]
+        const fp = resolveFilePath(file)
+        if (fp && !shouldStoreAsAttachment(fp, projectFolderRef.current)) {
+          // Text file inside project — use old @file path
+          addFilePaths([fp])
+        } else if (fp) {
+          // Has a path but should be stored as attachment
+          addAttachments([fp])
+        } else {
+          // No path (e.g. screenshot from clipboard) — read as buffer
+          file.arrayBuffer().then(buf => {
+            const name = file.name || `paste-${Date.now()}.png`
+            addAttachmentBuffer(buf, name)
+          })
+        }
       }
-      addFilePaths(filePaths)
       return
     }
 
@@ -181,7 +247,17 @@ export function useInputComposer({
     if (window.claude.readClipboardFilePaths) {
       window.claude.readClipboardFilePaths().then(nativePaths => {
         if (nativePaths.length) {
-          addFilePaths(nativePaths)
+          const attachmentPaths: string[] = []
+          const textPaths: string[] = []
+          for (const fp of nativePaths) {
+            if (shouldStoreAsAttachment(fp, projectFolderRef.current)) {
+              attachmentPaths.push(fp)
+            } else {
+              textPaths.push(fp)
+            }
+          }
+          if (textPaths.length) addFilePaths(textPaths)
+          if (attachmentPaths.length) addAttachments(attachmentPaths)
           return
         }
         // No native paths — check if pasted text places cursor after a @-mention
@@ -190,7 +266,7 @@ export function useInputComposer({
     } else if (pastedText?.includes('@')) {
       requestAnimationFrame(activateMentionFromCursor)
     }
-  }, [resolveFilePath, addFilePaths, activateMentionFromCursor])
+  }, [resolveFilePath, addFilePaths, addAttachments, addAttachmentBuffer, activateMentionFromCursor, projectFolderRef])
 
   const handlePlusClick = useCallback(() => {
     const ta = textareaRef.current
@@ -269,6 +345,10 @@ export function useInputComposer({
       setSelectedFiles(prev => prev.slice(0, -1))
     }
 
+    if (e.key === 'Backspace' && !input && selectedFiles.length === 0 && attachments.length > 0) {
+      setAttachments(prev => prev.slice(0, -1))
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       onSend()
@@ -279,6 +359,7 @@ export function useInputComposer({
     setInput('')
     setSelectedFiles([])
     setSelectedDocs([])
+    setAttachments([])
   }, [])
 
   return {
@@ -293,6 +374,8 @@ export function useInputComposer({
     setSelectedFiles,
     selectedDocs,
     setSelectedDocs,
+    attachments,
+    setAttachments,
     isDragOver,
     refFinderOpen,
     setRefFinderOpen,

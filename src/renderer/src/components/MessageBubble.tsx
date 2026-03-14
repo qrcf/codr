@@ -4,6 +4,7 @@ import { MarkdownContent } from './MarkdownContent'
 import { ToolCallBlock } from './ToolCallBlock'
 import { AgentCard } from './AgentCard'
 import { PlanWriteRenderer } from './renderers/PlanWriteRenderer'
+import { MessageAttachmentChips } from './AttachmentChips'
 import type { ChatMessage, ToolCallInfo } from '../types'
 import { formatMessageContent } from '../utils/formatMessage'
 
@@ -93,6 +94,9 @@ export function MessageBubble({ message, approvedPlanToolIds }: { message: ChatM
             </button>
           )}
         </div>
+      )}
+      {message.attachments && message.attachments.length > 0 && (
+        <MessageAttachmentChips attachments={message.attachments} />
       )}
       {agents.map((agent) => (
         <AgentCard key={agent.id} tool={agent} />

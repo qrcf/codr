@@ -18,7 +18,7 @@ fixPath()
 process.setMaxListeners(20)
 
 import { registerAgentHandlers } from './agent'
-import { registerSessionHandlers, listSessionsData, getSessionMessagesData, getAccountInfoData, listFilesData, startSessionWatcher } from './sessions'
+import { registerSessionHandlers, listSessionsData, getSessionMessagesData, getAccountInfoData, listFilesData, startSessionWatcher, setAuthFailureHandler } from './sessions'
 import { resolvePermission, resolveQuestion, updateSettings, approveToolForSession, type MessageOrigin } from './permissions'
 import { getSelectedProvider, setSelectedProvider, getSelectedModel, setSelectedModel } from './runtime/provider-config'
 import { getModelsForProvider } from './runtime/models'
@@ -28,6 +28,7 @@ import {createDocsManager, type DocsManager, fetchPageTitle} from './docs/manage
 import { loadWindowState, trackWindowState } from './window-state'
 import { initAutoUpdater, checkForUpdates, quitAndInstall, getUpdateState } from './auto-updater'
 import { IndexerManager } from './indexer/manager'
+import { storeAttachment, storeAttachmentFromBuffer } from './attachments'
 
 let mainWindow: BrowserWindow | null = null
 const indexerManager = new IndexerManager()
@@ -39,6 +40,25 @@ const relayClient = new RelayClient()
 relayClient.setApiUrl(__API_URL__)
 const broadcaster = new EventBroadcaster(() => mainWindow)
 broadcaster.setRelayClient(relayClient)
+
+// --- Auth failure handling ---
+// Guard against multiple concurrent triggers (relay + API 401s firing at same time)
+let authFailureFired = false
+
+function handleAuthFailure() {
+  if (authFailureFired) return
+  authFailureFired = true
+  console.warn('[auth] Token rejected — clearing stored token and showing login screen')
+  void clearStoredToken()
+  relayClient.disconnect()
+  const win = mainWindow
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('auth:unauthorized')
+  }
+}
+
+// Subscribe relay auth failure — fires when relay returns auth_result: { success: false }
+relayClient.onAuthFailed(handleAuthFailure)
 
 // --- Deep link protocol registration ---
 // Register codr:// protocol for OAuth callback from system browser
@@ -101,6 +121,8 @@ function handleDeepLink(url: string) {
       const token = parsed.searchParams.get('token')
       if (token) {
         storeToken(token).then(() => {
+          // Reset auth failure guard so future failures are handled correctly
+          authFailureFired = false
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('auth:token-stored', token)
           }
@@ -454,6 +476,7 @@ app.whenReady().then(() => {
   agentHandlers = registerAgentHandlers(() => mainWindow, broadcaster, relayClient, getAuthToken, indexerManager)
   registerSessionHandlers(relayClient, broadcaster, getAuthToken)
   sessionWatcherInterval = startSessionWatcher(broadcaster)
+  setAuthFailureHandler(handleAuthFailure)
 
   // --- Power monitor: clean up active queries on sleep/wake ---
   powerMonitor.on('suspend', () => {
@@ -471,6 +494,18 @@ app.whenReady().then(() => {
 
   // Expose current agent state (isLoading, streaming content) to renderer
   ipcMain.handle('agent:get-state', (_event, sessionId?: string) => broadcaster.getState(sessionId))
+
+  // ── File attachments ──────────────────────────────────────────────────
+  ipcMain.handle('attachments:store', async (_event, filePaths: string[]) => {
+    const results = await Promise.allSettled(filePaths.map(fp => storeAttachment(fp)))
+    return results
+      .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof storeAttachment>>> => r.status === 'fulfilled')
+      .map(r => r.value)
+  })
+
+  ipcMain.handle('attachments:store-buffer', async (_event, buffer: Uint8Array, filename: string) => {
+    return storeAttachmentFromBuffer(Buffer.from(buffer), filename)
+  })
 
   // Clipboard: read file paths from native pasteboard (macOS Finder Cmd+C)
   ipcMain.handle('clipboard:read-file-paths', () => {

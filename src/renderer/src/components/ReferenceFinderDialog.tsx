@@ -67,6 +67,22 @@ export function ReferenceFinderDialog({ isOpen, onClose, onApprove, projectFolde
 
   const displayResults = filterResults(results, filter)
 
+  // Reset state when dialog closes
+  useEffect(() => {
+    if (!isOpen) {
+      setPhase('input')
+      setPrompt('')
+      setResults([])
+      setChecked(new Set())
+      setError(null)
+      setFilter('all')
+      setIsCached(false)
+      setShowHistory(false)
+      setHistoryIndex(-1)
+      cache.current.clear()
+    }
+  }, [isOpen])
+
   // Fetch per-project index status when dialog opens
   useEffect(() => {
     if (!isOpen || !projectFolder) return
@@ -271,7 +287,7 @@ export function ReferenceFinderDialog({ isOpen, onClose, onApprove, projectFolde
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50" onMouseDown={onClose}>
       <div
-        className="bg-[#1e1e2e] border border-[#444] rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] w-[460px] max-h-[70vh] flex flex-col overflow-hidden"
+        className="bg-[#1e1e2e] border border-[#444] rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] w-[460px] max-h-[70vh] flex flex-col"
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Header */}

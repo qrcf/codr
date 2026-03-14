@@ -53,6 +53,7 @@ export interface ChatMessage {
   content: string
   toolCalls: ToolCallInfo[]
   thinking?: string
+  attachments?: AttachmentMeta[]
 }
 
 export interface ToolCallInfo {

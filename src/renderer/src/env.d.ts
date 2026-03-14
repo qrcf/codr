@@ -79,10 +79,14 @@ interface RawSessionMessage {
   parent_tool_use_id: string | null
 }
 
+type AttachmentMeta = import('../../shared/attachments').AttachmentMeta
+
 interface ClaudeAPI {
   getPathForFile?: (file: File) => string
   readClipboardFilePaths?: () => Promise<string[]>
-  query: (prompt: string, options?: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; cwd?: string; model?: string; thinkingBudget?: 'low' | 'medium' | 'high' }) => Promise<void>
+  storeAttachments?: (filePaths: string[]) => Promise<AttachmentMeta[]>
+  storeAttachmentBuffer?: (buffer: Uint8Array, filename: string) => Promise<AttachmentMeta>
+  query: (prompt: string, options?: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; cwd?: string; model?: string; thinkingBudget?: 'low' | 'medium' | 'high'; attachments?: AttachmentMeta[] }) => Promise<void>
   interrupt: (sessionId?: string) => Promise<void>
   getProvider?: () => Promise<'claude' | 'codex'>
   setProvider?: (provider: 'claude' | 'codex') => Promise<{ provider?: 'claude' | 'codex'; error?: string }>
@@ -117,7 +121,6 @@ interface ClaudeAPI {
   getSessionMessages: (sessionId: string) => Promise<RawSessionMessage[]>
   getAccountInfo: () => Promise<AccountInfo | null>
   listFiles: (dir?: string) => Promise<string[]>
-  ensureTitle?: (sessionId: string, firstPrompt?: string) => Promise<void>
   getRepoName?: (folderPath: string) => Promise<string>
   readClaudeMd?: (folderPath: string) => Promise<{ content?: string | null; error?: string }>
   writeClaudeMd?: (folderPath: string, content: string) => Promise<{ ok?: boolean; error?: string }>
@@ -136,6 +139,7 @@ interface ClaudeAPI {
   getAuthToken?: () => Promise<string | null>
   signOut?: () => Promise<void>
   onTokenStored?: (callback: () => void) => () => void
+  onAuthUnauthorized?: (callback: () => void) => () => void
   openAuthInBrowser?: (webUrl: string) => Promise<void>
 
   // User profile (desktop only, from Clerk via API)

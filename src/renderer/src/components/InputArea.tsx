@@ -5,6 +5,7 @@ import { ReferenceFinderDialog } from './ReferenceFinderDialog'
 import { ModelSelector } from './ModelSelector'
 import { ReasoningSelector, type ReasoningLevel } from './ReasoningSelector'
 import { ContextUsageBar } from './ContextUsageBar'
+import { InputAttachmentChips } from './AttachmentChips'
 
 interface InputAreaProps {
   // From useInputComposer
@@ -18,6 +19,8 @@ interface InputAreaProps {
   setSelectedFiles: React.Dispatch<React.SetStateAction<string[]>>
   selectedDocs: DocSource[]
   setSelectedDocs: React.Dispatch<React.SetStateAction<DocSource[]>>
+  attachments: AttachmentMeta[]
+  setAttachments: React.Dispatch<React.SetStateAction<AttachmentMeta[]>>
   isDragOver: boolean
   handleInputChange: React.ChangeEventHandler<HTMLTextAreaElement>
   handleMentionSelect: (file: string) => void
@@ -78,6 +81,8 @@ export function InputArea({
   setSelectedFiles,
   selectedDocs,
   setSelectedDocs,
+  attachments,
+  setAttachments,
   isDragOver,
   handleInputChange,
   handleMentionSelect,
@@ -173,7 +178,7 @@ export function InputArea({
         onDrop={handleDrop}
       >
         {/* Chips row */}
-        {(selectedFiles.length > 0 || selectedDocs.length > 0) && (
+        {(selectedFiles.length > 0 || selectedDocs.length > 0 || attachments.length > 0) && (
           <div className="flex flex-wrap gap-1 px-3 pt-2">
             {selectedDocs.map(doc => (
               <span key={`doc-${doc.id}`} className="inline-flex items-center gap-1 bg-[#3a5a44] text-[#ccc] px-2 py-0.5 rounded text-[0.82em]">
@@ -191,6 +196,10 @@ export function InputArea({
                 >×</button>
               </span>
             ))}
+            <InputAttachmentChips
+              attachments={attachments}
+              onRemove={(id) => setAttachments(prev => prev.filter(a => a.id !== id))}
+            />
           </div>
         )}
 
@@ -296,7 +305,7 @@ export function InputArea({
               <button
                 className="w-8 h-8 inline-flex items-center justify-center rounded-lg bg-linear-to-b from-[#9354d4] to-[#7438b8] text-white shadow-[0_1px_3px_rgba(129,66,199,0.35),inset_0_1px_0_rgba(255,255,255,0.1)] cursor-pointer transition-all duration-150 enabled:hover:from-[#8548c5] enabled:hover:to-[#6830a8] enabled:hover:shadow-[0_2px_6px_rgba(129,66,199,0.45)] disabled:opacity-40 disabled:cursor-not-allowed"
                 onClick={onSend}
-                disabled={!input.trim() && selectedFiles.length === 0 && selectedDocs.length === 0}
+                disabled={!input.trim() && selectedFiles.length === 0 && selectedDocs.length === 0 && attachments.length === 0}
                 title="Send"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">

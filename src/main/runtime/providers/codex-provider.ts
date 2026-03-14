@@ -5,8 +5,9 @@ import type {
   ProviderRunCallbacks,
   ProviderRunResult,
 } from '../provider'
-import type { Codex, Thread, ThreadEvent, ThreadItem, ThreadOptions } from '@openai/codex-sdk'
+import type { Codex, Thread, ThreadEvent, ThreadItem, ThreadOptions, Input, UserInput } from '@openai/codex-sdk'
 import { preprocessPromptFull } from '../prompt-preprocessor'
+import { readAttachmentAsContentBlock } from '../../attachments'
 
 type CodexModule = { Codex: new (options?: Record<string, unknown>) => InstanceType<typeof Codex> }
 
@@ -114,6 +115,27 @@ export class CodexProvider implements AgentProvider {
     // Resolve @docs: references and @file references into context blocks
     prompt = await preprocessPromptFull(this.ctx, prompt, req.cwd)
 
+    // Build Codex Input: use UserInput[] when attachments are present (supports local_image)
+    let codexInput: Input = prompt
+    if (req.attachments && req.attachments.length > 0) {
+      const parts: UserInput[] = [{ type: 'text', text: prompt }]
+      for (const att of req.attachments) {
+        if (att.category === 'image') {
+          // Codex SDK natively supports local images via file path
+          parts.push({ type: 'local_image', path: att.storedPath })
+        } else {
+          // Non-image attachments: read content and inline as text
+          try {
+            const block = await readAttachmentAsContentBlock(att)
+            parts.push({ type: 'text', text: block.text as string })
+          } catch {
+            parts.push({ type: 'text', text: `[Failed to read attachment: ${att.originalName}]` })
+          }
+        }
+      }
+      codexInput = parts
+    }
+
     // For resumed sessions we know the ID upfront; emit setup immediately
     if (isResume) {
       this.abortControllers.set(sessionId, controller)
@@ -132,7 +154,7 @@ export class CodexProvider implements AgentProvider {
     const prevItemTextLen = new Map<string, number>()
 
     try {
-      const { events } = await thread.runStreamed(prompt, { signal: controller.signal })
+      const { events } = await thread.runStreamed(codexInput, { signal: controller.signal })
 
       for await (const event of events as AsyncIterable<ThreadEvent>) {
         switch (event.type) {

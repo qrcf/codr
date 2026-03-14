@@ -1,11 +1,18 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import type { AttachmentMeta } from '../shared/attachments'
 
 const agentApi = {
   isElectron: true,
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   readClipboardFilePaths: () => ipcRenderer.invoke('clipboard:read-file-paths') as Promise<string[]>,
 
-  query: (prompt: string, opts?: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; model?: string; thinkingBudget?: 'low' | 'medium' | 'high' }) =>
+  // File attachments
+  storeAttachments: (filePaths: string[]) =>
+    ipcRenderer.invoke('attachments:store', filePaths) as Promise<AttachmentMeta[]>,
+  storeAttachmentBuffer: (buffer: Uint8Array, filename: string) =>
+    ipcRenderer.invoke('attachments:store-buffer', buffer, filename) as Promise<AttachmentMeta>,
+
+  query: (prompt: string, opts?: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; model?: string; thinkingBudget?: 'low' | 'medium' | 'high'; attachments?: AttachmentMeta[] }) =>
     ipcRenderer.invoke('agent:query', prompt, opts),
   interrupt: (sessionId?: string) => ipcRenderer.invoke('agent:interrupt', sessionId),
   getAgentState: (sessionId?: string) => ipcRenderer.invoke('agent:get-state', sessionId),
@@ -96,7 +103,6 @@ const agentApi = {
     })
   },
   listFiles: (dir?: string) => ipcRenderer.invoke('sessions:list-files', dir),
-  ensureTitle: (sessionId: string, firstPrompt?: string) => ipcRenderer.invoke('sessions:ensure-title', sessionId, firstPrompt),
   getRepoName: (folderPath: string) => ipcRenderer.invoke('sessions:get-repo-name', folderPath),
 
   onAccountInfoUpdate: (callback: (info: unknown) => void) => {
@@ -147,6 +153,11 @@ const agentApi = {
     const listener = () => callback()
     ipcRenderer.on('auth:token-stored', listener)
     return () => { ipcRenderer.removeListener('auth:token-stored', listener) }
+  },
+  onAuthUnauthorized: (callback: () => void) => {
+    const listener = () => callback()
+    ipcRenderer.on('auth:unauthorized', listener)
+    return () => { ipcRenderer.removeListener('auth:unauthorized', listener) }
   },
   openAuthInBrowser: (webUrl: string) =>
     ipcRenderer.invoke('auth:open-browser', webUrl),

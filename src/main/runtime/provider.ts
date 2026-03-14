@@ -2,6 +2,7 @@ import type { RelayClient } from '../relay-client'
 import type { EventBroadcaster } from '../event-broadcaster'
 import type { MessageOrigin } from '../permissions'
 import type { IndexerManager } from '../indexer/manager'
+import type { AttachmentMeta } from '../../shared/attachments'
 
 export type AgentProviderId = 'claude' | 'codex'
 
@@ -14,6 +15,7 @@ export interface AgentQueryRequest {
   origin?: MessageOrigin
   model?: string
   thinkingBudget?: 'low' | 'medium' | 'high'
+  attachments?: AttachmentMeta[]
 }
 
 export interface ProviderRunCallbacks {

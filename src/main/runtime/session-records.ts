@@ -28,14 +28,12 @@ export interface SessionInfoWithProvider extends SessionInfo {
 interface ChooseTitleInput {
   dbTitle?: string | null
   indexedTitle?: string | null
-  firstPrompt?: string | null
   fallbackSummary?: string | null
 }
 
 export function chooseTitle(input: ChooseTitleInput): string {
   const title = input.dbTitle
     || input.indexedTitle
-    || input.firstPrompt
     || input.fallbackSummary
     || ''
 
@@ -82,7 +80,6 @@ export function buildSessionList(input: SessionListInput): {
       summary: chooseTitle({
         dbTitle: dbSession?.name,
         indexedTitle: indexed.title,
-        firstPrompt,
         fallbackSummary: sdkSession?.summary,
       }),
       lastModified: indexed.provider === 'claude'
@@ -108,7 +105,6 @@ export function buildSessionList(input: SessionListInput): {
       summary: chooseTitle({
         dbTitle: dbSession?.name,
         indexedTitle: sdkSession.generatedTitle,
-        firstPrompt: dbSession?.firstPrompt || sdkSession.firstPrompt,
         fallbackSummary: sdkSession.summary,
       }),
       generatedTitle: dbSession?.name || sdkSession.generatedTitle,
@@ -120,6 +116,6 @@ export function buildSessionList(input: SessionListInput): {
   merged.sort((a, b) => b.lastModified - a.lastModified)
   return {
     sessions: merged,
-    titlesLoaded: input.claudeDbSessions.length > 0 || merged.some((session) => !!session.generatedTitle),
+    titlesLoaded: input.claudeDbSessions.length > 0,
   }
 }

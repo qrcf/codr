@@ -177,6 +177,7 @@ export default function App() {
     input, setInput, textareaRef,
     mentionActive, mentionQuery, mentionIndex, fileCache,
     selectedFiles, setSelectedFiles, selectedDocs, setSelectedDocs,
+    attachments, setAttachments,
     isDragOver,
     handleInputChange, handleMentionSelect, handleDocMentionSelect,
     handlePlusClick, handleFindReferencesSelect, handleRefFinderApprove,
@@ -311,7 +312,8 @@ export default function App() {
     const docRefs = selectedDocs.map(d => `@docs:${d.name}`).join(' ')
     const rawInput = input.trim()
     const prompt = [docRefs, fileRefs, rawInput].filter(Boolean).join(' ')
-    if (!prompt || agent.isLoading) return
+    const currentAttachments = attachments.length > 0 ? [...attachments] : undefined
+    if ((!prompt && !currentAttachments) || agent.isLoading) return
     shouldAutoScrollRef.current = true
 
     const usePlanMode = dialogs.mode === 'plan'
@@ -320,7 +322,13 @@ export default function App() {
     setInput('')
     agent.setMessages((prev) => [
       ...prev,
-      { id: agent.nextId(), role: 'user', content: prompt, toolCalls: [] },
+      {
+        id: agent.nextId(),
+        role: 'user',
+        content: prompt || '(attachments)',
+        toolCalls: [],
+        attachments: currentAttachments,
+      },
     ])
     agent.setIsLoading(true)
     agent.resetStreaming()
@@ -339,20 +347,21 @@ export default function App() {
       invalidatedSessionsRef.current.delete(session.activeSessionId!)
     }
 
-    const opts: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; cwd?: string; model?: string; thinkingBudget?: 'low' | 'medium' | 'high' } = {}
+    const opts: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; cwd?: string; model?: string; thinkingBudget?: 'low' | 'medium' | 'high'; attachments?: AttachmentMeta[] } = {}
     if (!isNewSession) opts.resumeSessionId = session.activeSessionId!
     if (usePlanMode) opts.planMode = true
     if (useAskMode) opts.askMode = true
     if (isNewSession && session.activeSession?.cwd) opts.cwd = session.activeSession.cwd
     if (selectedModel) opts.model = selectedModel
     if (reasoning !== 'auto') opts.thinkingBudget = reasoning
+    if (currentAttachments) opts.attachments = currentAttachments
 
     // Signal that we're expecting a new session ID from the agent
     if (isNewSession) {
       awaitingNewSessionRef.current = true
     }
 
-    await window.claude.query(prompt, Object.keys(opts).length > 0 ? opts : undefined)
+    await window.claude.query(prompt || '', Object.keys(opts).length > 0 ? opts : undefined)
   }
 
   const handleInterrupt = () => {
@@ -575,6 +584,8 @@ export default function App() {
             setSelectedFiles={setSelectedFiles}
             selectedDocs={selectedDocs}
             setSelectedDocs={setSelectedDocs}
+            attachments={attachments}
+            setAttachments={setAttachments}
             isDragOver={isDragOver}
             handleInputChange={handleInputChange}
             handleMentionSelect={handleMentionSelect}
@@ -609,6 +620,8 @@ export default function App() {
             onInterrupt={handleInterrupt}
             onCompact={handleCompact}
             docSources={docsAPI.sources}
+            attachments={attachments}
+            setAttachments={setAttachments}
           />
         </div>
       </div>

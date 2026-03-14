@@ -69,9 +69,6 @@ let cachedAccountInfo: AccountInfo | null = null
 export function setCachedAccountInfo(info: AccountInfo | null) {
   if (info) cachedAccountInfo = info
 }
-let activeTitleGenerations = 0
-const MAX_CONCURRENT_TITLES = 3
-
 const IGNORED_DIRS = new Set([
   'node_modules', '.git', 'dist', 'build', '.next', '.cache',
   '__pycache__', '.venv', 'venv', '.tox', 'coverage', '.nyc_output',
@@ -91,12 +88,11 @@ async function loadIgnoreRules(rootDir: string) {
   return ig
 }
 
-// --- Local title cache: survives relay failures so titles never disappear ---
-const titleCache = new Map<string, { name: string; firstPrompt: string | null }>()
-const titleGenerationBySession = new Map<string, Promise<void>>()
+// --- Auth failure handler: called when API returns 401 ---
+let authFailureHandler: (() => void) | null = null
 
-export function cacheTitleLocally(sessionId: string, name: string, firstPrompt?: string | null) {
-  titleCache.set(sessionId, { name, firstPrompt: firstPrompt ?? null })
+export function setAuthFailureHandler(handler: () => void): void {
+  authFailureHandler = handler
 }
 
 // --- Reusable data functions (called by both IPC and relay) ---
@@ -116,37 +112,14 @@ export async function listSessionsData(relayClient?: RelayClient, getAuthToken?:
               headers: { Authorization: `Bearer ${token}` },
             })
             if (resp.ok) return (await resp.json()) as ClaudeDbSessionMeta[]
+            if (resp.status === 401) authFailureHandler?.()
           } catch { /* empty */ }
           return null
         })()
       : Promise.resolve(null),
   ])
 
-  // Update local cache with successful DB results
   const dbFetchSucceeded = dbSessions !== null
-  for (const s of dbSessions || []) {
-    if (s.name) {
-      titleCache.set(s.sessionId, { name: s.name, firstPrompt: s.firstPrompt })
-    }
-  }
-
-  for (const session of sdkSessions as Array<{
-    sessionId?: string
-    generatedTitle?: string
-    firstPrompt?: string
-    cwd?: string
-  }>) {
-    if (!session.sessionId) continue
-    const dbEntry = (dbSessions || []).find(s => s.sessionId === session.sessionId)
-    const cached = titleCache.get(session.sessionId)
-
-    // Prefer DB data, fall back to cache
-    const name = dbEntry?.name || cached?.name
-    const firstPrompt = dbEntry?.firstPrompt || cached?.firstPrompt
-
-    if (name) session.generatedTitle = name
-    if (firstPrompt) session.firstPrompt = firstPrompt
-  }
 
   // Keep the shared index fresh with Claude session discovery, regardless of selected provider.
   await Promise.all(
@@ -185,128 +158,7 @@ export async function listSessionsData(relayClient?: RelayClient, getAuthToken?:
 
   return {
     sessions: result.sessions,
-    titlesLoaded: dbFetchSucceeded || titleCache.size > 0 || result.titlesLoaded,
-  }
-}
-
-async function storeSessionMetadataUnlocked(
-  sessionId: string,
-  prompt: string,
-  relayClient: RelayClient,
-  broadcaster: EventBroadcaster,
-  getAuthToken?: () => Promise<string>,
-): Promise<void> {
-  const baseUrl = relayClient.getApiBaseUrl()
-  if (!baseUrl) return
-
-  // Generate a short title via Claude
-  let title = ''
-  if (activeTitleGenerations < MAX_CONCURRENT_TITLES) {
-    activeTitleGenerations++
-    try {
-      const truncatedPrompt = prompt.slice(0, 200)
-      const cliPath = getCliPath()
-      const titleQuery = query({
-        prompt: `Respond with ONLY a 3-6 word title in proper case summarizing this message. No quotes, no punctuation at end, no extra text.\n\nMessage: ${truncatedPrompt}`,
-        options: {
-          model: 'claude-haiku-4-5-20251001',
-          thinking: {
-              type: 'disabled'
-          },
-          maxTurns: 1,
-          persistSession: false,
-          ...(cliPath ? { pathToClaudeCodeExecutable: cliPath } : {}),
-        },
-      })
-
-      let streamTitle = ''
-      let assistantTitle = ''
-
-      try {
-        for await (const message of titleQuery) {
-          const msg = message as Record<string, unknown>
-
-          // Handle streaming text deltas (arrives incrementally)
-          if (msg.type === 'stream_event') {
-            const evt = msg as { event?: { type?: string; delta?: { type?: string; text?: string } } }
-            if (evt.event?.type === 'content_block_delta' && evt.event.delta?.type === 'text_delta' && evt.event.delta.text) {
-              streamTitle += evt.event.delta.text
-            }
-          } else if (msg.type === 'assistant') {
-            // Handle complete assistant message — content is under msg.message.content
-            const assistantMsg = msg as { message?: { content?: Array<{ type?: string; text?: string }> } }
-            if (assistantMsg.message?.content) {
-              for (const block of assistantMsg.message.content) {
-                if (block.type === 'text' && block.text) {
-                  assistantTitle += block.text
-                }
-              }
-            }
-          }
-        }
-      } finally {
-        titleQuery.close()
-      }
-
-      // Prefer stream text (arrives first); fall back to assistant message content
-      title = (streamTitle || assistantTitle).trim()
-    } catch {
-      // Title generation failed — store without title
-    } finally {
-      activeTitleGenerations--
-    }
-  }
-
-  // Cache locally so titles survive relay failures
-  if (title) {
-    cacheTitleLocally(sessionId, title, prompt.slice(0, 500))
-  }
-
-  try {
-    const token = getAuthToken ? await getAuthToken() : relayClient.getAuthToken()
-    const payload: { firstPrompt: string; name?: string } = { firstPrompt: prompt.slice(0, 500) }
-    if (title) payload.name = title
-    await fetch(`${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}`, {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    })
-    if (title) {
-      broadcaster.send('sessions:refresh-hint')
-    }
-  } catch {
-    // Silent failure — title is still cached locally
-  }
-}
-
-export async function storeSessionMetadata(
-  sessionId: string,
-  prompt: string,
-  relayClient: RelayClient,
-  broadcaster: EventBroadcaster,
-  getAuthToken?: () => Promise<string>,
-): Promise<void> {
-  const trimmedPrompt = prompt.trim()
-  if (!trimmedPrompt) return
-
-  const existingGeneration = titleGenerationBySession.get(sessionId)
-  if (existingGeneration) {
-    await existingGeneration
-    return
-  }
-
-  const generation = storeSessionMetadataUnlocked(sessionId, trimmedPrompt, relayClient, broadcaster, getAuthToken)
-  titleGenerationBySession.set(sessionId, generation)
-  try {
-    await generation
-  } finally {
-    const active = titleGenerationBySession.get(sessionId)
-    if (active === generation) {
-      titleGenerationBySession.delete(sessionId)
-    }
+    titlesLoaded: dbFetchSucceeded || result.titlesLoaded,
   }
 }
 
@@ -503,76 +355,6 @@ export async function listFilesData(dir?: string, maxFiles = 500) {
 
   await walk(root)
   return results.sort()
-}
-
-// --- Backfill title for sessions loaded without one ---
-
-export async function ensureSessionTitle(
-  sessionId: string,
-  relayClient: RelayClient,
-  broadcaster: EventBroadcaster,
-  knownFirstPrompt?: string,
-  getAuthToken?: () => Promise<string>,
-): Promise<void> {
-  const existingGeneration = titleGenerationBySession.get(sessionId)
-  if (existingGeneration) {
-    await existingGeneration
-    return
-  }
-
-  const baseUrl = relayClient.getApiBaseUrl()
-  if (!baseUrl) return
-
-  // Check if local cache already has a title (populated by listSessionsData)
-  const cached = titleCache.get(sessionId)
-  if (cached?.name) return
-
-  // Check DB before generating — title may exist but not be cached yet
-  try {
-    const token = getAuthToken ? await getAuthToken() : relayClient.getAuthToken()
-    const resp = await fetch(`${baseUrl}/api/sessions`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-    if (resp.ok) {
-      const dbSessions = await resp.json() as Array<{
-        sessionId: string; name: string | null; firstPrompt: string | null
-      }>
-      // Populate cache with all DB results
-      for (const s of dbSessions) {
-        if (s.name) titleCache.set(s.sessionId, { name: s.name, firstPrompt: s.firstPrompt })
-      }
-      // If this session now has a title, we're done
-      const dbEntry = dbSessions.find(s => s.sessionId === sessionId)
-      if (dbEntry?.name) {
-        broadcaster.send('sessions:refresh-hint')
-        return
-      }
-    }
-  } catch { /* empty */ }
-
-  // Use provided prompt to avoid expensive getSessionMessages call
-  let firstPrompt = knownFirstPrompt || ''
-
-  if (!firstPrompt) {
-    try {
-      const messages = await getSessionMessages(sessionId)
-      const firstUser = (messages as Array<{ type: string; message?: { content?: string | Array<{ type?: string; text?: string }> } }>)
-        .find(m => m.type === 'user')
-      if (firstUser?.message?.content) {
-        if (typeof firstUser.message.content === 'string') {
-          firstPrompt = firstUser.message.content
-        } else if (Array.isArray(firstUser.message.content)) {
-          const textBlock = firstUser.message.content.find(b => b.type === 'text')
-          if (textBlock?.text) firstPrompt = textBlock.text
-        }
-      }
-    } catch {
-      return
-    }
-  }
-
-  if (!firstPrompt) return
-  await storeSessionMetadata(sessionId, firstPrompt, relayClient, broadcaster, getAuthToken)
 }
 
 // --- Provider status (independent check for both Claude and Codex) ---
@@ -788,11 +570,6 @@ export function registerSessionHandlers(relayClient?: RelayClient, broadcaster?:
 
   ipcMain.handle('sessions:list-files', async (_event, dir?: string) => {
     return listFilesData(dir)
-  })
-
-  ipcMain.handle('sessions:ensure-title', async (_event, sessionId: string, firstPrompt?: string) => {
-    if (!relayClient || !broadcaster) return
-    await ensureSessionTitle(sessionId, relayClient, broadcaster, firstPrompt, getAuthToken)
   })
 
   ipcMain.handle('sessions:get-repo-name', async (_event, folderPath: string) => {

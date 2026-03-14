@@ -1,10 +1,11 @@
 import { query, createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
-import type { Query } from '@anthropic-ai/claude-agent-sdk'
+import type { Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod/v4'
+import { randomUUID } from 'node:crypto'
 import { app } from 'electron'
 import path from 'node:path'
 import { createCanUseTool } from '../../permissions'
-import { storeSessionMetadata, setCachedAccountInfo } from '../../sessions'
+import { setCachedAccountInfo } from '../../sessions'
 import type {
   AgentProvider,
   AgentProviderContext,
@@ -13,6 +14,7 @@ import type {
   ProviderRunResult,
 } from '../provider'
 import { preprocessPromptForDocs } from '../prompt-preprocessor'
+import { readAttachmentAsContentBlock } from '../../attachments'
 
 /**
  * In packaged builds the SDK can't resolve cli.js via import.meta.url because
@@ -80,6 +82,47 @@ export class ClaudeProvider implements AgentProvider {
     })
   }
 
+  /**
+   * Build a multimodal prompt (AsyncIterable<SDKUserMessage>) when attachments are present.
+   */
+  private async buildMultimodalPrompt(
+    finalPrompt: string,
+    req: AgentQueryRequest,
+  ): Promise<AsyncIterable<SDKUserMessage>> {
+    const contentBlocks: Record<string, unknown>[] = []
+
+    // Add text prompt first
+    if (finalPrompt) {
+      contentBlocks.push({ type: 'text', text: finalPrompt })
+    }
+
+    // Add attachment content blocks
+    for (const att of req.attachments!) {
+      try {
+        const block = await readAttachmentAsContentBlock(att)
+        contentBlocks.push(block)
+      } catch {
+        // Skip failed attachments, add a text note instead
+        contentBlocks.push({
+          type: 'text',
+          text: `[Failed to read attachment: ${att.originalName}]`,
+        })
+      }
+    }
+
+    const userMessage = {
+      type: 'user' as const,
+      message: { role: 'user' as const, content: contentBlocks },
+      parent_tool_use_id: null,
+      session_id: req.resumeSessionId || '',
+      uuid: randomUUID(),
+    } as SDKUserMessage
+
+    return (async function* () {
+      yield userMessage
+    })()
+  }
+
   async runQuery(req: AgentQueryRequest, callbacks: ProviderRunCallbacks): Promise<ProviderRunResult> {
     const origin = req.origin ?? 'local'
     let currentKey = req.resumeSessionId || `new-${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -98,9 +141,15 @@ export class ClaudeProvider implements AgentProvider {
     const searchServer = this.createCodebaseSearchServer(req.cwd)
     const mcpServers = searchServer ? { 'codebase-search': searchServer } : undefined
 
+    // Build prompt: multimodal (AsyncIterable<SDKUserMessage>) if attachments, string otherwise
+    const hasAttachments = req.attachments && req.attachments.length > 0
+    const sdkPrompt: string | AsyncIterable<SDKUserMessage> = hasAttachments
+      ? await this.buildMultimodalPrompt(finalPrompt, req)
+      : finalPrompt
+
     const cliPath = getClaudeCliPath()
     const q = query({
-      prompt: finalPrompt,
+      prompt: sdkPrompt,
       options: {
         includePartialMessages: true,
         canUseTool,
@@ -134,7 +183,6 @@ export class ClaudeProvider implements AgentProvider {
 
           if (isNewSession) {
             this.ctx.broadcaster.send('sessions:refresh-hint')
-            storeSessionMetadata(capturedSessionId, req.prompt, this.ctx.relayClient, this.ctx.broadcaster, this.ctx.getAuthToken).catch(() => {})
           }
         }
         callbacks.onMessage(message, currentKey)

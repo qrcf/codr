@@ -90,6 +90,7 @@ function generateChangelog(extraInstruction?: string, previousChangelog?: string
     `Generate a concise changelog in markdown for version ${newVersion} of Codr (a desktop AI coding assistant).`,
     `Group changes under categories like Features, Fixes, Improvements, etc. Only include categories that have entries.`,
     `Do not include a heading with the version number. Keep it brief and scannable.`,
+    `Output ONLY the markdown changelog. No preamble, no commentary, no intro sentences — start directly with the first category heading.`,
     `\nCommits since ${latestTag}:\n`,
     commitLog,
   ]

@@ -142,7 +142,13 @@ export class ClaudeProvider implements AgentProvider {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       const stderr = stderrChunks.join('').trim().slice(-500)
-      const errorText = stderr ? `${message}\n\n${stderr}` : message
+      const fullError = stderr ? `${message}\n\n${stderr}` : message
+
+      // Detect unrecoverable session errors (e.g. after sleep/wake killed the SDK subprocess)
+      const isSessionCorrupt = req.resumeSessionId && /no conversation found|session.*not found/i.test(fullError)
+      const errorText = isSessionCorrupt
+        ? 'This session can no longer be resumed. Start a new conversation to continue.'
+        : fullError
       callbacks.onError(errorText, currentKey)
     } finally {
       this.activeQueries.delete(currentKey)
@@ -154,13 +160,30 @@ export class ClaudeProvider implements AgentProvider {
   }
 
   async interruptQuery(sessionId?: string): Promise<void> {
+    const interrupt = async (q: Query, key: string) => {
+      try {
+        const timeout = new Promise<void>((_, reject) =>
+          setTimeout(() => reject(new Error('interrupt timeout')), 5000),
+        )
+        await Promise.race([q.interrupt(), timeout])
+      } catch {
+        // SDK subprocess may be dead — force remove
+        this.activeQueries.delete(key)
+      }
+    }
+
     if (sessionId) {
       const q = this.activeQueries.get(sessionId)
-      if (q) await q.interrupt()
+      if (q) await interrupt(q, sessionId)
       return
     }
-    for (const q of this.activeQueries.values()) {
-      await q.interrupt()
-    }
+    const entries = [...this.activeQueries.entries()]
+    await Promise.allSettled(entries.map(([key, q]) => interrupt(q, key)))
+  }
+
+  forceCleanupAll(): string[] {
+    const sessionIds = [...this.activeQueries.keys()]
+    this.activeQueries.clear()
+    return sessionIds
   }
 }

@@ -78,6 +78,7 @@ export default function App() {
   const onSessionCapturedRef = useRef<(sessionId: string, messages: import('./types').ChatMessage[], initialTokenUsage?: TokenUsage | null) => void>(() => {})
   const onDraftPromotedRef = useRef<(draftId: string) => void>(() => {})
   const resetInputRef = useRef<() => void>(() => {})
+  const invalidatedSessionsRef = useRef<Set<string>>(new Set())
 
   // --- Hook: Draft Sessions ---
   const draftSessions = useDraftSessions()
@@ -94,6 +95,7 @@ export default function App() {
     awaitingNewSessionRef,
     setActiveSessionId: (id) => setActiveSessionIdRef.current(id),
     autoAllowedToolsRef: dialogs.autoAllowedToolsRef,
+    invalidatedSessionsRef,
     dialogs: {
       onPermissionRequest: dialogs.onPermissionRequest,
       onPermissionCleared: dialogs.onPermissionCleared,
@@ -330,7 +332,12 @@ export default function App() {
     dialogs.resetPlan()
 
     const isDraft = session.activeSessionId?.startsWith('draft-')
-    const isNewSession = !session.activeSessionId || isDraft
+    const isInvalidated = session.activeSessionId && invalidatedSessionsRef.current.has(session.activeSessionId)
+    const isNewSession = !session.activeSessionId || isDraft || isInvalidated
+
+    if (isInvalidated) {
+      invalidatedSessionsRef.current.delete(session.activeSessionId!)
+    }
 
     const opts: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; cwd?: string; model?: string; thinkingBudget?: 'low' | 'medium' | 'high' } = {}
     if (!isNewSession) opts.resumeSessionId = session.activeSessionId!

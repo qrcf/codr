@@ -153,7 +153,7 @@ export function ReferenceFinderDialog({ isOpen, onClose, onApprove, projectFolde
       for (const r of raw) {
         if (!seen.has(r.path) || r.score > seen.get(r.path)!.score) seen.set(r.path, r)
       }
-      const deduped = [...seen.values()].filter(r => !currentSelectedFiles.includes(r.path))
+      const deduped = [...seen.values()].filter(r => !currentSelectedFiles.includes(r.path) && !r.path.endsWith('.DS_Store'))
 
       cache.current.set(cacheKey, deduped)
       setResults(deduped)
@@ -289,7 +289,7 @@ export function ReferenceFinderDialog({ isOpen, onClose, onApprove, projectFolde
         </div>
 
         {/* Body */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+        <div className={`min-h-0 flex-1 px-4 py-3 ${phase === 'input' ? 'overflow-visible' : 'overflow-y-auto'}`}>
           {/* Global indexer not installed */}
           {indexerStatus && indexerStatus !== 'ready' && (
             <div className="text-[11px] text-[#d4a845] mb-2 px-1">

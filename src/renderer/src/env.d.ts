@@ -179,6 +179,9 @@ interface ClaudeAPI {
   reinstallIndexer?: () => Promise<{ok: boolean}>
   onIndexerSetupProgress?: (cb: (progress: {step: string, detail?: string, projectDir?: string, progress?: {current: number, total: number}}) => void) => () => void
 
+  // Wake recovery (desktop only)
+  onWakeRecovery?: (callback: () => void) => () => void
+
   // Auto-updater (desktop only)
   installUpdate?: () => Promise<void>
   onUpdateStatus?: (cb: (status: UpdateStatus) => void) => () => void

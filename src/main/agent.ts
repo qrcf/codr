@@ -63,6 +63,8 @@ export function registerAgentHandlers(
 
     broadcaster.markQueryStart(currentKey, prompt)
 
+    let errorOccurred = false
+
     await provider.runQuery(
       { prompt, resumeSessionId, planMode, cwd, askMode, origin, model: resolvedModel, thinkingBudget },
       {
@@ -104,13 +106,17 @@ export function registerAgentHandlers(
           void appendIndexedRawMessage(querySessionId, providerId, message)
         },
         onError: (errorText, querySessionId) => {
+          errorOccurred = true
           broadcaster.send('agent:error', errorText, querySessionId)
           void upsertIndexedSession(querySessionId, { provider: providerId, status: 'error' })
         },
         onDone: (querySessionId) => {
           broadcaster.send('agent:done', undefined, querySessionId)
           broadcaster.send('sessions:refresh-hint')
-          void upsertIndexedSession(querySessionId, { provider: providerId, status: 'done' })
+          // Don't overwrite 'error' status with 'done'
+          if (!errorOccurred) {
+            void upsertIndexedSession(querySessionId, { provider: providerId, status: 'done' })
+          }
         },
         onAccountInfo: (info) => {
           setCachedAccountInfo(info as Parameters<typeof setCachedAccountInfo>[0])
@@ -168,6 +174,22 @@ export function registerAgentHandlers(
     return getClaudeSettingsDefaults()
   })
 
+  function forceCleanupAll(errorMessage: string) {
+    let cleanedUp = 0
+    for (const [providerId, provider] of Object.entries(providers)) {
+      const sessionIds = provider.forceCleanupAll()
+      cleanedUp += sessionIds.length
+      for (const sessionId of sessionIds) {
+        broadcaster.send('agent:error', errorMessage, sessionId)
+        broadcaster.send('agent:done', undefined, sessionId)
+        void upsertIndexedSession(sessionId, { provider: providerId as AgentProviderId, status: 'error' })
+      }
+    }
+    if (cleanedUp > 0) {
+      broadcaster.send('sessions:refresh-hint')
+    }
+  }
+
   // Return functions for relay-forwarded commands
-  return { runQuery, interruptQuery } as const
+  return { runQuery, interruptQuery, forceCleanupAll } as const
 }

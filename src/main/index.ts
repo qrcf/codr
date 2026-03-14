@@ -1,3 +1,5 @@
+import type {AgentProviderId} from "./runtime/provider.ts";
+
 declare const __WEB_URL__: string
 declare const __API_URL__: string
 declare const __RELAY_URL__: string
@@ -5,7 +7,7 @@ declare const __RELAY_URL__: string
 import fixPath from 'fix-path'
 import path from 'node:path'
 import { readFile, writeFile, stat, unlink } from 'node:fs/promises'
-import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, safeStorage, shell } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, powerMonitor, safeStorage, shell } from 'electron'
 
 // macOS GUI apps get a minimal PATH (/usr/bin:/bin). Restore the user's full
 // shell PATH so the Claude Agent SDK can find the `claude` CLI binary.
@@ -209,7 +211,7 @@ function ensureDocsManager(): DocsManager {
 }
 
 // Handle relay-forwarded messages from web clients
-let agentHandlers: { runQuery: (prompt: string, resumeSessionId?: string, planMode?: boolean, cwd?: string, askMode?: boolean, origin?: MessageOrigin, model?: string, thinkingBudget?: 'low' | 'medium' | 'high') => Promise<void>; interruptQuery: (sessionId?: string) => Promise<void> } | null = null
+let agentHandlers: { runQuery: (prompt: string, resumeSessionId?: string, planMode?: boolean, cwd?: string, askMode?: boolean, origin?: MessageOrigin, model?: string, thinkingBudget?: 'low' | 'medium' | 'high') => Promise<void>; interruptQuery: (sessionId?: string) => Promise<void>; forceCleanupAll: (errorMessage: string) => void } | null = null
 
 relayClient.onMessage(async (msg) => {
   switch (msg.type) {
@@ -452,6 +454,20 @@ app.whenReady().then(() => {
   agentHandlers = registerAgentHandlers(() => mainWindow, broadcaster, relayClient, getAuthToken, indexerManager)
   registerSessionHandlers(relayClient, broadcaster, getAuthToken)
   sessionWatcherInterval = startSessionWatcher(broadcaster)
+
+  // --- Power monitor: clean up active queries on sleep/wake ---
+  powerMonitor.on('suspend', () => {
+    agentHandlers?.forceCleanupAll('Session interrupted — computer went to sleep.')
+  })
+  powerMonitor.on('resume', () => {
+    // Safety net: clean up any queries that survived the suspend handler
+    agentHandlers?.forceCleanupAll('Session interrupted — computer woke from sleep.')
+    // Tell renderer to reset any stuck loading state
+    const win = mainWindow
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('agent:wake-recovery')
+    }
+  })
 
   // Expose current agent state (isLoading, streaming content) to renderer
   ipcMain.handle('agent:get-state', (_event, sessionId?: string) => broadcaster.getState(sessionId))
@@ -696,6 +712,7 @@ app.on('before-quit', () => {
     clearInterval(sessionWatcherInterval)
     sessionWatcherInterval = null
   }
+  agentHandlers?.forceCleanupAll('Application shutting down.')
   indexerManager.shutdown().catch(() => {})
   relayClient.disconnect()
 })

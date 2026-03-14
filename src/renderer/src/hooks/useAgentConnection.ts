@@ -30,6 +30,7 @@ interface UseAgentConnectionParams {
   awaitingNewSessionRef: React.MutableRefObject<boolean>
   setActiveSessionId: (id: string | null) => void
   autoAllowedToolsRef: React.MutableRefObject<Set<string>>
+  invalidatedSessionsRef: React.MutableRefObject<Set<string>>
   dialogs: DialogCallbacks
   onSessionCaptured: (sessionId: string, messages: ChatMessage[], initialTokenUsage?: TokenUsage | null) => void
   onDraftPromoted: (draftId: string) => void
@@ -40,6 +41,7 @@ export function useAgentConnection({
   awaitingNewSessionRef,
   setActiveSessionId,
   autoAllowedToolsRef,
+  invalidatedSessionsRef,
   dialogs,
   onSessionCaptured,
   onDraftPromoted,
@@ -340,6 +342,11 @@ export function useAgentConnection({
       if (!querySessionId && activeId) return
       if (!activeId && querySessionId) return
 
+      // Track sessions that can no longer be resumed (e.g. after sleep/wake corruption)
+      if (error.includes('can no longer be resumed') && activeSessionIdRef.current) {
+        invalidatedSessionsRef.current.add(activeSessionIdRef.current)
+      }
+
       commitCurrentTurn()
       setMessages((prev) => [
         ...prev,
@@ -471,6 +478,21 @@ export function useAgentConnection({
             state.planReview ?? null,
             state.isLoading ?? false,
           )
+        }
+      }))
+    }
+
+    // Wake recovery: if we're still loading after sleep/wake, force-reset
+    if (window.claude.onWakeRecovery) {
+      unsubs.push(window.claude.onWakeRecovery(() => {
+        if (isLoadingRef.current) {
+          commitCurrentTurn()
+          setMessages((prev) => [
+            ...prev,
+            { id: nextId(), role: 'system', content: 'Session interrupted — you can send a new message to continue.', toolCalls: [] },
+          ])
+          setIsLoading(false)
+          dialogsRef.current.onDoneWithPlanExit()
         }
       }))
     }

@@ -212,6 +212,13 @@ const agentApi = {
     return () => { ipcRenderer.removeListener('indexer:setup-progress', listener) }
   },
 
+  // Wake recovery (sleep/wake cleanup)
+  onWakeRecovery: (callback: () => void) => {
+    const listener = () => callback()
+    ipcRenderer.on('agent:wake-recovery', listener)
+    return () => { ipcRenderer.removeListener('agent:wake-recovery', listener) }
+  },
+
   // Auto-updater (desktop only)
   installUpdate: () => ipcRenderer.invoke('updater:install'),
   onUpdateStatus: (callback: (status: { status: string; version?: string; error?: string }) => void) => {

@@ -72,7 +72,6 @@ jobs:
       - name: Deploy web client to Vercel
         run: |
           npm i -g vercel
-          cd packages/web
           vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }}
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}

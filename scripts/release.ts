@@ -85,7 +85,7 @@ function cacheChangelog(content: string) {
   writeFileSync(cachePath, content)
 }
 
-function generateChangelog(extraInstruction?: string): string {
+function generateChangelog(extraInstruction?: string, previousChangelog?: string): string {
   const parts = [
     `Generate a concise changelog in markdown for version ${newVersion} of Codr (a desktop AI coding assistant).`,
     `Group changes under categories like Features, Fixes, Improvements, etc. Only include categories that have entries.`,
@@ -93,7 +93,10 @@ function generateChangelog(extraInstruction?: string): string {
     `\nCommits since ${latestTag}:\n`,
     commitLog,
   ]
-  if (extraInstruction) parts.push(`\nAdditional instructions: ${extraInstruction}`)
+  if (previousChangelog && extraInstruction) {
+    parts.push(`\nHere is the previous changelog to revise:\n${previousChangelog}`)
+    parts.push(`\nRevision instructions: ${extraInstruction}`)
+  }
 
   console.log('Generating changelog...\n')
 
@@ -138,7 +141,7 @@ while (true) {
     rl.close()
     process.exit(0)
   }
-  changelog = generateChangelog(choice || undefined)
+  changelog = generateChangelog(choice || undefined, changelog)
 }
 
 rl.close()

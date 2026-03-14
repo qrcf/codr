@@ -5,6 +5,7 @@ publish:
   provider: github
   owner: qrcf
   repo: codr
+  releaseType: release
 
 directories:
   output: dist

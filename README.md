@@ -1,132 +1,159 @@
-# Codr
+<p align="center">
+  <img src="public/codr-logo-transparent.png" alt="Codr" width="120" />
+</p>
 
-Codr is an Electron desktop app for running agent sessions in a dedicated chat UI, with optional remote access through a companion web client in `packages/web`.
+<h1 align="center">Codr</h1>
 
-This README covers the `codr` repo only. Backend and hosted relay services live outside this repository.
+<p align="center">
+  A desktop chat UI for the Claude Agent SDK with remote web access
+</p>
 
-## What It Includes
+<p align="center">
+  <a href="https://github.com/qrcf/codr/releases"><img src="https://img.shields.io/github/v/release/qrcf/codr?label=version" alt="Version" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License" /></a>
+  <img src="https://img.shields.io/badge/platform-macOS-lightgrey" alt="Platform" />
+  <img src="https://img.shields.io/badge/node-22-green" alt="Node" />
+</p>
 
-- Electron desktop app with a React renderer
-- Shared chat UI for local desktop and remote web access
-- Provider runtime that can target Claude or Codex
-- Session history, permissions, and tool-call rendering
-- Documentation ingestion and prompt-time docs lookup via `@docs:SourceName`
+<!-- TODO: Add a screenshot of the chat UI showing a conversation with tool calls visible -->
+<!-- Save it to docs/screenshot.png and uncomment the line below -->
+<!-- <p align="center"><img src="docs/screenshot.png" alt="Codr screenshot" width="800" /></p> -->
 
-## Repository Layout
+## Features
 
-```text
-.
-├── src/
-│   ├── main/        # Electron main process, agent runtime, permissions, relay client
-│   ├── preload/     # Context bridge exposing the app API to the renderer
-│   └── renderer/    # React desktop UI
-├── packages/
-│   └── web/         # Browser client that talks to the desktop app through the relay
-├── scripts/         # Release/deployment helpers
-└── build/           # Packaging assets
-```
+- **Agent chat UI** — Full chat interface for Claude Agent SDK sessions with streaming responses, thinking visualization, and context usage tracking
+- **Multi-provider runtime** — Switch between Claude (Agent SDK) and Codex (Codex SDK) without changing workflows
+- **Remote web access** — Companion web client connects to your desktop session through a relay server, sharing the same React UI
+- **Tool call rendering** — Dedicated display components for Bash, Edit, Read, Write, Glob, Grep, and more, with diff previews for file modifications
+- **Documentation ingestion** — Crawl websites into searchable doc sources, then reference them in prompts with `@docs:SourceName`
+- **File references** — Mention files with `@path/to/file` to inject their contents into prompt context
+- **Permission controls** — Granular tool approval system with auto-approved reads, gated writes, and configurable bash whitelists
+- **Plan mode** — Structured planning workflow where the agent drafts a plan for your review before executing
+- **Session management** — Persistent session history with search, archiving, and project-based grouping
+- **Auto-updates** — Built-in update mechanism via electron-updater
 
-## Requirements
+## Installation
 
-- Node.js 22
-- `pnpm`
-- Access to the external relay environment used by the desktop and web clients
-- Provider credentials/configuration for whichever runtime you want to use
+### Download
 
-## Getting Started
+Grab the latest `.dmg` from [GitHub Releases](https://github.com/qrcf/codr/releases).
 
-Install dependencies:
+> Codr currently supports **macOS (Apple Silicon)**. Intel Mac and other platform support is planned.
+
+### Build from Source
+
+Prerequisites:
+- [Node.js 22](https://nodejs.org/) (see `.nvmrc`)
+- [pnpm](https://pnpm.io/)
 
 ```bash
+git clone https://github.com/qrcf/codr.git
+cd codr
 pnpm install
-```
-
-Run the desktop app in development:
-
-```bash
 pnpm dev
 ```
 
-Run the companion web client:
-
-```bash
-pnpm web:dev
-```
-
-Build the desktop app:
-
-```bash
-pnpm build
-```
-
-Create a packaged desktop build:
-
-```bash
-pnpm dist
-```
-
-Lint the repo:
-
-```bash
-pnpm lint
-```
+You'll need a `.env` file before running — see [Environment](#environment) below.
 
 ## Environment
 
-Create a local `.env` file in the repo root.
-
-Required variables:
+Create a `.env` file in the project root:
 
 ```bash
-VITE_CLERK_PUBLISHABLE_KEY=...
-VITE_RELAY_URL=ws://localhost:8080
-VITE_WEB_URL=http://localhost:5174
+VITE_CLERK_PUBLISHABLE_KEY=...      # Clerk authentication key
+VITE_RELAY_URL=ws://localhost:8080   # WebSocket relay server
+VITE_WEB_URL=http://localhost:5174   # Web client URL
 ```
 
-Notes:
+The relay server is an external service not included in this repository. For local development, you'll need access to a running relay instance.
 
-- `VITE_RELAY_URL` is the relay endpoint used for remote/web communication.
-- `VITE_WEB_URL` is used by the desktop app for auth and external web flow integration.
-- Production packaging and deploys also require signing/notarization and release-upload credentials.
+For production builds, additional signing and notarization credentials are required — see the [CI workflow](.github/workflows/release.yml) for details.
 
-## Common Commands
+## Development
 
-```bash
-pnpm dev         # Electron app with HMR
-pnpm web:dev     # Web client dev server
-pnpm build       # Electron production build
-pnpm web:build   # Web client production build
-pnpm dist        # Package desktop app with electron-builder
-pnpm deploy      # Release/deploy helper script
-pnpm lint        # ESLint
+| Command | Description |
+|---------|-------------|
+| `pnpm dev` | Run Electron app with HMR |
+| `pnpm build` | Production build (electron-vite) |
+| `pnpm dist` | Package as macOS DMG |
+| `pnpm lint` | Run ESLint |
+| `pnpm web:dev` | Start companion web client (port 5174) |
+| `pnpm web:build` | Build web client for production |
+| `pnpm deploy --upload` | Build, version bump, package, publish to GitHub Releases |
+
+## Architecture
+
+Codr is an Electron app with three processes:
+
+- **Main** (`src/main/`) — Agent runtime, permissions, session management, relay client
+- **Preload** (`src/preload/`) — Context bridge exposing `window.claude` API
+- **Renderer** (`src/renderer/`) — React chat UI, shared with the web client
+
+The companion web client (`packages/web/`) reuses the same React components via path aliases, implementing `window.claude` over WebSocket instead of Electron IPC.
+
+```
+User input → App.tsx → window.claude.query()
+  → [Electron IPC | WebSocket relay]
+  → Main process → Provider (Claude SDK / Codex SDK)
+  → Streaming response → Event broadcaster
+  → [IPC to renderer] + [Relay to web clients]
 ```
 
-## Architecture Overview
+For detailed architecture documentation, see [CLAUDE.md](CLAUDE.md).
 
-Codr uses the standard Electron split:
+## Project Structure
 
-- `src/main/` runs the agent runtime, permissions, session management, docs logic, and relay integration.
-- `src/preload/` exposes the desktop API to the renderer through a context bridge.
-- `src/renderer/` contains the React chat UI, session list, dialogs, and tool renderers.
+```
+codr/
+├── src/
+│   ├── main/           # Electron main process + agent runtime
+│   ├── preload/        # Context bridge (window.claude API)
+│   └── renderer/       # React UI (components, hooks, renderers)
+├── packages/
+│   └── web/            # Companion web client (Clerk + WebSocket)
+├── scripts/            # Build and deploy tooling
+├── resources/          # Python runtime, crawl4ai worker
+└── build/              # Packaging assets (icons, entitlements)
+```
 
-The web client in `packages/web` reuses the same high-level app model by implementing the same frontend-facing API over WebSocket instead of Electron IPC. That lets the desktop and web surfaces share much of the same interaction flow while targeting different transports.
+## Tech Stack
 
-### Provider Runtime
+| Layer | Technology |
+|-------|------------|
+| Framework | Electron 41, electron-vite |
+| UI | React 19, Tailwind CSS 4 |
+| Language | TypeScript |
+| Agent SDKs | Claude Agent SDK, Codex SDK |
+| Auth | Clerk |
+| Docs crawling | crawl4ai (Python), uv |
+| Build | electron-builder, Vite, pnpm workspaces |
+| CI/CD | GitHub Actions, Vercel |
 
-The runtime supports multiple providers:
+## Contributing
 
-- `claude` via the Claude Agent SDK
-- `codex` via the Codex SDK
+Contributions are welcome! Since this is an early-stage project, here are some guidelines:
 
-The selected provider is stored in the app's user data and can be switched without changing the UI layer.
+1. **Open an issue first** for non-trivial changes to discuss the approach
+2. **Fork and branch** — create a feature branch from `main`
+3. **Follow existing patterns** — see [CLAUDE.md](CLAUDE.md) for architecture conventions
+4. **Lint before submitting** — run `pnpm lint` and fix any issues
+5. **No test suite yet** — validation is done through linting and manual testing
 
-### Docs Workflow
+### Areas where help is welcome
 
-Users can register documentation sources, which are crawled, converted to Markdown, chunked, and made searchable. Prompts can reference a source with `@docs:SourceName` to pull matching documentation context into the request.
+- Linux and Windows platform support
+- Test infrastructure
+- Documentation improvements
+- Tool renderer components for additional tools
+- Accessibility improvements
 
-## Notes For Contributors
+## Known Limitations
 
-- This repo is a pnpm workspace, even though the main focus is the Electron app.
-- The hosted relay/API implementation is not included here.
-- There is currently no full test script configured at the root, so validation is mainly done through linting and manual runtime checks.
-- Packaging is configured for macOS DMG builds via `electron-builder`.
+- **macOS only** — Currently targets macOS Apple Silicon. Intel Mac and other platform support is planned.
+- **No test suite** — The project relies on linting and manual testing.
+- **External relay required** — The relay server for web client connectivity is not included in this repo.
+- **Early stage** — APIs and architecture may change between versions.
+
+## License
+
+[MIT](LICENSE) — Quinn Finney, 2025

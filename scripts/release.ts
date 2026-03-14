@@ -131,7 +131,12 @@ writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n')
 execSync('git add package.json', { stdio: 'inherit', cwd: root })
 execSync(`git commit -m "${newTag}"`, { stdio: 'inherit', cwd: root })
 
-// --- Create draft release and push tag ---
+// --- Tag, push, and create draft release ---
+
+execSync(`git tag ${newTag}`, { cwd: root })
+
+console.log('Pushing...')
+execSync(`git push origin HEAD ${newTag}`, { stdio: 'inherit', cwd: root })
 
 console.log(`\nCreating draft release ${newTag}...`)
 
@@ -144,9 +149,6 @@ if (gh.status !== 0) {
   console.error('✗ Failed to create draft release')
   process.exit(1)
 }
-
-console.log('Pushing tag...')
-execSync(`git push origin HEAD ${newTag}`, { stdio: 'inherit', cwd: root })
 
 console.log(`\n✓ Release ${newTag} initiated`)
 console.log(`  Draft: https://github.com/qrcf/codr/releases/tag/${newTag}`)

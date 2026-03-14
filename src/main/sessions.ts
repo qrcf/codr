@@ -473,10 +473,10 @@ export async function checkCliStatus(): Promise<CliStatus> {
   }
 }
 
-export async function listFilesData(dir?: string) {
+export async function listFilesData(dir?: string, maxFiles = 500) {
   const root = dir || process.cwd()
   const results: string[] = []
-  const MAX_FILES = 500
+  const MAX_FILES = maxFiles
   const ig = await loadIgnoreRules(root)
 
   async function walk(current: string) {

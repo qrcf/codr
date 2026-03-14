@@ -25,6 +25,36 @@ const BINARY_EXTENSIONS = new Set([
   '.lock', '.map',
 ])
 
+const INDEXER_SKIP_FILES = new Set([
+  'license', 'licence', 'changelog', 'changelog.md', 'license.md', 'licence.md',
+  'yarn.lock', 'pnpm-lock.yaml', 'package-lock.json',
+])
+
+function shouldSkipForIndexing(relPath: string): boolean {
+  const name = (relPath.split('/').pop() || '').toLowerCase()
+  if (name.startsWith('.')) return true
+  if (INDEXER_SKIP_FILES.has(name)) return true
+  return false
+}
+
+const CODE_EXTENSIONS = new Set([
+  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
+  '.py', '.pyw',
+  '.go',
+  '.rs',
+  '.java', '.kt', '.scala',
+  '.c', '.cpp', '.cc', '.h', '.hpp',
+  '.cs',
+  '.rb',
+  '.php',
+  '.swift',
+  '.sh', '.bash', '.zsh',
+  '.vue', '.svelte',
+])
+
+const NON_CODE_PENALTY = 0.5
+const MIN_SCORE = 0.2
+
 export type GlobalIndexerStatus = 'not-ready' | 'setting-up' | 'ready' | 'error'
 export type ProjectIndexStatus = 'not-indexed' | 'indexing' | 'indexed' | 'error'
 
@@ -271,12 +301,32 @@ export class IndexerManager {
     // Ensure index is fresh for this project
     await this.refreshIfStale(projectDir)
 
-    const results = await bridge.search(query, limit)
-    return results.map(r => ({
-      path: (r.metadata?.file_path as string) || r.id,
-      score: r.score,
-      text: r.text,
-    }))
+    // Over-fetch to compensate for dedup and filtering
+    const results = await bridge.search(query, limit * 3)
+
+    // Score threshold + dedup by path (keep highest score) + code prioritization
+    const byPath = new Map<string, { path: string; adjustedScore: number; text: string }>()
+    for (const r of results) {
+      if (r.score < MIN_SCORE) continue
+      const path = (r.metadata?.file_path as string) || r.id
+      const ext = extname(path).toLowerCase()
+      const isCode = CODE_EXTENSIONS.has(ext)
+      const adjustedScore = isCode ? r.score : r.score * NON_CODE_PENALTY
+
+      const existing = byPath.get(path)
+      if (!existing || adjustedScore > existing.adjustedScore) {
+        byPath.set(path, { path, adjustedScore, text: r.text })
+      }
+    }
+
+    return [...byPath.values()]
+      .sort((a, b) => b.adjustedScore - a.adjustedScore)
+      .slice(0, limit)
+      .map(r => ({
+        path: r.path,
+        score: r.adjustedScore,
+        text: r.text,
+      }))
   }
 
   /**
@@ -298,7 +348,7 @@ export class IndexerManager {
       const bridge = await this.ensureBridge(indexDir)
 
       // List files
-      const files = await listFilesData(projectDir)
+      const files = await listFilesData(projectDir, 2000)
       const totalFiles = files.length
       this.onProgress?.({ step: 'indexing', detail: `Chunking ${totalFiles} files...`, projectDir, progress: { current: 0, total: totalFiles } })
 
@@ -313,6 +363,7 @@ export class IndexerManager {
 
         for (const filePath of batch) {
           if (BINARY_EXTENSIONS.has(extname(filePath).toLowerCase())) continue
+          if (shouldSkipForIndexing(filePath)) continue
           try {
             const fullPath = join(projectDir, filePath)
             const content = await readFile(fullPath, 'utf-8')
@@ -394,7 +445,7 @@ export class IndexerManager {
     }
 
     // Check for changes
-    const currentFiles = await listFilesData(projectDir)
+    const currentFiles = await listFilesData(projectDir, 2000)
     const currentSet = new Set(currentFiles)
     const oldSet = new Set(Object.keys(meta.files))
 

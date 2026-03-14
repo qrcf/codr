@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Plus, Square, ChevronDown, Minimize2, CircleCheck, Circle, CircleX, Lightbulb, Code2, MessageCircle } from 'lucide-react'
 import { FileMentionDropdown } from './FileMentionDropdown'
+import { ReferenceFinderDialog } from './ReferenceFinderDialog'
 import { ModelSelector } from './ModelSelector'
 import { ReasoningSelector, type ReasoningLevel } from './ReasoningSelector'
 import { ContextUsageBar } from './ContextUsageBar'
@@ -8,7 +9,6 @@ import { ContextUsageBar } from './ContextUsageBar'
 interface InputAreaProps {
   // From useInputComposer
   input: string
-  setInput: (v: string) => void
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
   mentionActive: boolean
   mentionQuery: string
@@ -22,11 +22,20 @@ interface InputAreaProps {
   handleInputChange: React.ChangeEventHandler<HTMLTextAreaElement>
   handleMentionSelect: (file: string) => void
   handleDocMentionSelect: (doc: DocSource) => void
+  handlePlusClick: () => void
   handleKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement>
   handleDragOver: React.DragEventHandler<HTMLDivElement>
   handleDragLeave: React.DragEventHandler<HTMLDivElement>
   handleDrop: React.DragEventHandler<HTMLDivElement>
   handlePaste: React.ClipboardEventHandler<HTMLTextAreaElement>
+  // Reference finder
+  refFinderOpen: boolean
+  setRefFinderOpen: (open: boolean) => void
+  handleFindReferencesSelect: () => void
+  handleRefFinderApprove: (files: string[]) => void
+  indexerStatus?: string
+  projectIndexStatus?: string
+  projectFolder: string | null
   // From useDialogs
   mode: 'plan' | 'code' | 'ask'
   setMode: (m: 'plan' | 'code' | 'ask') => void
@@ -60,7 +69,6 @@ const MODE_CONFIG = {
 
 export function InputArea({
   input,
-  setInput,
   textareaRef,
   mentionActive,
   mentionQuery,
@@ -74,11 +82,19 @@ export function InputArea({
   handleInputChange,
   handleMentionSelect,
   handleDocMentionSelect,
+  handlePlusClick,
   handleKeyDown,
   handleDragOver,
   handleDragLeave,
   handleDrop,
   handlePaste,
+  refFinderOpen,
+  setRefFinderOpen,
+  handleFindReferencesSelect,
+  handleRefFinderApprove,
+  indexerStatus,
+  projectIndexStatus,
+  projectFolder,
   mode,
   setMode,
   autoApproveEdits,
@@ -124,19 +140,9 @@ export function InputArea({
 
   const isRealSession = activeSessionId && !activeSessionId.startsWith('draft-')
 
-  const handlePlusClick = () => {
-    const ta = textareaRef.current
-    if (!ta) return
-    setInput(input.endsWith(' ') || input === '' ? input + '@' : input + ' @')
-    setTimeout(() => {
-      ta.focus()
-      ta.setSelectionRange(ta.value.length, ta.value.length)
-    }, 0)
-  }
-
   return (
     <div
-      className="px-4 py-3 flex-shrink-0 max-w-[820px] w-full mx-auto box-border max-[768px]:max-w-full max-[768px]:px-3 max-[768px]:py-2"
+      className="px-4 py-3 shrink-0 max-w-205 w-full mx-auto box-border max-[768px]:max-w-full max-[768px]:px-3 max-[768px]:py-2"
       style={{ position: 'relative' }}
     >
       {mentionActive && (
@@ -147,10 +153,21 @@ export function InputArea({
           activeIndex={mentionIndex}
           onSelect={handleMentionSelect}
           onSelectDoc={handleDocMentionSelect}
+          onFindReferences={handleFindReferencesSelect}
+          indexerStatus={indexerStatus}
+          projectIndexStatus={projectIndexStatus}
         />
       )}
+      <ReferenceFinderDialog
+        isOpen={refFinderOpen}
+        onClose={() => setRefFinderOpen(false)}
+        onApprove={handleRefFinderApprove}
+        projectFolder={projectFolder}
+        currentSelectedFiles={selectedFiles}
+        indexerStatus={indexerStatus}
+      />
       <div
-        className={`flex flex-col rounded-xl border transition-[border-color,background] duration-150 ${isDragOver ? 'border-[#8142c7] bg-[rgba(129,66,199,0.06)]' : 'border-[#333] bg-[#1a1a2a]'}`}
+        className={`flex flex-col rounded-xl border transition-[border-color,background] duration-150 ${isDragOver ? 'border-accent bg-[rgba(129,66,199,0.06)]' : 'border-border bg-bg-tertiary'}`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
@@ -159,17 +176,17 @@ export function InputArea({
         {(selectedFiles.length > 0 || selectedDocs.length > 0) && (
           <div className="flex flex-wrap gap-1 px-3 pt-2">
             {selectedDocs.map(doc => (
-              <span key={`doc-${doc.id}`} className="inline-flex items-center gap-1 bg-[#3a5a44] text-[#ccc] px-2 py-[2px] rounded text-[0.82em]">
+              <span key={`doc-${doc.id}`} className="inline-flex items-center gap-1 bg-[#3a5a44] text-[#ccc] px-2 py-0.5 rounded text-[0.82em]">
                 <span title={doc.url}>📄 {doc.name}</span>
-                <button className="bg-transparent border-none text-[#999] cursor-pointer px-[2px] py-0 text-[12px] leading-[1] hover:text-white"
+                <button className="bg-transparent border-none text-text-muted cursor-pointer px-0.5 py-0 text-[12px] leading-none hover:text-white"
                   onClick={() => setSelectedDocs(prev => prev.filter(d => d.id !== doc.id))}
                 >×</button>
               </span>
             ))}
             {selectedFiles.map(file => (
-              <span key={file} className="inline-flex items-center gap-1 bg-[#444460] text-[#ccc] px-2 py-[2px] rounded text-[0.82em] font-['SF_Mono','Fira_Code',monospace]">
+              <span key={file} className="inline-flex items-center gap-1 bg-[#444460] text-[#ccc] px-2 py-0.5 rounded text-[0.82em] font-['SF_Mono','Fira_Code',monospace]">
                 <span title={file}>{file.startsWith('/') ? file.split('/').pop() : file}</span>
-                <button className="bg-transparent border-none text-[#999] cursor-pointer px-[2px] py-0 text-[12px] leading-[1] hover:text-white"
+                <button className="bg-transparent border-none text-text-muted cursor-pointer px-0.5 py-0 text-[12px] leading-none hover:text-white"
                   onClick={() => setSelectedFiles(prev => prev.filter(f => f !== file))}
                 >×</button>
               </span>
@@ -180,7 +197,7 @@ export function InputArea({
         {/* Textarea */}
         <textarea
           ref={textareaRef}
-          className="w-full bg-transparent border-none px-3 py-3 text-inherit font-[inherit] text-[0.95em] resize-none leading-[1.5] min-h-[44px] max-h-[240px] overflow-y-hidden focus:outline-none disabled:opacity-50"
+          className="w-full bg-transparent border-none px-3 py-3 text-inherit font-[inherit] text-[0.95em] resize-none leading-normal min-h-11 max-h-60 overflow-y-hidden focus:outline-none disabled:opacity-50"
           value={input}
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
@@ -193,10 +210,10 @@ export function InputArea({
         {/* Bottom toolbar */}
         <div className="flex items-center justify-between px-2 pb-2 gap-2">
           {/* Left: + and Mode */}
-          <div className="flex items-center gap-[5px]">
+          <div className="flex items-center gap-1.25">
             {/* + attach */}
             <button
-              className="w-7 h-7 inline-flex items-center justify-center rounded-md text-[#888] bg-transparent border-none cursor-pointer transition-all duration-150 hover:text-[#8142c7] hover:bg-white/[0.04] disabled:opacity-40 disabled:cursor-not-allowed"
+              className="w-7 h-7 inline-flex items-center justify-center rounded-md text-text-faint bg-transparent border-none cursor-pointer transition-all duration-150 hover:text-accent hover:bg-white/4 disabled:opacity-40 disabled:cursor-not-allowed"
               onClick={handlePlusClick}
               disabled={isLoading}
               title="Attach file (@)"
@@ -211,7 +228,7 @@ export function InputArea({
                 const Icon = cfg.icon
                 return (
                   <button
-                    className="inline-flex items-center gap-[5px] rounded-md px-[8px] py-[3px] text-[0.78rem] cursor-pointer transition-all duration-150 border-none"
+                    className="inline-flex items-center gap-1.25 rounded-md px-2 py-0.75 text-[0.78rem] cursor-pointer transition-all duration-150 border-none"
                     style={{ color: cfg.color, background: modeOpen ? cfg.bg : 'transparent' }}
                     onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = cfg.bg }}
                     onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = modeOpen ? cfg.bg : 'transparent' }}
@@ -224,14 +241,14 @@ export function InputArea({
                 )
               })()}
               {modeOpen && (
-                <div className="absolute bottom-full left-0 mb-1 min-w-[110px] bg-[#1a1a2e] border border-[#2e2e44] rounded-lg py-1 z-10 shadow-[0_4px_16px_rgba(0,0,0,0.5)]">
+                <div className="absolute bottom-full left-0 mb-1 min-w-27.5 bg-[#1a1a2e] border border-[#2e2e44] rounded-lg py-1 z-10 shadow-[0_4px_16px_rgba(0,0,0,0.5)]">
                   {(['plan', 'code', 'ask'] as const).map((m) => {
                     const cfg = MODE_CONFIG[m]
                     const Icon = cfg.icon
                     return (
                       <button
                         key={m}
-                        className="w-full flex items-center gap-2 px-3 py-[7px] text-[0.8em] border-none cursor-pointer transition-colors duration-100"
+                        className="w-full flex items-center gap-2 px-3 py-1.75 text-[0.8em] border-none cursor-pointer transition-colors duration-100"
                         style={{
                           background: mode === m ? cfg.bg : 'transparent',
                           color: mode === m ? cfg.color : '#888',
@@ -251,7 +268,7 @@ export function InputArea({
           </div>
 
           {/* Right: Model, Reasoning, Send/Stop */}
-          <div className="flex items-center gap-[5px] flex-shrink-0">
+          <div className="flex items-center gap-1.25 shrink-0">
             {/* Model */}
             <ModelSelector
               provider={currentProvider}
@@ -277,7 +294,7 @@ export function InputArea({
               </button>
             ) : (
               <button
-                className="w-8 h-8 inline-flex items-center justify-center rounded-lg bg-gradient-to-b from-[#9354d4] to-[#7438b8] text-white shadow-[0_1px_3px_rgba(129,66,199,0.35),inset_0_1px_0_rgba(255,255,255,0.1)] cursor-pointer transition-all duration-150 enabled:hover:from-[#8548c5] enabled:hover:to-[#6830a8] enabled:hover:shadow-[0_2px_6px_rgba(129,66,199,0.45)] disabled:opacity-40 disabled:cursor-not-allowed"
+                className="w-8 h-8 inline-flex items-center justify-center rounded-lg bg-linear-to-b from-[#9354d4] to-[#7438b8] text-white shadow-[0_1px_3px_rgba(129,66,199,0.35),inset_0_1px_0_rgba(255,255,255,0.1)] cursor-pointer transition-all duration-150 enabled:hover:from-[#8548c5] enabled:hover:to-[#6830a8] enabled:hover:shadow-[0_2px_6px_rgba(129,66,199,0.45)] disabled:opacity-40 disabled:cursor-not-allowed"
                 onClick={onSend}
                 disabled={!input.trim() && selectedFiles.length === 0 && selectedDocs.length === 0}
                 title="Send"
@@ -293,36 +310,36 @@ export function InputArea({
       </div>
 
       {/* Below-card row: allow/ask toggle left, context + compact right */}
-      <div className="flex items-center justify-between px-1 pt-1 min-h-[24px]">
+      <div className="flex items-center justify-between px-1 pt-1 min-h-6">
         {/* Left: Allow/Ask/Deny edits toggle */}
         <div className="group relative">
           {mode === 'ask' ? (
             <button
-              className="inline-flex items-center gap-[5px] rounded-md px-[6px] py-[2px] text-[0.75rem] cursor-pointer bg-transparent border-none transition-all duration-150 hover:bg-white/[0.04] text-[#555]"
+              className="inline-flex items-center gap-1.25 rounded-md px-1.5 py-0.5 text-[0.75rem] cursor-pointer bg-transparent border-none transition-all duration-150 hover:bg-white/4 text-[#555]"
               onClick={handleToggleAutoEdits}
             >
-              <CircleX size={12} className="flex-shrink-0" />
+              <CircleX size={12} className="shrink-0" />
               <span>Deny</span>
             </button>
           ) : (
             <button
-              className="inline-flex items-center gap-[5px] rounded-md px-[6px] py-[2px] text-[0.75rem] cursor-pointer bg-transparent border-none transition-all duration-150 hover:bg-white/[0.04]"
+              className="inline-flex items-center gap-1.25 rounded-md px-1.5 py-0.5 text-[0.75rem] cursor-pointer bg-transparent border-none transition-all duration-150 hover:bg-white/4"
               onClick={handleToggleAutoEdits}
             >
               {autoApproveEdits
-                ? <CircleCheck size={12} className="text-[#4caf50] flex-shrink-0" />
-                : <Circle size={12} className="text-[#f5a623] flex-shrink-0" />
+                ? <CircleCheck size={12} className="text-success shrink-0" />
+                : <Circle size={12} className="text-[#f5a623] shrink-0" />
               }
-              <span className={autoApproveEdits ? 'text-[#4caf50]' : 'text-[#f5a623]'}>
+              <span className={autoApproveEdits ? 'text-success' : 'text-[#f5a623]'}>
                 {autoApproveEdits ? 'Allow' : 'Ask'}
               </span>
             </button>
           )}
-          <div className="hidden group-hover:block absolute bottom-[calc(100%+8px)] left-0 bg-[#1e1e2e] border border-white/10 rounded-lg px-3 py-2 text-[0.7rem] text-[#ccc] whitespace-nowrap z-[100] shadow-[0_4px_12px_rgba(0,0,0,0.3)] pointer-events-none">
+          <div className="hidden group-hover:block absolute bottom-[calc(100%+8px)] left-0 bg-bg-card border border-white/10 rounded-lg px-3 py-2 text-[0.7rem] text-[#ccc] whitespace-nowrap z-100 shadow-[0_4px_12px_rgba(0,0,0,0.3)] pointer-events-none">
             {mode === 'ask'
               ? <><span className="text-[#555] font-medium">Deny</span> — Ask mode: file edits are blocked</>
               : autoApproveEdits
-                ? <><span className="text-[#4caf50] font-medium">Allow</span> — File edits are auto-approved</>
+                ? <><span className="text-success font-medium">Allow</span> — File edits are auto-approved</>
                 : <><span className="text-[#f5a623] font-medium">Ask</span> — Claude will ask before editing files</>
             }
           </div>
@@ -334,29 +351,29 @@ export function InputArea({
             {tokenUsage && <ContextUsageBar {...tokenUsage} />}
             <div className="group relative" ref={compactRef}>
               <button
-                className="w-6 h-6 inline-flex items-center justify-center rounded-md bg-transparent border-none cursor-pointer transition-all duration-150 enabled:hover:text-[#8142c7] enabled:hover:bg-white/[0.04] disabled:opacity-40 disabled:cursor-not-allowed text-[#555] hover:text-[#888]"
+                className="w-6 h-6 inline-flex items-center justify-center rounded-md bg-transparent border-none cursor-pointer transition-all duration-150 enabled:hover:text-accent enabled:hover:bg-white/4 disabled:opacity-40 disabled:cursor-not-allowed text-[#555] hover:text-text-faint"
                 onClick={() => setCompactConfirmOpen(prev => !prev)}
                 disabled={isLoading}
               >
                 <Minimize2 size={12} />
               </button>
               {!compactConfirmOpen && (
-                <div className="hidden group-hover:block absolute bottom-[calc(100%+8px)] right-0 bg-[#1e1e2e] border border-white/10 rounded-lg px-3 py-2 text-[0.7rem] text-[#ccc] whitespace-nowrap z-[100] shadow-[0_4px_12px_rgba(0,0,0,0.3)] pointer-events-none">
+                <div className="hidden group-hover:block absolute bottom-[calc(100%+8px)] right-0 bg-bg-card border border-white/10 rounded-lg px-3 py-2 text-[0.7rem] text-[#ccc] whitespace-nowrap z-100 shadow-[0_4px_12px_rgba(0,0,0,0.3)] pointer-events-none">
                   <span className="font-medium text-[#aaa]">Compact</span> — summarize history to free up context
                 </div>
               )}
               {compactConfirmOpen && (
-                <div className="absolute bottom-full right-0 mb-2 bg-[#1e1e2e] border border-[#333] rounded-lg px-3 py-2.5 z-20 shadow-[0_4px_16px_rgba(0,0,0,0.5)] w-[200px]">
+                <div className="absolute bottom-full right-0 mb-2 bg-bg-card border border-border rounded-lg px-3 py-2.5 z-20 shadow-[0_4px_16px_rgba(0,0,0,0.5)] w-50">
                   <p className="text-[0.78rem] text-[#ccc] mb-2.5 leading-snug">Compact conversation history?</p>
                   <div className="flex gap-2">
                     <button
-                      className="flex-1 bg-[#8142c7] text-white border-none rounded-md py-1 text-[0.75rem] cursor-pointer hover:bg-[#6e35ab] transition-colors duration-150"
+                      className="flex-1 bg-accent text-white border-none rounded-md py-1 text-[0.75rem] cursor-pointer hover:bg-accent-hover transition-colors duration-150"
                       onClick={() => { setCompactConfirmOpen(false); onCompact() }}
                     >
                       Compact
                     </button>
                     <button
-                      className="flex-1 bg-transparent text-[#888] border border-[#444] rounded-md py-1 text-[0.75rem] cursor-pointer hover:text-white hover:border-[#666] transition-colors duration-150"
+                      className="flex-1 bg-transparent text-text-faint border border-[#444] rounded-md py-1 text-[0.75rem] cursor-pointer hover:text-white hover:border-text-dim transition-colors duration-150"
                       onClick={() => setCompactConfirmOpen(false)}
                     >
                       Cancel

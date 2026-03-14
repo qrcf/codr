@@ -1,19 +1,17 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { getMentionItemCount, resolveMentionIndex } from '../components/FileMentionDropdown'
+import { getMentionItemCount, resolveMentionIndex } from '../utils/mentionUtils'
 import type { useDocsAPI } from './useDocsAPI'
 
 interface UseInputComposerParams {
   onSend: () => void
   docsAPI: ReturnType<typeof useDocsAPI>
   projectFolderRef: React.MutableRefObject<string | null>
-  setMode: React.Dispatch<React.SetStateAction<'plan' | 'code' | 'ask'>>
 }
 
 export function useInputComposer({
   onSend,
   docsAPI,
   projectFolderRef,
-  setMode,
 }: UseInputComposerParams) {
   const [input, setInput] = useState('')
   const [mentionActive, setMentionActive] = useState(false)
@@ -24,6 +22,7 @@ export function useInputComposer({
   const [selectedFiles, setSelectedFiles] = useState<string[]>([])
   const [selectedDocs, setSelectedDocs] = useState<DocSource[]>([])
   const [isDragOver, setIsDragOver] = useState(false)
+  const [refFinderOpen, setRefFinderOpen] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Textarea auto-resize
@@ -81,9 +80,8 @@ export function useInputComposer({
         setMentionStart(cursor - 1)
         setMentionQuery('')
         setMentionIndex(0)
-        if (fileCache.length === 0) {
-          window.claude.listFiles().then(setFileCache).catch(() => {})
-        }
+        // Always re-fetch so the cache stays current when switching projects
+        window.claude.listFiles(projectFolderRef.current || undefined).then(setFileCache).catch(() => {})
         docsAPI.refresh()
       }
     }
@@ -138,7 +136,35 @@ export function useInputComposer({
     textareaRef.current?.focus()
   }, [resolveFilePath, addFilePaths])
 
+  // Scan the textarea backward from the cursor for a @word pattern and activate mention mode.
+  // Used after paste to handle pasted @ symbols and paths.
+  const activateMentionFromCursor = useCallback(() => {
+    const ta = textareaRef.current
+    if (!ta) return
+    const value = ta.value
+    const cursor = ta.selectionStart
+    let atPos = -1
+    for (let i = cursor - 1; i >= 0; i--) {
+      const ch = value[i]
+      if (ch === ' ' || ch === '\n') break
+      if (ch === '@') {
+        if (i === 0 || value[i - 1] === ' ' || value[i - 1] === '\n') atPos = i
+        break
+      }
+    }
+    if (atPos === -1) return
+    const query = value.slice(atPos + 1, cursor)
+    if (query.includes(' ') || query.includes('\n')) return
+    setMentionActive(true)
+    setMentionStart(atPos)
+    setMentionQuery(query)
+    setMentionIndex(0)
+    window.claude.listFiles(projectFolderRef.current || undefined).then(setFileCache).catch(() => {})
+    docsAPI.refresh()
+  }, [projectFolderRef, docsAPI])
+
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const pastedText = e.clipboardData.getData('text')
     const files = e.clipboardData.files
     if (files.length) {
       // Files from clipboard (e.g. screenshot paste)
@@ -154,10 +180,56 @@ export function useInputComposer({
     // No File objects — try native pasteboard for Finder-copied files
     if (window.claude.readClipboardFilePaths) {
       window.claude.readClipboardFilePaths().then(nativePaths => {
-        if (nativePaths.length) addFilePaths(nativePaths)
+        if (nativePaths.length) {
+          addFilePaths(nativePaths)
+          return
+        }
+        // No native paths — check if pasted text places cursor after a @-mention
+        if (pastedText?.includes('@')) requestAnimationFrame(activateMentionFromCursor)
       })
+    } else if (pastedText?.includes('@')) {
+      requestAnimationFrame(activateMentionFromCursor)
     }
-  }, [resolveFilePath, addFilePaths])
+  }, [resolveFilePath, addFilePaths, activateMentionFromCursor])
+
+  const handlePlusClick = useCallback(() => {
+    const ta = textareaRef.current
+    if (!ta) return
+    const newInput = input.endsWith(' ') || input === '' ? input + '@' : input + ' @'
+    setInput(newInput)
+    const atPos = newInput.length - 1
+    setMentionActive(true)
+    setMentionStart(atPos)
+    setMentionQuery('')
+    setMentionIndex(0)
+    window.claude.listFiles(projectFolderRef.current || undefined).then(setFileCache).catch(() => {})
+    docsAPI.refresh()
+    setTimeout(() => {
+      ta.focus()
+      ta.setSelectionRange(newInput.length, newInput.length)
+    }, 0)
+  }, [input, projectFolderRef, docsAPI])
+
+  const handleFindReferencesSelect = useCallback(() => {
+    // Remove the @ from input
+    const before = input.slice(0, mentionStart)
+    const after = input.slice(mentionStart + mentionQuery.length + 1)
+    setInput(before + after)
+    setMentionActive(false)
+    setMentionQuery('')
+    setMentionIndex(0)
+    setRefFinderOpen(true)
+  }, [input, mentionStart, mentionQuery])
+
+  const handleRefFinderApprove = useCallback((files: string[]) => {
+    setSelectedFiles(prev => {
+      const set = new Set(prev)
+      for (const f of files) set.add(f)
+      return [...set]
+    })
+    setRefFinderOpen(false)
+    textareaRef.current?.focus()
+  }, [])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (mentionActive) {
@@ -175,7 +247,9 @@ export function useInputComposer({
       if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault()
         const resolved = resolveMentionIndex(fileCache, docsAPI.sources, mentionQuery, mentionIndex)
-        if (resolved?.type === 'file') {
+        if (resolved?.type === 'find-references') {
+          handleFindReferencesSelect()
+        } else if (resolved?.type === 'file') {
           handleMentionSelect(resolved.file)
         } else if (resolved?.type === 'doc') {
           handleDocMentionSelect(resolved.doc)
@@ -220,9 +294,14 @@ export function useInputComposer({
     selectedDocs,
     setSelectedDocs,
     isDragOver,
+    refFinderOpen,
+    setRefFinderOpen,
     handleInputChange,
     handleMentionSelect,
     handleDocMentionSelect,
+    handlePlusClick,
+    handleFindReferencesSelect,
+    handleRefFinderApprove,
     handleKeyDown,
     handleDragOver,
     handleDragLeave,

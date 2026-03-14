@@ -52,6 +52,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
   content: string
   toolCalls: ToolCallInfo[]
+  thinking?: string
 }
 
 export interface ToolCallInfo {

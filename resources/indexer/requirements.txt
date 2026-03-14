@@ -1,0 +1,2 @@
+leann-core>=0.3.7
+leann-backend-hnsw>=0.1.0

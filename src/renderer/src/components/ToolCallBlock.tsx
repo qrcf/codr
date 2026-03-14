@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Loader2, XCircle, CheckCircle2, ChevronDown, ChevronRight } from 'lucide-react'
-import { formatValue } from './JsonHighlight'
+import { formatValue } from './formatValue'
 import { toolRenderers } from './toolRenderers'
 import { PlanWriteRenderer } from './renderers/PlanWriteRenderer'
 import type { ToolCallInfo } from '../types'

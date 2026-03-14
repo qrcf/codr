@@ -1,7 +1,6 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { MarkdownContent } from './MarkdownContent'
 import { ToolCallBlock } from './ToolCallBlock'
 import { AgentCard } from './AgentCard'
 import { PlanWriteRenderer } from './renderers/PlanWriteRenderer'
@@ -37,15 +36,17 @@ function buildToolSummary(tools: ToolCallInfo[]): string {
   return parts.join(', ')
 }
 
-export function MessageBubble({ message }: { message: ChatMessage }) {
+export function MessageBubble({ message, approvedPlanToolIds }: { message: ChatMessage; approvedPlanToolIds?: Set<string> }) {
   const agents = message.toolCalls.filter((t) => t.name === 'Agent')
   const planWrites = message.toolCalls.filter((t) => isPlanWrite(t))
   const otherTools = message.toolCalls.filter((t) => t.name !== 'Agent' && !isPlanWrite(t))
   const hasRunning = otherTools.some((t) => t.status === 'running')
   const [groupExpanded, setGroupExpanded] = useState(hasRunning)
+  const [thinkingExpanded, setThinkingExpanded] = useState(false)
   const isLong = message.role === 'user' && !!message.content &&
     (message.content.split('\n').length > 4 || message.content.length > 280)
   const [expanded, setExpanded] = useState(false)
+  const formatted = useMemo(() => message.content ? formatMessageContent(message.content) : null, [message.content])
 
   if (message.role === 'system') {
     return (
@@ -57,6 +58,20 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
 
   return (
     <div className={`max-w-full ${message.role === 'user' ? 'self-end max-w-[80%] bg-[#2a2a3d] px-[14px] py-2 rounded-[16px_16px_4px_16px] mt-2' : 'py-1'}`}>
+      {message.thinking && (
+        <div className="mb-1">
+          <div
+            className="flex items-center gap-[6px] px-2 py-1 cursor-pointer select-none text-[#999] text-[0.85em] rounded hover:bg-[#2a2a3a] hover:text-[#ccc]"
+            onClick={() => setThinkingExpanded(!thinkingExpanded)}
+          >
+            <span className="text-[0.8em] text-[#666] flex-shrink-0">{thinkingExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
+            <span className="font-['SF_Mono','Fira_Code',monospace]">Reasoning</span>
+          </div>
+          {thinkingExpanded && (
+            <MarkdownContent className="thinking-content">{message.thinking}</MarkdownContent>
+          )}
+        </div>
+      )}
       {message.content && (
         <div>
           <div
@@ -64,7 +79,7 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
             style={isLong && !expanded ? { maxHeight: '5.5em' } : undefined}
             onClick={isLong && !expanded ? () => setExpanded(true) : undefined}
           >
-            <Markdown remarkPlugins={[remarkGfm]}>{formatMessageContent(message.content)}</Markdown>
+            <MarkdownContent tags={formatted!.tags}>{formatted!.text}</MarkdownContent>
             {isLong && !expanded && (
               <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-[#2a2a3d] to-transparent pointer-events-none" />
             )}
@@ -83,7 +98,7 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
         <AgentCard key={agent.id} tool={agent} />
       ))}
       {planWrites.map((pw) => (
-        <PlanWriteRenderer key={pw.id} tool={pw} />
+        <PlanWriteRenderer key={pw.id} tool={pw} isApproved={approvedPlanToolIds?.has(pw.id)} />
       ))}
       {otherTools.length > 0 && (
         <div className="mt-2">

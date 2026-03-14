@@ -51,10 +51,18 @@ export function useDraftSessions() {
     })
   }, [])
 
+  const updateDraftCwd = useCallback((draftId: string, cwd: string) => {
+    setDrafts(prev => {
+      const next = prev.map(d => d.draftId === draftId ? { ...d, cwd } : d)
+      writeDrafts(next)
+      return next
+    })
+  }, [])
+
   const promoteDraft = useCallback((draftId: string) => {
     // Same as remove — the real session takes over via normal SDK flow
     removeDraft(draftId)
   }, [removeDraft])
 
-  return { drafts, createDraft, removeDraft, promoteDraft }
+  return { drafts, createDraft, removeDraft, updateDraftCwd, promoteDraft }
 }

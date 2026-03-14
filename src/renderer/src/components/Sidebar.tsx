@@ -8,6 +8,11 @@ import type { DraftSession } from '../hooks/useDraftSessions'
 
 export type SessionStatusType = 'question' | 'plan-review' | 'permission'
 
+export interface ProjectInfo {
+  path: string
+  displayName: string
+}
+
 interface SidebarProps {
   isOpen: boolean
   activeSessionId: string | null
@@ -26,6 +31,7 @@ interface SidebarProps {
   onArchiveSession?: (id: string) => void
   onUnarchiveSession?: (id: string) => void
   userProfile?: { email: string | null; fullName: string | null; imageUrl: string | null } | null
+  onProjectsUpdate?: (projects: ProjectInfo[]) => void
 }
 
 function folderName(path: string): string {
@@ -50,6 +56,7 @@ export function Sidebar({
   onArchiveSession,
   onUnarchiveSession,
   userProfile,
+  onProjectsUpdate,
 }: SidebarProps) {
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [sessionsLoaded, setSessionsLoaded] = useState(false)
@@ -129,11 +136,20 @@ export function Sidebar({
       }
     })
     return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- effect populates repoNames from projects/sessions
   }, [projects, sessions])
 
-  function displayName(path: string): string {
+  const displayName = useCallback((path: string): string => {
     return repoNames[path] || folderName(path)
-  }
+  }, [repoNames])
+
+  // Push project list up to parent for ChatHeader dropdown
+  useEffect(() => {
+    if (!onProjectsUpdate) return
+    const visibleProjects = projects.filter(p => !hiddenProjects.has(p))
+    onProjectsUpdate(visibleProjects.map(p => ({ path: p, displayName: displayName(p) })))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- displayName is derived from repoNames (in deps)
+  }, [projects, repoNames, hiddenProjects, onProjectsUpdate])
 
   const requestTitleBackfill = useCallback((sessionId: string, firstPrompt?: string) => {
     if (!window.claude.ensureTitle) return
@@ -183,10 +199,9 @@ export function Sidebar({
 
   useEffect(() => {
     fetchSessions()
-    const unsub = window.claude.onSessionRefreshHint(() => {
+    return window.claude.onSessionRefreshHint(() => {
       fetchSessions()
     })
-    return unsub
   }, [fetchSessions])
 
   // Check codex availability once on mount
@@ -391,7 +406,7 @@ export function Sidebar({
     })
 
     return { entries: filteredEntries, ungrouped: filteredUngrouped }
-  }, [projects, visibleSessions, searchQuery, hiddenProjects])
+  }, [projects, visibleSessions, searchQuery, hiddenProjects, displayName])
 
   const handleSessionClick = async (sessionId: string) => {
     if (loadingSession) return
@@ -487,10 +502,11 @@ export function Sidebar({
         </div>
         <div className="flex items-center gap-1.5 mt-0.5 text-[0.72em] text-[#777]">
           <span>{timeAgo(session.lastModified)}</span>
-          {session.provider && (
-            <span className="bg-[#1a2e1a] text-[#6cb86c] px-[5px] rounded-[3px] font-mono text-[0.9em] whitespace-nowrap overflow-hidden text-ellipsis max-w-[100px] max-[768px]:max-w-[160px]">
-              {session.provider === 'claude' ? 'Claude' : 'Codex'}
-            </span>
+          {session.provider === 'claude' && (
+            <Sparkles size={11} className="text-[#8142c7] shrink-0" />
+          )}
+          {session.provider === 'codex' && (
+            <Terminal size={11} className="text-[#4aa3df] shrink-0" />
           )}
           {session.gitBranch && session.gitBranch !== 'HEAD' && (
             <span className="flex items-center gap-[3px] bg-[#1a2e1a] text-[#6cb86c] px-[5px] rounded-[3px] font-mono text-[0.9em] whitespace-nowrap overflow-hidden text-ellipsis max-w-[100px] max-[768px]:max-w-[160px]">
@@ -547,6 +563,17 @@ export function Sidebar({
           <span className="text-[0.72em] text-[#555] shrink-0">
             {groupSessions.length}
           </span>
+          <button
+            className="bg-transparent border-none text-[#555] rounded w-6 h-6 hidden items-center justify-center cursor-pointer transition-colors duration-150 group-hover/project:flex hover:text-[#ccc] hover:bg-[#2a2a3a]"
+            onClick={(e) => {
+              e.stopPropagation()
+              onNewChat('claude', cwd)
+              if (window.innerWidth <= 768) onCloseSidebar?.()
+            }}
+            title="New chat in this project"
+          >
+            <Plus size={14} />
+          </button>
           <div className="relative shrink-0" ref={contextMenuProject === cwd ? contextMenuRef : undefined}>
             <button
               className="bg-transparent border-none text-[#555] rounded w-6 h-6 hidden items-center justify-center cursor-pointer transition-colors duration-150 group-hover/project:flex hover:text-[#ccc] hover:bg-[#2a2a3a]"
@@ -727,7 +754,7 @@ export function Sidebar({
         </div>
 
         {/* Project groups */}
-        <div className="flex-1 overflow-y-auto py-1">
+        <div className="flex-1 overflow-y-auto py-1 scroll-auto-hide">
           {!sessionsLoaded ? (
             <div className="px-4 py-5 text-[#666] text-[0.85em] text-center">Loading sessions...</div>
           ) : projectGroups.entries.length === 0 && projectGroups.ungrouped.length === 0 ? (

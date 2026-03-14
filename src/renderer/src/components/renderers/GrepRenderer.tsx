@@ -20,7 +20,7 @@ export function GrepRenderer({ tool }: { tool: ToolCallInfo }) {
         {lines.length > 0 && <span className="text-[#666] ml-auto text-[0.9em]">{lines.length} matches</span>}
       </div>
       {result && tool.status === 'done' && (
-        <pre className="m-0 px-[10px] py-2 bg-[#0d0d1a] font-['SF_Mono','Fira_Code',monospace] text-[0.82em] leading-[1.4] whitespace-pre-wrap break-words text-[#b0b0b0] max-h-[300px] overflow-y-auto border-t border-[#3a3a4a]">
+        <pre style={{ margin: 0, padding: '8px 10px', background: '#0d0d1a', fontFamily: "'SF Mono', 'Fira Code', monospace", fontSize: '0.82em', lineHeight: 1.4, whiteSpace: 'pre-wrap', wordWrap: 'break-word', color: '#b0b0b0', maxHeight: 300, overflowY: 'auto', borderTop: '1px solid #3a3a4a' }}>
           {displayLines.join('\n')}{hasMore ? `\n... (${lines.length - 30} more)` : ''}
         </pre>
       )}

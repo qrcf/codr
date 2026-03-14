@@ -23,6 +23,8 @@ export interface TokenUsage {
   cacheReadInputTokens: number
   cacheCreationInputTokens: number
   contextWindow: number
+  subagentInputTokens?: number
+  subagentOutputTokens?: number
 }
 
 export interface ConversationState {
@@ -131,19 +133,11 @@ export class EventBroadcaster {
             if (state.streamingTools.length > 0) {
               this.commitCurrentTurn(querySessionId)
             }
-            // Clear thinking when real text starts
-            if (state.streamingThinking) {
-              state.streamingThinking = ''
-            }
             state.streamingText += evt.event.delta.text
           } else if (evt.event.type === 'content_block_delta' && evt.event.delta?.type === 'thinking_delta' && evt.event.delta.thinking) {
             state.streamingThinking += evt.event.delta.thinking
           } else if (evt.event.type === 'content_block_start' && evt.event.content_block?.type === 'tool_use') {
             const block = evt.event.content_block
-            // Clear thinking when tool use starts
-            if (state.streamingThinking) {
-              state.streamingThinking = ''
-            }
             state.streamingTools.push({
               id: block.id || `tool-${Date.now()}-${Math.random()}`,
               name: block.name || 'Unknown',
@@ -153,15 +147,27 @@ export class EventBroadcaster {
           }
         } else if (msg.type === 'assistant') {
           // Extract token usage from assistant message
+          const isSubagent = !!(msg as { parent_tool_use_id?: string | null }).parent_tool_use_id
           const usageMsg = msg as { message?: { usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } } }
           const usage = usageMsg.message?.usage
           if (usage?.input_tokens) {
-            state.tokenUsage = {
-              inputTokens: usage.input_tokens,
-              outputTokens: usage.output_tokens || 0,
-              cacheReadInputTokens: usage.cache_read_input_tokens || 0,
-              cacheCreationInputTokens: usage.cache_creation_input_tokens || 0,
-              contextWindow: state.tokenUsage?.contextWindow || 200000,
+            if (isSubagent) {
+              // Accumulate subagent tokens separately
+              state.tokenUsage = {
+                ...state.tokenUsage!,
+                subagentInputTokens: (state.tokenUsage?.subagentInputTokens || 0) + usage.input_tokens,
+                subagentOutputTokens: (state.tokenUsage?.subagentOutputTokens || 0) + (usage.output_tokens || 0),
+              }
+            } else {
+              state.tokenUsage = {
+                inputTokens: usage.input_tokens,
+                outputTokens: usage.output_tokens || 0,
+                cacheReadInputTokens: usage.cache_read_input_tokens || 0,
+                cacheCreationInputTokens: usage.cache_creation_input_tokens || 0,
+                contextWindow: state.tokenUsage?.contextWindow || 200000,
+                subagentInputTokens: state.tokenUsage?.subagentInputTokens,
+                subagentOutputTokens: state.tokenUsage?.subagentOutputTokens,
+              }
             }
           }
           // Full assistant message — extract complete tool_use blocks with input
@@ -314,18 +320,21 @@ export class EventBroadcaster {
 
     const text = state.streamingText
     const tools = state.streamingTools
+    const thinking = state.streamingThinking
 
     if (text || tools.length > 0) {
       const last = state.messages[state.messages.length - 1]
       if (!text && tools.length > 0 && last?.role === 'assistant') {
         // Tool-only turn: merge into previous assistant message
         last.toolCalls.push(...tools)
+        if (!last.thinking && thinking) last.thinking = thinking
       } else {
         state.messages.push({
           id: `msg-${Date.now()}`,
           role: 'assistant',
           content: text,
           toolCalls: [...tools],
+          thinking: thinking || undefined,
         })
       }
     }

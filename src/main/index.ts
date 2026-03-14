@@ -25,8 +25,10 @@ import { RelayClient } from './relay-client'
 import {createDocsManager, type DocsManager, fetchPageTitle} from './docs/manager'
 import { loadWindowState, trackWindowState } from './window-state'
 import { initAutoUpdater, checkForUpdates, quitAndInstall, getUpdateState } from './auto-updater'
+import { IndexerManager } from './indexer/manager'
 
 let mainWindow: BrowserWindow | null = null
+const indexerManager = new IndexerManager()
 let initialized = false
 let sessionWatcherInterval: ReturnType<typeof setInterval> | null = null
 let docsManager: DocsManager | null = null
@@ -359,6 +361,26 @@ relayClient.onMessage(async (msg) => {
             }
             break
           }
+          case 'indexer_search':
+            data = await indexerManager.search(params?.query as string, params?.projectDir as string)
+            break
+          case 'indexer_status':
+            data = indexerManager.getStatus()
+            break
+          case 'indexer_project_status':
+            data = indexerManager.getProjectStatus(params?.projectDir as string)
+            break
+          case 'indexer_project_files':
+            data = indexerManager.getProjectFiles(params?.projectDir as string)
+            break
+          case 'indexer_rebuild':
+            await indexerManager.buildIndex(params?.projectDir as string)
+            data = { ok: true }
+            break
+          case 'indexer_reinstall':
+            await indexerManager.reinstall()
+            data = { ok: true }
+            break
         }
       } catch (err) {
         data = { error: String(err) }
@@ -427,7 +449,7 @@ app.whenReady().then(() => {
 
   buildAppMenu()
 
-  agentHandlers = registerAgentHandlers(() => mainWindow, broadcaster, relayClient, getAuthToken)
+  agentHandlers = registerAgentHandlers(() => mainWindow, broadcaster, relayClient, getAuthToken, indexerManager)
   registerSessionHandlers(relayClient, broadcaster, getAuthToken)
   sessionWatcherInterval = startSessionWatcher(broadcaster)
 
@@ -624,6 +646,34 @@ app.whenReady().then(() => {
 
   ipcMain.handle('updater:install', () => quitAndInstall())
 
+  // Project Indexer
+  indexerManager.startSetup((progress) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('indexer:setup-progress', progress)
+    }
+  })
+
+  ipcMain.handle('indexer:search', async (_event, query: string, projectDir: string) => {
+    return indexerManager.search(query, projectDir)
+  })
+  ipcMain.handle('indexer:status', async () => {
+    return indexerManager.getStatus()
+  })
+  ipcMain.handle('indexer:project-status', async (_event, projectDir: string) => {
+    return indexerManager.getProjectStatus(projectDir)
+  })
+  ipcMain.handle('indexer:project-files', async (_event, projectDir: string) => {
+    return indexerManager.getProjectFiles(projectDir)
+  })
+  ipcMain.handle('indexer:rebuild', async (_event, projectDir: string) => {
+    await indexerManager.buildIndex(projectDir)
+    return { ok: true }
+  })
+  ipcMain.handle('indexer:reinstall', async () => {
+    await indexerManager.reinstall()
+    return { ok: true }
+  })
+
   // Check if launched via deep link (cold start)
   const deepLinkArg = process.argv.find(arg => arg.startsWith('codr://'))
   if (deepLinkArg) handleDeepLink(deepLinkArg)
@@ -646,5 +696,6 @@ app.on('before-quit', () => {
     clearInterval(sessionWatcherInterval)
     sessionWatcherInterval = null
   }
+  indexerManager.shutdown().catch(() => {})
   relayClient.disconnect()
 })

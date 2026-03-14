@@ -1,4 +1,4 @@
-import type { ConversationStatePayload, StateSyncPayload, RemoteStatus } from '@codr-works/types'
+import type { StateSyncPayload, RemoteStatus } from '@codr-works/types'
 
 type Callback<T = void> = T extends void ? () => void : (data: T) => void
 
@@ -250,7 +250,7 @@ export function createWebSocketAgentAPI(relayUrl: string, getToken: () => Promis
   connect()
 
   // Build the ClaudeAPI-compatible object
-  const api = {
+  return {
     getProvider: async () => {
       const res = await request('get_provider') as { provider?: 'claude' | 'codex' }
       return res.provider || 'claude'
@@ -324,14 +324,27 @@ export function createWebSocketAgentAPI(relayUrl: string, getToken: () => Promis
     fetchDocTitle: (url: string) =>
       request('fetch_doc_title', { url }) as Promise<{ title: string | null }>,
 
+    // Project Indexer
+    indexerSearch: (query: string, projectDir: string) =>
+      request('indexer_search', { query, projectDir }) as Promise<{ path: string; score: number; text: string }[]>,
+    getIndexerStatus: () =>
+      request('indexer_status', {}) as Promise<{ status: string; detail?: string }>,
+    getIndexerProjectStatus: (projectDir: string) =>
+      request('indexer_project_status', { projectDir }) as Promise<{ status: string; fileCount?: number; detail?: string }>,
+    getIndexerProjectFiles: (projectDir: string) =>
+      request('indexer_project_files', { projectDir }) as Promise<{ path: string; chunkCount: number; language: string; size: number }[]>,
+    rebuildIndex: (projectDir: string) =>
+      request('indexer_rebuild', { projectDir }) as Promise<{ ok: boolean }>,
+    reinstallIndexer: () =>
+      request('indexer_reinstall', {}) as Promise<{ ok: boolean }>,
+    onIndexerSetupProgress: () => () => {}, // Setup progress is desktop-only
+
     // Web-only extensions
     onStateSync: (cb: (state: StateSyncPayload) => void) => subscribe(stateSyncCallbacks, cb),
     onDesktopStatus: (cb: (online: boolean) => void) => subscribe(desktopStatusCallbacks, cb),
     onDesktopVersion: (cb: (version: string | null) => void) => subscribe(desktopVersionCallbacks, cb),
     disconnect,
   }
-
-  return api
 }
 
 export const createWebSocketClaudeAPI = createWebSocketAgentAPI

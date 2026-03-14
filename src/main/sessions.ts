@@ -4,8 +4,9 @@ import type { SessionInfo } from '@codr-works/types'
 import { dialog, ipcMain } from 'electron'
 import { execSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { readdir, stat as fsStat } from 'node:fs/promises'
+import { readFile, readdir, stat as fsStat } from 'node:fs/promises'
 import { basename, join, relative } from 'node:path'
+import ignore from 'ignore'
 import { homedir } from 'node:os'
 import { getCliPath } from './agent'
 import type { RelayClient } from './relay-client'
@@ -76,6 +77,20 @@ const IGNORED_DIRS = new Set([
   '__pycache__', '.venv', 'venv', '.tox', 'coverage', '.nyc_output',
 ])
 
+const IGNORE_FILES = ['.gitignore', '.codrignore', '.cursorignore', '.copilotignore', '.aiderignore']
+
+async function loadIgnoreRules(rootDir: string) {
+  const ig = ignore()
+  ig.add(Array.from(IGNORED_DIRS).map(d => d + '/'))
+  for (const file of IGNORE_FILES) {
+    try {
+      const content = await readFile(join(rootDir, file), 'utf-8')
+      ig.add(content)
+    } catch { /* file doesn't exist */ }
+  }
+  return ig
+}
+
 // --- Local title cache: survives relay failures so titles never disappear ---
 const titleCache = new Map<string, { name: string; firstPrompt: string | null }>()
 const titleGenerationBySession = new Map<string, Promise<void>>()
@@ -101,7 +116,7 @@ export async function listSessionsData(relayClient?: RelayClient, getAuthToken?:
               headers: { Authorization: `Bearer ${token}` },
             })
             if (resp.ok) return (await resp.json()) as ClaudeDbSessionMeta[]
-          } catch {}
+          } catch { /* empty */ }
           return null
         })()
       : Promise.resolve(null),
@@ -342,6 +357,7 @@ export async function getAccountInfoData() {
     console.log('[account-info] Starting probe query...')
     const cliPath = getCliPath()
     probeQuery = query({
+      // eslint-disable-next-line require-yield
       prompt: (async function* () {
         await new Promise(() => {})
       })(),
@@ -412,6 +428,7 @@ export async function checkCliStatus(): Promise<CliStatus> {
   try {
     console.log('[cli-status] Starting probe query...')
     probeQuery = query({
+      // eslint-disable-next-line require-yield
       prompt: (async function* () {
         await new Promise(() => {})
       })(),
@@ -460,6 +477,7 @@ export async function listFilesData(dir?: string) {
   const root = dir || process.cwd()
   const results: string[] = []
   const MAX_FILES = 500
+  const ig = await loadIgnoreRules(root)
 
   async function walk(current: string) {
     if (results.length >= MAX_FILES) return
@@ -472,11 +490,13 @@ export async function listFilesData(dir?: string) {
     for (const entry of entries) {
       if (results.length >= MAX_FILES) break
       if (entry.name.startsWith('.') && entry.isDirectory()) continue
+      const rel = relative(root, join(current, entry.name))
       if (entry.isDirectory()) {
-        if (IGNORED_DIRS.has(entry.name)) continue
+        if (ig.ignores(rel + '/')) continue
         await walk(join(current, entry.name))
       } else {
-        results.push(relative(root, join(current, entry.name)))
+        if (ig.ignores(rel)) continue
+        results.push(rel)
       }
     }
   }
@@ -528,7 +548,7 @@ export async function ensureSessionTitle(
         return
       }
     }
-  } catch {}
+  } catch { /* empty */ }
 
   // Use provided prompt to avoid expensive getSessionMessages call
   let firstPrompt = knownFirstPrompt || ''
@@ -604,6 +624,7 @@ export async function getProviderStatusData(): Promise<AllProviderStatus> {
       let probeQuery: ReturnType<typeof query> | null = null
       try {
         probeQuery = query({
+          // eslint-disable-next-line require-yield
           prompt: (async function* () { await new Promise(() => {}) })(),
           options: {
             persistSession: false,

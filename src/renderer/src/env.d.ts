@@ -34,6 +34,8 @@ interface TokenUsage {
   cacheReadInputTokens: number
   cacheCreationInputTokens: number
   contextWindow: number
+  subagentInputTokens?: number
+  subagentOutputTokens?: number
 }
 
 interface ConversationStatePayload {
@@ -70,7 +72,7 @@ interface RawSessionMessage {
   uuid: string
   session_id: string
   message: unknown
-  parent_tool_use_id: null
+  parent_tool_use_id: string | null
 }
 
 interface ClaudeAPI {
@@ -163,6 +165,15 @@ interface ClaudeAPI {
   onDocsSetupProgress?: (callback: (progress: { step: string; detail?: string; stepIndex: number; totalSteps: number }) => void) => () => void
   reinstallDocsRuntime?: () => Promise<{ ok?: boolean; error?: string }>
   fetchDocTitle?: (url: string) => Promise<{ title: string | null }>
+
+  // Project Indexer
+  indexerSearch?: (query: string, projectDir: string) => Promise<{path: string, score: number, text: string}[]>
+  getIndexerStatus?: () => Promise<{status: string, detail?: string}>
+  getIndexerProjectStatus?: (projectDir: string) => Promise<{status: string, fileCount?: number, detail?: string}>
+  getIndexerProjectFiles?: (projectDir: string) => Promise<{path: string, chunkCount: number, language: string, size: number}[]>
+  rebuildIndex?: (projectDir: string) => Promise<{ok: boolean}>
+  reinstallIndexer?: () => Promise<{ok: boolean}>
+  onIndexerSetupProgress?: (cb: (progress: {step: string, detail?: string, projectDir?: string, progress?: {current: number, total: number}}) => void) => () => void
 
   // Auto-updater (desktop only)
   installUpdate?: () => Promise<void>

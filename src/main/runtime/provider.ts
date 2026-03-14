@@ -1,6 +1,7 @@
 import type { RelayClient } from '../relay-client'
 import type { EventBroadcaster } from '../event-broadcaster'
 import type { MessageOrigin } from '../permissions'
+import type { IndexerManager } from '../indexer/manager'
 
 export type AgentProviderId = 'claude' | 'codex'
 
@@ -44,6 +45,7 @@ export interface AgentProviderContext {
   relayClient: RelayClient
   sessionStore: ProviderSessionStore
   getAuthToken: () => Promise<string>
+  indexerManager?: IndexerManager
 }
 
 export interface AgentProvider {

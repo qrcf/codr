@@ -193,6 +193,25 @@ const agentApi = {
   fetchDocTitle: (url: string) =>
     ipcRenderer.invoke('docs:fetch-title', url) as Promise<{ title: string | null }>,
 
+  // Project Indexer
+  indexerSearch: (query: string, projectDir: string) =>
+    ipcRenderer.invoke('indexer:search', query, projectDir) as Promise<{ path: string; score: number; text: string }[]>,
+  getIndexerStatus: () =>
+    ipcRenderer.invoke('indexer:status') as Promise<{ status: string; detail?: string }>,
+  getIndexerProjectStatus: (projectDir: string) =>
+    ipcRenderer.invoke('indexer:project-status', projectDir) as Promise<{ status: string; fileCount?: number; detail?: string }>,
+  getIndexerProjectFiles: (projectDir: string) =>
+    ipcRenderer.invoke('indexer:project-files', projectDir) as Promise<{ path: string; chunkCount: number; language: string; size: number }[]>,
+  rebuildIndex: (projectDir: string) =>
+    ipcRenderer.invoke('indexer:rebuild', projectDir) as Promise<{ ok: boolean }>,
+  reinstallIndexer: () =>
+    ipcRenderer.invoke('indexer:reinstall') as Promise<{ ok: boolean }>,
+  onIndexerSetupProgress: (callback: (progress: { step: string; detail?: string }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, progress: { step: string; detail?: string }) => callback(progress)
+    ipcRenderer.on('indexer:setup-progress', listener)
+    return () => { ipcRenderer.removeListener('indexer:setup-progress', listener) }
+  },
+
   // Auto-updater (desktop only)
   installUpdate: () => ipcRenderer.invoke('updater:install'),
   onUpdateStatus: (callback: (status: { status: string; version?: string; error?: string }) => void) => {

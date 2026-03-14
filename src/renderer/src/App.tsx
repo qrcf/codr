@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Sidebar } from './components/Sidebar'
+import { Sidebar, type ProjectInfo } from './components/Sidebar'
 import { SettingsPanel } from './components/SettingsPanel'
 import { ManageProjectPanel } from './components/ManageProjectPanel'
 import { ChatHeader } from './components/ChatHeader'
@@ -7,6 +7,7 @@ import { MessageList } from './components/MessageList'
 import { DialogsPanel } from './components/DialogsPanel'
 import { InputArea } from './components/InputArea'
 import { UpdateOverlay } from './components/UpdateOverlay'
+import { PlanOverlay } from './components/PlanOverlay'
 import type { ReasoningLevel } from './components/ReasoningSelector'
 import { useDocsAPI } from './hooks/useDocsAPI'
 import { useInputComposer } from './hooks/useInputComposer'
@@ -39,7 +40,7 @@ export default function App() {
   const [updateDismissed, setUpdateDismissed] = useState(false)
 
   useEffect(() => {
-    const cleanup = window.claude.onUpdateStatus?.((status) => {
+    return window.claude.onUpdateStatus?.((status) => {
       setUpdateStatus(status)
       // Reset dismissed state when a new version arrives
       const dismissed = localStorage.getItem('codr:dismissed-update')
@@ -47,7 +48,6 @@ export default function App() {
         setUpdateDismissed(false)
       }
     })
-    return cleanup
   }, [])
 
   const showUpdateOverlay = updateStatus?.status === 'downloaded' && updateStatus.version && !updateDismissed
@@ -60,10 +60,13 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [manageProjectOpen, setManageProjectOpen] = useState(false)
   const [manageProjectFolder, setManageProjectFolder] = useState<string | null>(null)
+  const [allProjects, setAllProjects] = useState<ProjectInfo[]>([])
+  const [showPlanOverlay, setShowPlanOverlay] = useState(false)
 
   // Scroll refs
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
+  const shouldAutoScrollRef = useRef(true)
 
   // Shared bridge refs — created before any hooks so both useAgentConnection
   // and useSessionManager can reference the same activeSessionId.
@@ -121,11 +124,50 @@ export default function App() {
     setPlanReview: dialogs.setPlanReview,
     setPlanReady: dialogs.setPlanReady,
     setMode: dialogs.setMode,
+    restoreApprovedPlan: dialogs.restoreApprovedPlan,
+    clearApprovedPlan: dialogs.clearApprovedPlan,
     draftActions: {
       createDraft: draftSessions.createDraft,
       removeDraft: draftSessions.removeDraft,
+      updateDraftCwd: draftSessions.updateDraftCwd,
     },
   })
+
+  // --- Indexer status (global only — is LEANN installed?) ---
+  const [indexerStatus, setIndexerStatus] = useState<string>('not-ready')
+  useEffect(() => {
+    window.claude.getIndexerStatus?.().then(s => {
+      if (s?.status) setIndexerStatus(s.status)
+    }).catch(() => {})
+    const unsub = window.claude.onIndexerSetupProgress?.((p: { step: string; detail?: string; projectDir?: string }) => {
+      if (p.projectDir) return // ignore project-specific events
+      if (p.step === 'ready' || p.step === 'error' || p.step === 'setting-up') {
+        setIndexerStatus(p.step)
+      }
+    })
+    return () => { unsub?.() }
+  }, [])
+
+  // --- Per-project index status ---
+  const [projectIndexStatus, setProjectIndexStatus] = useState<string>('not-indexed')
+  const projectFolder = session.activeSession?.cwd || null
+  useEffect(() => {
+    if (!projectFolder) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setProjectIndexStatus('not-indexed')
+      return
+    }
+    window.claude.getIndexerProjectStatus?.(projectFolder).then(s => {
+      setProjectIndexStatus(s?.status || 'not-indexed')
+    }).catch(() => {})
+    const unsub = window.claude.onIndexerSetupProgress?.((p: { step: string; detail?: string; projectDir?: string }) => {
+      if (!p.projectDir || p.projectDir !== projectFolder) return
+      if (p.step === 'indexed') setProjectIndexStatus('indexed')
+      else if (p.step === 'indexing') setProjectIndexStatus('indexing')
+      else if (p.step === 'error') setProjectIndexStatus('error')
+    })
+    return () => { unsub?.() }
+  }, [projectFolder])
 
   // --- Hook: Input Composer ---
   // Destructured to avoid false-positive react-hooks/refs lint warnings in JSX
@@ -135,13 +177,14 @@ export default function App() {
     selectedFiles, setSelectedFiles, selectedDocs, setSelectedDocs,
     isDragOver,
     handleInputChange, handleMentionSelect, handleDocMentionSelect,
+    handlePlusClick, handleFindReferencesSelect, handleRefFinderApprove,
+    refFinderOpen, setRefFinderOpen,
     handleKeyDown, handleDragOver, handleDragLeave, handleDrop, handlePaste,
     resetInput,
   } = useInputComposer({
     onSend: () => handleSend(),
     docsAPI,
     projectFolderRef: session.projectFolderRef,
-    setMode: dialogs.setMode,
   })
 
   // --- Model selector state ---
@@ -214,10 +257,20 @@ export default function App() {
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [session.activeSessionId, dialogs.setMode])
+  }, [session.activeSessionId, dialogs])
+
+  // Close plan overlay when switching sessions
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { setShowPlanOverlay(false) }, [session.activeSessionId])
+
+  // Reset scroll lock when session changes or user sends a message
+  useEffect(() => {
+    shouldAutoScrollRef.current = true
+  }, [session.activeSessionId])
 
   // --- Scroll to bottom ---
   const scrollToBottom = useCallback(() => {
+    if (!shouldAutoScrollRef.current) return
     const container = messagesContainerRef.current
     if (container) {
       container.scrollTop = container.scrollHeight
@@ -227,7 +280,7 @@ export default function App() {
   useEffect(() => {
     if (!agent.isLoadingHistoryRef.current) requestAnimationFrame(scrollToBottom)
   }, [agent.messages, agent.isLoading, agent.streamingText, agent.streamingThinking, agent.streamingTools,
-    dialogs.permissionRequests, dialogs.questionRequests, dialogs.planReady, scrollToBottom])
+    agent.isLoadingHistoryRef, dialogs.permissionRequests, dialogs.questionRequests, dialogs.planReady, scrollToBottom])
 
   // Scroll-based pagination
   useEffect(() => {
@@ -248,7 +301,7 @@ export default function App() {
 
     container.addEventListener('scroll', handleScroll)
     return () => container.removeEventListener('scroll', handleScroll)
-  }, [agent.hasMoreMessages, agent.loadMoreMessages, agent.isLoadingHistoryRef])
+  }, [agent])
 
   // --- Send handler (orchestrates all hooks) ---
   const handleSend = async () => {
@@ -257,6 +310,7 @@ export default function App() {
     const rawInput = input.trim()
     const prompt = [docRefs, fileRefs, rawInput].filter(Boolean).join(' ')
     if (!prompt || agent.isLoading) return
+    shouldAutoScrollRef.current = true
 
     const usePlanMode = dialogs.mode === 'plan'
     const useAskMode = dialogs.mode === 'ask'
@@ -308,8 +362,10 @@ export default function App() {
   // --- Plan handlers ---
   const handlePlanApprove = async () => {
     const plan = dialogs.planReview
-    dialogs.setPlanReady(false)
-    dialogs.setPlanReview(null)
+    if (plan) {
+      dialogs.markPlanApproved(plan.planContent, plan.planFilePath)
+    }
+    dialogs.resetPlan()
     dialogs.setMode('code')
 
     const approvalMessage = plan
@@ -327,8 +383,7 @@ export default function App() {
   }
 
   const handlePlanRequestChanges = async (feedback: string) => {
-    dialogs.setPlanReady(false)
-    dialogs.setPlanReview(null)
+    dialogs.resetPlan()
 
     agent.setMessages((prev) => [
       ...prev,
@@ -421,15 +476,11 @@ export default function App() {
         onArchiveSession={archive.archiveSession}
         onUnarchiveSession={archive.unarchiveSession}
         userProfile={userProfile}
+        onProjectsUpdate={setAllProjects}
       />
       {sidebarOpen && <div className="hidden max-[768px]:block fixed inset-0 bg-black/50 z-40" onClick={() => setSidebarOpen(false)} />}
 
-      {manageProjectOpen && manageProjectFolder ? (
-        <ManageProjectPanel
-          folderPath={manageProjectFolder}
-          onClose={() => setManageProjectOpen(false)}
-        />
-      ) : settingsOpen ? (
+      {settingsOpen ? (
         <SettingsPanel
           onClose={() => setSettingsOpen(false)}
           docsAPI={docsAPI}
@@ -448,27 +499,50 @@ export default function App() {
           }}
         />
       ) : (
-      <div className="flex flex-col h-screen flex-1 min-w-0 overflow-clip font-[system-ui,-apple-system,sans-serif] text-[14px]">
+      <div className="flex flex-col h-screen flex-1 min-w-0 overflow-clip font-[system-ui,-apple-system,sans-serif] text-[14px] relative">
+        {manageProjectOpen && manageProjectFolder && (
+          <div className="absolute inset-0 z-50">
+            <ManageProjectPanel
+              folderPath={manageProjectFolder}
+              onClose={() => setManageProjectOpen(false)}
+            />
+          </div>
+        )}
         <ChatHeader
           sidebarOpen={sidebarOpen}
           onToggleSidebar={toggleSidebar}
           projectTitle={session.projectTitle}
           activeSession={session.activeSession}
+          isDraft={!!session.activeSessionId?.startsWith('draft-') && agent.messages.length === 0}
+          allProjects={allProjects}
+          onChangeProject={session.handleChangeProject}
+          approvedPlan={dialogs.approvedPlan}
+          onShowPlan={() => setShowPlanOverlay(true)}
+          onOpenManageProject={(folder) => { setManageProjectFolder(folder); setManageProjectOpen(true); setSettingsOpen(false) }}
         />
 
-        <MessageList
-          messages={agent.messages}
-          isLoading={agent.isLoading}
-          streamingText={agent.streamingText}
-          streamingTools={agent.streamingTools}
-          streamingThinking={agent.streamingThinking}
-          isCompacting={agent.isCompacting}
-          hasMoreMessages={agent.hasMoreMessages}
-          onInterrupt={handleInterrupt}
-          messagesContainerRef={messagesContainerRef}
-          messagesEndRef={messagesEndRef}
-        />
-
+        <div className="flex-1 min-h-0 relative overflow-hidden">
+          <MessageList
+            messages={agent.messages}
+            isLoading={agent.isLoading}
+            streamingText={agent.streamingText}
+            streamingTools={agent.streamingTools}
+            streamingThinking={agent.streamingThinking}
+            isCompacting={agent.isCompacting}
+            hasMoreMessages={agent.hasMoreMessages}
+            onInterrupt={handleInterrupt}
+            messagesContainerRef={messagesContainerRef}
+            messagesEndRef={messagesEndRef}
+            approvedPlanToolIds={dialogs.approvedPlanToolIds}
+            shouldAutoScrollRef={shouldAutoScrollRef}
+          />
+          {showPlanOverlay && dialogs.approvedPlan && (
+            <PlanOverlay
+              plan={dialogs.approvedPlan}
+              onClose={() => setShowPlanOverlay(false)}
+            />
+          )}
+        </div>
         <DialogsPanel
           activeSessionId={session.activeSessionId}
           permissionRequests={dialogs.permissionRequests}
@@ -482,10 +556,9 @@ export default function App() {
           onPlanRequestChanges={handlePlanRequestChanges}
         />
 
-        <div className="flex-shrink-0">
+        <div className="shrink-0 border-t border-border">
           <InputArea
             input={input}
-            setInput={setInput}
             textareaRef={textareaRef}
             mentionActive={mentionActive}
             mentionQuery={mentionQuery}
@@ -499,11 +572,19 @@ export default function App() {
             handleInputChange={handleInputChange}
             handleMentionSelect={handleMentionSelect}
             handleDocMentionSelect={handleDocMentionSelect}
+            handlePlusClick={handlePlusClick}
             handleKeyDown={handleKeyDown}
             handleDragOver={handleDragOver}
             handleDragLeave={handleDragLeave}
             handleDrop={handleDrop}
             handlePaste={handlePaste}
+            refFinderOpen={refFinderOpen}
+            setRefFinderOpen={setRefFinderOpen}
+            handleFindReferencesSelect={handleFindReferencesSelect}
+            handleRefFinderApprove={handleRefFinderApprove}
+            indexerStatus={indexerStatus}
+            projectIndexStatus={projectIndexStatus}
+            projectFolder={session.projectFolderRef.current}
             mode={dialogs.mode}
             setMode={dialogs.setMode}
             autoApproveEdits={dialogs.autoApproveEdits}

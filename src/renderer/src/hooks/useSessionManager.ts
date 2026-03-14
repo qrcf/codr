@@ -12,6 +12,7 @@ interface AgentHandle {
 interface DraftActions {
   createDraft: (cwd?: string) => { draftId: string; createdAt: number; cwd?: string }
   removeDraft: (draftId: string) => void
+  updateDraftCwd: (draftId: string, cwd: string) => void
 }
 
 interface UseSessionManagerParams {
@@ -28,6 +29,8 @@ interface UseSessionManagerParams {
   setPlanReview: (plan: PlanReviewState | null) => void
   setPlanReady: (ready: boolean) => void
   setMode: React.Dispatch<React.SetStateAction<'plan' | 'code' | 'ask'>>
+  restoreApprovedPlan: (toolIds: string[], plan: { content: string; filePath: string } | null) => void
+  clearApprovedPlan: () => void
   draftActions: DraftActions
 }
 
@@ -41,6 +44,8 @@ export function useSessionManager({
   setPlanReview,
   setPlanReady,
   setMode,
+  restoreApprovedPlan,
+  clearApprovedPlan,
   draftActions,
 }: UseSessionManagerParams) {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
@@ -112,14 +117,31 @@ export function useSessionManager({
     // Clear plan state
     resetPlan()
 
+    // Restore approved plan state from localStorage
+    if (sessionId) {
+      try {
+        const saved = localStorage.getItem(`codr:approved-plans:${sessionId}`)
+        if (saved) {
+          const { toolIds, plan } = JSON.parse(saved)
+          restoreApprovedPlan(toolIds, plan)
+        } else {
+          clearApprovedPlan()
+        }
+      } catch {
+        clearApprovedPlan()
+      }
+    } else {
+      clearApprovedPlan()
+    }
+
     // Restore live agent state if we have a session
     if (sessionId && !isReloadingSameSession && window.claude.getAgentState) {
+      const capturedSessionId = sessionId
       window.claude.getAgentState(sessionId).then((state) => {
+        if (activeSessionIdRef.current !== capturedSessionId) return
         if (state.isLoading) {
           agent.setIsLoading(true)
-        }
-        if (state.isLoading) {
-          restoreDialogState(sessionId, {
+          restoreDialogState(capturedSessionId, {
             permissionRequest: state.permissionRequest,
             questionRequest: state.questionRequest,
             planReview: state.planReview,
@@ -148,7 +170,7 @@ export function useSessionManager({
         setPlanReady(true)
       }
     }
-  }, [activeSessionIdRef, awaitingNewSessionRef, setActiveSessionId, agent, resetPlan, restoreDialogState, setPlanReview, setPlanReady, draftActions])
+  }, [activeSessionIdRef, awaitingNewSessionRef, setActiveSessionId, agent, resetPlan, restoreDialogState, setPlanReview, setPlanReady, restoreApprovedPlan, clearApprovedPlan, draftActions])
 
   // Restore saved session on mount
   useEffect(() => {
@@ -181,6 +203,14 @@ export function useSessionManager({
     setMode('code')
   }, [loadSession, resetInput, setMode, draftActions, activeSession])
 
+  const handleChangeProject = useCallback((cwd: string) => {
+    const currentId = activeSessionIdRef.current
+    if (!currentId?.startsWith('draft-')) return
+    draftActions.updateDraftCwd(currentId, cwd)
+    // Update activeSession so the header re-renders immediately
+    setActiveSession(prev => prev ? { ...prev, cwd } : prev)
+  }, [activeSessionIdRef, draftActions])
+
   return {
     activeSessionId,
     setActiveSessionId,
@@ -192,5 +222,6 @@ export function useSessionManager({
     loadSession,
     handleLoadSession,
     handleNewChat,
+    handleChangeProject,
   }
 }

@@ -10,6 +10,7 @@ import { ClaudeProvider, getClaudeCliPath } from './runtime/providers/claude-pro
 import { CodexProvider } from './runtime/providers/codex-provider'
 import type { AgentProvider, AgentProviderId, AgentProviderContext } from './runtime/provider'
 import { resolveSessionProvider } from './runtime/session-records'
+import type { IndexerManager } from './indexer/manager'
 
 export function getCliPath(): string | undefined {
   return getClaudeCliPath()
@@ -20,10 +21,12 @@ export function registerAgentHandlers(
   broadcaster: EventBroadcaster,
   relayClient: RelayClient,
   getAuthToken: () => Promise<string>,
+  indexerManager?: IndexerManager,
 ) {
   registerPermissionHandlers(broadcaster)
   const providerContext: AgentProviderContext = {
     broadcaster,
+    indexerManager,
     relayClient,
     getAuthToken,
     sessionStore: {
@@ -56,8 +59,7 @@ export function registerAgentHandlers(
     const providerId = resolveSessionProvider(selectedProvider, storedSession?.provider)
     const provider = providers[providerId]
     const resolvedModel = model ?? storedSession?.model ?? await getSelectedModel(providerId)
-    const tempKey = resumeSessionId || `new-${Date.now()}-${Math.random().toString(36).slice(2)}`
-    let currentKey = tempKey
+    let currentKey = resumeSessionId || `new-${Date.now()}-${Math.random().toString(36).slice(2)}`
 
     broadcaster.markQueryStart(currentKey, prompt)
 
@@ -72,21 +74,30 @@ export function registerAgentHandlers(
               model: resolvedModel,
               thinkingBudget: thinkingBudget || null,
             })
-            return
+          } else {
+            broadcaster.updateQuerySessionId(currentKey, sessionId)
+            currentKey = sessionId
+            void upsertIndexedSession(sessionId, {
+              provider: providerId,
+              firstPrompt: prompt,
+              workspaceDir: cwd ?? undefined,
+              providerSessionId: sessionId,
+              status: 'active',
+              model: resolvedModel,
+              thinkingBudget: thinkingBudget || null,
+            })
+            // Do NOT send refresh-hint here — it races with draft promotion in the renderer.
+            // The onDone callback sends it after the session is fully complete.
           }
-          broadcaster.updateQuerySessionId(currentKey, sessionId)
-          currentKey = sessionId
-          void upsertIndexedSession(sessionId, {
-            provider: providerId,
-            firstPrompt: prompt,
-            workspaceDir: cwd ?? undefined,
-            providerSessionId: sessionId,
-            status: 'active',
-            model: resolvedModel,
-            thinkingBudget: thinkingBudget || null,
+          // Index the user's prompt so it survives reload (the SDK iterator
+          // does not emit it — only assistant responses and tool_result blocks).
+          void appendIndexedRawMessage(sessionId, providerId, {
+            type: 'user',
+            message: { role: 'user', content: [{ type: 'text', text: prompt }] },
+            session_id: sessionId,
+            parent_tool_use_id: null,
+            uuid: `synth-user-${Date.now()}-${Math.random().toString(36).slice(2)}`,
           })
-          // Do NOT send refresh-hint here — it races with draft promotion in the renderer.
-          // The onDone callback sends it after the session is fully complete.
         },
         onMessage: (message, querySessionId) => {
           broadcaster.send('agent:message', message, querySessionId)

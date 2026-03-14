@@ -1,9 +1,28 @@
-import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { useMemo, useState, useEffect, useCallback } from 'react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
+import { MarkdownContent } from './MarkdownContent'
 import { MessageBubble } from './MessageBubble'
 import { ToolCallBlock } from './ToolCallBlock'
 import { formatMessageContent } from '../utils/formatMessage'
 import type { ChatMessage, ToolCallInfo } from '../types'
+
+function StreamingThinkingSection({ thinking }: { thinking: string }) {
+  const [expanded, setExpanded] = useState(true)
+  return (
+    <div className="mb-1">
+      <div
+        className="flex items-center gap-[6px] px-2 py-1 cursor-pointer select-none text-[#999] text-[0.85em] rounded hover:bg-[#2a2a3a] hover:text-[#ccc]"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <span className="text-[0.8em] text-[#666] flex-shrink-0">{expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
+        <span className="font-['SF_Mono','Fira_Code',monospace]">Reasoning</span>
+      </div>
+      {expanded && (
+        <MarkdownContent className="message-content streaming-thinking">{thinking}</MarkdownContent>
+      )}
+    </div>
+  )
+}
 
 interface MessageListProps {
   messages: ChatMessage[]
@@ -16,7 +35,11 @@ interface MessageListProps {
   onInterrupt: () => void
   messagesContainerRef: React.RefObject<HTMLDivElement | null>
   messagesEndRef: React.RefObject<HTMLDivElement | null>
+  approvedPlanToolIds?: Set<string>
+  shouldAutoScrollRef: React.MutableRefObject<boolean>
 }
+
+const NEAR_BOTTOM_THRESHOLD = 80
 
 export function MessageList({
   messages,
@@ -29,19 +52,53 @@ export function MessageList({
   onInterrupt,
   messagesContainerRef,
   messagesEndRef,
+  approvedPlanToolIds,
+  shouldAutoScrollRef,
 }: MessageListProps) {
+  const formattedStreaming = useMemo(
+    () => streamingText ? formatMessageContent(streamingText) : null,
+    [streamingText],
+  )
+
+  const [showScrollButton, setShowScrollButton] = useState(false)
+
+  useEffect(() => {
+    const container = messagesContainerRef.current
+    if (!container) return
+    const onScroll = () => {
+      const isNearBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight < NEAR_BOTTOM_THRESHOLD
+      setShowScrollButton(!isNearBottom)
+      shouldAutoScrollRef.current = isNearBottom
+    }
+    container.addEventListener('scroll', onScroll, { passive: true })
+    return () => container.removeEventListener('scroll', onScroll)
+  }, [messagesContainerRef, shouldAutoScrollRef])
+
+  const handleScrollToBottom = useCallback(() => {
+    const container = messagesContainerRef.current
+    if (!container) return
+    container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
+    setShowScrollButton(false)
+    shouldAutoScrollRef.current = true
+  }, [messagesContainerRef, shouldAutoScrollRef])
+
   return (
-    <div className="flex-1 overflow-y-auto min-h-0 px-6 py-4 flex flex-col gap-1 max-w-[820px] w-full mx-auto max-[768px]:max-w-full max-[768px]:px-3 max-[768px]:py-3" ref={messagesContainerRef}>
+    <div className="relative h-full overflow-hidden">
+    <div className="h-full overflow-y-auto px-6 py-4 flex flex-col gap-1 max-w-[820px] w-full mx-auto max-[768px]:max-w-full max-[768px]:px-3 max-[768px]:py-3 scroll-auto-hide" ref={messagesContainerRef}>
       {hasMoreMessages && (
         <div className="text-center p-2 text-[#888] text-[0.85rem]">Loading earlier messages...</div>
       )}
       {messages.map((msg) => (
-        <MessageBubble key={msg.id} message={msg} />
+        <MessageBubble key={msg.id} message={msg} approvedPlanToolIds={approvedPlanToolIds} />
       ))}
 
-      {isLoading && (streamingText || streamingTools.length > 0) && (
+      {isLoading && (streamingThinking || streamingText || streamingTools.length > 0) && (
         <div className="py-1">
-          {streamingText && <div className="message-content"><Markdown remarkPlugins={[remarkGfm]}>{formatMessageContent(streamingText)}</Markdown></div>}
+          {streamingThinking && (
+            <StreamingThinkingSection thinking={streamingThinking} />
+          )}
+          {formattedStreaming && <MarkdownContent className="message-content" tags={formattedStreaming.tags}>{formattedStreaming.text}</MarkdownContent>}
           {streamingTools.length > 0 && (
             <div className="flex flex-col gap-[1px] mt-1">
               {streamingTools.map((tool) => (
@@ -51,28 +108,35 @@ export function MessageList({
           )}
           <div className="flex items-center gap-[10px] py-2">
             <div className="w-4 h-4 border-2 border-[#444] border-t-[#8142c7] rounded-full animate-[spin_0.8s_linear_infinite] flex-shrink-0" />
-            <span className="text-[#888] italic">Working...</span>
+            <span className="text-[#888] italic">{isCompacting ? 'Compacting context...' : streamingThinking && !streamingText && streamingTools.length === 0 ? 'Reasoning...' : 'Working...'}</span>
             <button className="ml-auto bg-transparent border border-[#555] text-[#aaa] rounded px-[10px] py-[2px] text-[0.8em] cursor-pointer hover:bg-[#f44336] hover:border-[#f44336] hover:text-white" onClick={onInterrupt}>Cancel</button>
           </div>
         </div>
       )}
 
-      {isLoading && !streamingText && streamingTools.length === 0 && (
+      {isLoading && !streamingThinking && !streamingText && streamingTools.length === 0 && (
         <div className="py-1">
-          {streamingThinking && (
-            <div className="message-content streaming-thinking">
-              <Markdown remarkPlugins={[remarkGfm]}>{streamingThinking}</Markdown>
-            </div>
-          )}
           <div className="flex items-center gap-[10px] py-2">
             <div className="w-4 h-4 border-2 border-[#444] border-t-[#8142c7] rounded-full animate-[spin_0.8s_linear_infinite] flex-shrink-0" />
-            <span className="text-[#888] italic">{isCompacting ? 'Compacting context...' : streamingThinking ? 'Reasoning...' : 'Thinking...'}</span>
+            <span className="text-[#888] italic">{isCompacting ? 'Compacting context...' : 'Thinking...'}</span>
             <button className="ml-auto bg-transparent border border-[#555] text-[#aaa] rounded px-[10px] py-[2px] text-[0.8em] cursor-pointer hover:bg-[#f44336] hover:border-[#f44336] hover:text-white" onClick={onInterrupt}>Cancel</button>
           </div>
         </div>
       )}
 
       <div ref={messagesEndRef} />
+    </div>
+    {showScrollButton && (
+      <button
+        className="absolute bottom-5 right-5 w-8 h-8 rounded-full bg-[#1e1e1e] border border-[#444] text-[#aaa] flex items-center justify-center shadow-lg hover:bg-[#2a2a2a] hover:text-white cursor-pointer z-10"
+        onClick={handleScrollToBottom}
+        aria-label="Scroll to bottom"
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M2.5 5L7 9.5L11.5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+    )}
     </div>
   )
 }

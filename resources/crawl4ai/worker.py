@@ -110,8 +110,8 @@ class CrawlWorker:
             check_robots_txt=False,
             remove_overlay_elements=True,
             word_count_threshold=10,
-            wait_until="networkidle",
-            page_timeout=15000,
+            wait_until="domcontentloaded",
+            page_timeout=30000,
             semaphore_count=5,  # Crawl up to 5 pages concurrently
         )
 

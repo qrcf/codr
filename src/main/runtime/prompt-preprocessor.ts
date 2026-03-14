@@ -24,7 +24,7 @@ export function parseFileRefs(prompt: string): { cleanedPrompt: string; filePath
   const filePaths: string[] = []
   // Match @path tokens that look like file paths (contain / or .)
   // but skip @docs: which is handled separately
-  const cleaned = prompt.replace(/@(?!docs:)([\w.\/\-]+(?:\/[\w.\/\-]+|\.[\w]+))/g, (_, filePath) => {
+  const cleaned = prompt.replace(/@(?!docs:)([\w./-]+(?:\/[\w./-]+|\.[\w]+))/g, (_, filePath) => {
     filePaths.push(filePath)
     return ''
   }).trim()
@@ -103,18 +103,56 @@ export async function resolveFileContents(
 }
 
 /**
+ * Enrich the prompt with relevant codebase context from the LEANN index.
+ * Searches the index with the prompt and prepends matching code chunks.
+ */
+export async function enrichWithCodebaseContext(
+  ctx: AgentProviderContext,
+  prompt: string,
+  cwd?: string,
+): Promise<string> {
+  if (!ctx.indexerManager || !cwd) return prompt
+
+  try {
+    const status = ctx.indexerManager.getStatus()
+    if (status.status !== 'ready') return prompt
+
+    const projectStatus = ctx.indexerManager.getProjectStatus(cwd)
+    if (projectStatus.status !== 'indexed') return prompt
+
+    const results = await ctx.indexerManager.search(prompt, cwd, 8)
+    if (!results.length) return prompt
+
+    const chunks = results.map(r => {
+      const score = (r.score * 100).toFixed(0)
+      return `--- ${r.path} (${score}% match) ---\n${r.text}`
+    }).join('\n\n')
+
+    return `<codebase_context>\nRelevant code from the project index:\n\n${chunks}\n</codebase_context>\n\n${prompt}`
+  } catch (err) {
+    console.error('[indexer] Failed to enrich prompt with codebase context:', err)
+    return prompt
+  }
+}
+
+/**
  * Preprocess prompt for docs only. Used by Claude provider,
  * which handles @file references natively via the SDK.
  */
 export async function preprocessPromptForDocs(
   ctx: AgentProviderContext,
   prompt: string,
+  cwd?: string,
 ): Promise<string> {
   const { cleanedPrompt, docNames } = parseDocRefs(prompt)
-  if (docNames.length === 0) return prompt
+
+  // Enrich with codebase context from LEANN index
+  const enriched = await enrichWithCodebaseContext(ctx, docNames.length > 0 ? cleanedPrompt : prompt, cwd)
+
+  if (docNames.length === 0) return enriched
 
   const docsContext = await retrieveDocsContext(ctx, cleanedPrompt, docNames)
-  return docsContext ? `${docsContext}\n\n${cleanedPrompt}` : cleanedPrompt
+  return docsContext ? `${docsContext}\n\n${enriched}` : enriched
 }
 
 /**
@@ -130,6 +168,16 @@ export async function preprocessPromptFull(
   const { cleanedPrompt: afterFiles, filePaths } = parseFileRefs(afterDocs)
 
   const parts: string[] = []
+
+  // Enrich with codebase context from LEANN index
+  const codebaseContext = await enrichWithCodebaseContext(ctx, afterFiles, cwd)
+  if (codebaseContext !== afterFiles) {
+    // Extract the XML block that was prepended
+    const xmlEnd = codebaseContext.indexOf('</codebase_context>')
+    if (xmlEnd !== -1) {
+      parts.push(codebaseContext.slice(0, xmlEnd + '</codebase_context>'.length))
+    }
+  }
 
   if (docNames.length > 0) {
     const docsContext = await retrieveDocsContext(ctx, afterFiles, docNames)

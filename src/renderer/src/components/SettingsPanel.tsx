@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Sparkles, Terminal } from 'lucide-react'
+import { Sparkles, Terminal, Database } from 'lucide-react'
 import { DocsPanel } from './DocsPanel'
 import type { DocsAPI } from './DocsPanel'
 import { LabPanel } from './LabPanel'
@@ -13,6 +13,81 @@ interface SettingsPanelProps {
 }
 
 type Tab = 'general' | 'docs' | 'lab'
+
+function IndexerStatusSection() {
+  const [status, setStatus] = useState<{ status: string; detail?: string }>({ status: 'not-ready' })
+  const [progress, setProgress] = useState<{ step: string; detail?: string } | null>(null)
+  const [reinstalling, setReinstalling] = useState(false)
+
+  useEffect(() => {
+    window.claude.getIndexerStatus?.().then(setStatus).catch(() => {})
+    const unsub = window.claude.onIndexerSetupProgress?.((p: { step: string; detail?: string; projectDir?: string }) => {
+      if (p.projectDir) return // ignore project-specific events
+      setProgress(p)
+      if (p.step === 'ready' || p.step === 'error') {
+        window.claude.getIndexerStatus?.().then(setStatus).catch(() => {})
+      }
+    })
+    return () => { unsub?.() }
+  }, [])
+
+  const statusBadge = (() => {
+    switch (status.status) {
+      case 'ready':
+        return <span className="px-2 py-0.5 rounded text-[11px] bg-[#1a2e1a] text-[#50c878]">Ready</span>
+      case 'setting-up':
+        return <span className="px-2 py-0.5 rounded text-[11px] bg-[#2e2a1a] text-[#d4a845] animate-pulse">Setting up</span>
+      case 'error':
+        return <span className="px-2 py-0.5 rounded text-[11px] bg-[#2e1a1a] text-[#e06060]">Error</span>
+      default:
+        return <span className="px-2 py-0.5 rounded text-[11px] bg-[#222] text-[#666]">Not installed</span>
+    }
+  })()
+
+  const statusText = (() => {
+    if (progress && status.status === 'setting-up') {
+      return progress.detail || progress.step
+    }
+    if (status.status === 'error') {
+      return status.detail || 'Setup failed'
+    }
+    return null
+  })()
+
+  return (
+    <section className="mb-8">
+      <h3 className="m-0 mb-3 text-[13px] font-semibold text-[#888] uppercase tracking-[0.05em]">Indexer</h3>
+      <div className="bg-[#1a1a2a] border border-[#2a2a3a] rounded-lg p-4">
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <div className="flex items-center gap-2.5">
+            <Database size={16} className="text-[#888] shrink-0" />
+            <span className="text-[14px] text-[#e0e0e0] font-medium">Project Indexer</span>
+          </div>
+          {statusBadge}
+        </div>
+        {statusText && (
+          <div className="text-[12px] text-[#888] mb-3 ml-[26px]">{statusText}</div>
+        )}
+        {(status.status === 'error' || status.status === 'ready') && (
+          <div className="flex gap-2 ml-[26px]">
+            <button
+              className="bg-transparent border border-[#333] text-[#888] py-1.5 px-3 rounded-md text-[12px] cursor-pointer transition-colors duration-150 hover:bg-[#2a2a3a] hover:text-[#ccc] disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => {
+                setReinstalling(true)
+                window.claude.reinstallIndexer?.()
+                  .then(() => window.claude.getIndexerStatus?.().then(setStatus).catch(() => {}))
+                  .finally(() => setReinstalling(false))
+              }}
+              disabled={reinstalling || (status.status as string) === 'setting-up'}
+            >
+              {reinstalling ? 'Reinstalling...' : 'Reinstall'}
+            </button>
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
 
 export function SettingsPanel({ onClose, docsAPI, userProfile, onAddDocSource, onRecrawlDocSource }: SettingsPanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>('general')
@@ -209,6 +284,9 @@ export function SettingsPanel({ onClose, docsAPI, userProfile, onAddDocSource, o
                 })}
               </div>
             </section>
+
+            {/* Indexer section */}
+            <IndexerStatusSection />
           </div>
         )}
 

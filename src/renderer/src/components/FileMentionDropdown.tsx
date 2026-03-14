@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { BookOpen } from 'lucide-react'
+import { BookOpen, Sparkles } from 'lucide-react'
 
 interface FileMentionDropdownProps {
   files: string[]
@@ -8,13 +8,21 @@ interface FileMentionDropdownProps {
   activeIndex: number
   onSelect: (file: string) => void
   onSelectDoc: (doc: DocSource) => void
+  onFindReferences?: () => void
+  indexerStatus?: string
+  projectIndexStatus?: string
 }
 
-export function FileMentionDropdown({ files, docSources, query, activeIndex, onSelect, onSelectDoc }: FileMentionDropdownProps) {
+export function FileMentionDropdown({ files, docSources, query, activeIndex, onSelect, onSelectDoc, onFindReferences, indexerStatus, projectIndexStatus }: FileMentionDropdownProps) {
   const listRef = useRef<HTMLDivElement>(null)
   const activeRef = useRef<HTMLDivElement>(null)
 
   const q = query.toLowerCase()
+  // Both global indexer AND project must be ready for search to work
+  const indexerReady = indexerStatus === 'ready' && projectIndexStatus === 'indexed'
+
+  // "Find references..." row shows at index 0 when query is empty (always, regardless of indexer status)
+  const showFindRefs = !q && !!onFindReferences
 
   // Filter doc sources (only show "ready" ones)
   const filteredDocs = docSources
@@ -28,8 +36,9 @@ export function FileMentionDropdown({ files, docSources, query, activeIndex, onS
     : files
   const shownFiles = filteredFiles.slice(0, 15)
 
-  // Combined list for keyboard navigation: docs first, then files
-  const totalItems = filteredDocs.length + shownFiles.length
+  // Combined list for keyboard navigation: find-refs (optional) + docs + files
+  const offset = showFindRefs ? 1 : 0
+  const totalItems = offset + filteredDocs.length + shownFiles.length
 
   useEffect(() => {
     activeRef.current?.scrollIntoView({ block: 'nearest' })
@@ -50,25 +59,63 @@ export function FileMentionDropdown({ files, docSources, query, activeIndex, onS
 
   return (
     <div className={dropdownClass} ref={listRef}>
+      {/* Find references row */}
+      {showFindRefs && (
+        <div
+          ref={activeIndex === 0 ? activeRef : undefined}
+          className={`${itemBase} border-b border-[#333] font-sans${activeIndex === 0 ? ` ${itemActive}` : ''}`}
+          title={
+            indexerReady
+              ? 'Search your project index for relevant files'
+              : indexerStatus !== 'ready'
+                ? indexerStatus === 'setting-up'
+                  ? 'Indexer is installing — please wait'
+                  : 'Indexer is not installed'
+                : projectIndexStatus === 'indexing'
+                  ? 'Index is building — results may be incomplete'
+                  : projectIndexStatus === 'error'
+                    ? 'Index error — try rebuilding from Project Settings'
+                    : 'Project not indexed — build index from Project Settings'
+          }
+          onMouseDown={(e) => {
+            e.preventDefault()
+            onFindReferences?.()
+          }}
+        >
+          <Sparkles size={12} className="shrink-0 text-[#a78bfa]" />
+          <span className="font-medium text-[#a78bfa]">Find references...</span>
+          {!indexerReady && (
+            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ml-auto ${
+              indexerStatus === 'setting-up' || projectIndexStatus === 'indexing'
+                ? 'bg-[#d4a845] animate-pulse'
+                : 'bg-[#e06060]'
+            }`} />
+          )}
+        </div>
+      )}
+
       {/* Docs section */}
       {filteredDocs.length > 0 && (
         <>
           <div className={headerClass}>Docs</div>
-          {filteredDocs.map((doc, i) => (
-            <div
-              key={`doc-${doc.id}`}
-              ref={i === activeIndex ? activeRef : undefined}
-              className={`${itemBase}${i === activeIndex ? ` ${itemActive}` : ''}`}
-              onMouseDown={(e) => {
-                e.preventDefault()
-                onSelectDoc(doc)
-              }}
-            >
-              <BookOpen size={12} className="shrink-0 mr-1.5 opacity-60" />
-              <span className="overflow-hidden text-ellipsis whitespace-nowrap font-medium">{doc.name}</span>
-              <span className="ml-2 text-[11px] opacity-50">{doc.url}</span>
-            </div>
-          ))}
+          {filteredDocs.map((doc, i) => {
+            const globalIndex = offset + i
+            return (
+              <div
+                key={`doc-${doc.id}`}
+                ref={globalIndex === activeIndex ? activeRef : undefined}
+                className={`${itemBase}${globalIndex === activeIndex ? ` ${itemActive}` : ''}`}
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  onSelectDoc(doc)
+                }}
+              >
+                <BookOpen size={12} className="shrink-0 mr-1.5 opacity-60" />
+                <span className="overflow-hidden text-ellipsis whitespace-nowrap font-medium">{doc.name}</span>
+                <span className="ml-2 text-[11px] opacity-50">{doc.url}</span>
+              </div>
+            )
+          })}
         </>
       )}
 
@@ -77,7 +124,7 @@ export function FileMentionDropdown({ files, docSources, query, activeIndex, onS
         <>
           <div className={headerClass}>Files</div>
           {shownFiles.map((file, i) => {
-            const globalIndex = filteredDocs.length + i
+            const globalIndex = offset + filteredDocs.length + i
             return (
               <div
                 key={file}
@@ -98,26 +145,3 @@ export function FileMentionDropdown({ files, docSources, query, activeIndex, onS
   )
 }
 
-/** Get total number of items in the unified dropdown for keyboard navigation */
-export function getMentionItemCount(files: string[], docSources: DocSource[], query: string): number {
-  const q = query.toLowerCase()
-  const filteredDocs = docSources.filter(d => d.status === 'ready').filter(d => !q || d.name.toLowerCase().includes(q) || d.url.toLowerCase().includes(q)).slice(0, 5)
-  const filteredFiles = (q ? files.filter((f) => f.toLowerCase().includes(q)) : files).slice(0, 15)
-  return filteredDocs.length + filteredFiles.length
-}
-
-/** Resolve active index to either a file or doc selection */
-export function resolveMentionIndex(files: string[], docSources: DocSource[], query: string, index: number): { type: 'file'; file: string } | { type: 'doc'; doc: DocSource } | null {
-  const q = query.toLowerCase()
-  const filteredDocs = docSources.filter(d => d.status === 'ready').filter(d => !q || d.name.toLowerCase().includes(q) || d.url.toLowerCase().includes(q)).slice(0, 5)
-  const filteredFiles = (q ? files.filter((f) => f.toLowerCase().includes(q)) : files).slice(0, 15)
-
-  if (index < filteredDocs.length) {
-    return { type: 'doc', doc: filteredDocs[index] }
-  }
-  const fileIndex = index - filteredDocs.length
-  if (fileIndex < filteredFiles.length) {
-    return { type: 'file', file: filteredFiles[fileIndex] }
-  }
-  return null
-}

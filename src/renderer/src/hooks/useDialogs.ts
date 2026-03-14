@@ -20,9 +20,15 @@ export function useDialogs({ activeSessionIdRef }: UseDialogsParams) {
   const [autoApproveEdits, setAutoApproveEdits] = useState(false)
   const autoAllowedToolsRef = useRef(new Set<string>())
   const [planReview, setPlanReview] = useState<PlanReviewState | null>(null)
+  const planReviewRef = useRef<PlanReviewState | null>(null)
   const [planReady, setPlanReady] = useState(false)
   const exitPlanModeDetectedRef = useRef(false)
   const [mode, setMode] = useState<'plan' | 'code' | 'ask'>('code')
+
+  // --- Plan approval tracking ---
+  const [approvedPlanToolIds, setApprovedPlanToolIds] = useState<Set<string>>(new Set())
+  const [approvedPlan, setApprovedPlan] = useState<{ content: string; filePath: string } | null>(null)
+  const pendingPlanToolIdRef = useRef<string | null>(null)
 
   // --- Callback handlers for useAgentConnection to invoke ---
 
@@ -56,19 +62,28 @@ export function useDialogs({ activeSessionIdRef }: UseDialogsParams) {
     }
   }, [])
 
-  const onPlanWrite = useCallback((planFilePath: string, planContent: string) => {
-    setPlanReview({ planFilePath, planContent })
+  const onPlanWrite = useCallback((toolId: string, planFilePath: string, planContent: string) => {
+    pendingPlanToolIdRef.current = toolId
+    const state = { planFilePath, planContent }
+    planReviewRef.current = state
+    setPlanReview(state)
   }, [])
 
   const onExitPlanMode = useCallback((allowedPrompts?: Array<{ tool: string; prompt: string }>) => {
     exitPlanModeDetectedRef.current = true
-    setPlanReview((prev) => prev ? { ...prev, allowedPrompts } : prev)
+    setPlanReview((prev) => {
+      const next = prev ? { ...prev, allowedPrompts } : prev
+      planReviewRef.current = next
+      return next
+    })
   }, [])
 
   const onDoneWithPlanExit = useCallback(() => {
     if (exitPlanModeDetectedRef.current) {
       exitPlanModeDetectedRef.current = false
-      setPlanReady(true)
+      if (planReviewRef.current) {
+        setPlanReady(true)
+      }
     }
   }, [])
 
@@ -84,6 +99,7 @@ export function useDialogs({ activeSessionIdRef }: UseDialogsParams) {
     permissionRequestsRef.current = perms
     setQuestionRequests(quests)
     questionRequestsRef.current = quests
+    planReviewRef.current = planReviewState
     setPlanReview(planReviewState)
     if (planReviewState && !isLoading) {
       setPlanReady(true)
@@ -106,8 +122,44 @@ export function useDialogs({ activeSessionIdRef }: UseDialogsParams) {
       questionRequestsRef.current = { ...questionRequestsRef.current, [sessionId]: state.questionRequest! as QuestionRequest }
     }
     if (state.planReview) {
+      planReviewRef.current = state.planReview
       setPlanReview(state.planReview)
     }
+  }, [])
+
+  // --- Plan approval handlers ---
+
+  const markPlanApproved = useCallback((content: string, filePath: string) => {
+    const toolId = pendingPlanToolIdRef.current
+    if (toolId) {
+      setApprovedPlanToolIds(prev => {
+        const next = new Set(prev)
+        next.add(toolId)
+        return next
+      })
+    }
+    setApprovedPlan({ content, filePath })
+    // Persist to localStorage
+    const sessionId = activeSessionIdRef.current
+    if (sessionId) {
+      const currentIds = toolId
+        ? [...Array.from(approvedPlanToolIds), toolId]
+        : Array.from(approvedPlanToolIds)
+      localStorage.setItem(`codr:approved-plans:${sessionId}`, JSON.stringify({
+        toolIds: currentIds,
+        plan: { content, filePath },
+      }))
+    }
+  }, [activeSessionIdRef, approvedPlanToolIds])
+
+  const restoreApprovedPlan = useCallback((toolIds: string[], plan: { content: string; filePath: string } | null) => {
+    setApprovedPlanToolIds(new Set(toolIds))
+    setApprovedPlan(plan)
+  }, [])
+
+  const clearApprovedPlan = useCallback(() => {
+    setApprovedPlanToolIds(new Set())
+    setApprovedPlan(null)
   }, [])
 
   // --- User-facing handlers ---
@@ -155,6 +207,7 @@ export function useDialogs({ activeSessionIdRef }: UseDialogsParams) {
   }, [])
 
   const resetPlan = useCallback(() => {
+    planReviewRef.current = null
     setPlanReview(null)
     setPlanReady(false)
     exitPlanModeDetectedRef.current = false
@@ -172,6 +225,12 @@ export function useDialogs({ activeSessionIdRef }: UseDialogsParams) {
     exitPlanModeDetectedRef,
     mode,
     setMode,
+    // Plan approval state
+    approvedPlanToolIds,
+    approvedPlan,
+    markPlanApproved,
+    restoreApprovedPlan,
+    clearApprovedPlan,
     // Callbacks for useAgentConnection
     onPermissionRequest,
     onPermissionCleared,

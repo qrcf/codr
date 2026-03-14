@@ -14,7 +14,7 @@ interface DialogCallbacks {
   onPermissionCleared: (key: string, id: number) => void
   onQuestionRequest: (key: string, request: QuestionRequest) => void
   onQuestionCleared: (key: string, id: number) => void
-  onPlanWrite: (planFilePath: string, planContent: string) => void
+  onPlanWrite: (toolId: string, planFilePath: string, planContent: string) => void
   onExitPlanMode: (allowedPrompts?: Array<{ tool: string; prompt: string }>) => void
   onDoneWithPlanExit: () => void
   applyStateSync: (
@@ -75,6 +75,7 @@ export function useAgentConnection({
   const commitCurrentTurn = useCallback(() => {
     const text = streamingTextRef.current
     const tools = [...streamingToolsRef.current]
+    const thinking = streamingThinkingRef.current
 
     if (text || tools.length > 0) {
       setMessages((prev) => {
@@ -84,10 +85,11 @@ export function useAgentConnection({
           updated[updated.length - 1] = {
             ...last,
             toolCalls: [...last.toolCalls, ...tools],
+            thinking: last.thinking || thinking || undefined,
           }
           return updated
         }
-        return [...prev, { id: nextId(), role: 'assistant', content: text, toolCalls: tools }]
+        return [...prev, { id: nextId(), role: 'assistant', content: text, toolCalls: tools, thinking: thinking || undefined }]
       })
     }
 
@@ -184,6 +186,7 @@ export function useAgentConnection({
 
       setIsLoading(true)
 
+      const isSubagent = !!(raw as { parent_tool_use_id?: string | null }).parent_tool_use_id
       const msg = raw as AgentMessage
       switch (msg.type) {
         case 'stream_event': {
@@ -192,10 +195,6 @@ export function useAgentConnection({
             if (streamingToolsRef.current.length > 0) {
               commitCurrentTurn()
             }
-            if (streamingThinkingRef.current) {
-              streamingThinkingRef.current = ''
-              setStreamingThinking('')
-            }
             streamingTextRef.current += evt.event.delta.text
             setStreamingText(streamingTextRef.current)
           } else if (evt.event.type === 'content_block_delta' && evt.event.delta?.type === 'thinking_delta' && evt.event.delta.thinking) {
@@ -203,10 +202,6 @@ export function useAgentConnection({
             setStreamingThinking(streamingThinkingRef.current)
           } else if (evt.event.type === 'content_block_start' && evt.event.content_block?.type === 'tool_use') {
             const block = evt.event.content_block as { id?: string; name?: string }
-            if (streamingThinkingRef.current) {
-              streamingThinkingRef.current = ''
-              setStreamingThinking('')
-            }
             const toolInfo: ToolCallInfo = {
               id: block.id || `tool-${Date.now()}-${Math.random()}`,
               name: block.name || 'Unknown',
@@ -225,13 +220,24 @@ export function useAgentConnection({
           const assistantMsg = msg as { message?: { content?: unknown[]; usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } } }
           const usage = assistantMsg.message?.usage
           if (usage?.input_tokens) {
-            setTokenUsage(prev => ({
-              inputTokens: usage.input_tokens!,
-              outputTokens: usage.output_tokens || 0,
-              cacheReadInputTokens: usage.cache_read_input_tokens || 0,
-              cacheCreationInputTokens: usage.cache_creation_input_tokens || 0,
-              contextWindow: prev?.contextWindow || 200000,
-            }))
+            if (isSubagent) {
+              // Accumulate subagent tokens separately
+              setTokenUsage(prev => prev ? {
+                ...prev,
+                subagentInputTokens: (prev.subagentInputTokens || 0) + usage.input_tokens!,
+                subagentOutputTokens: (prev.subagentOutputTokens || 0) + (usage.output_tokens || 0),
+              } : prev)
+            } else {
+              setTokenUsage(prev => ({
+                inputTokens: usage.input_tokens!,
+                outputTokens: usage.output_tokens || 0,
+                cacheReadInputTokens: usage.cache_read_input_tokens || 0,
+                cacheCreationInputTokens: usage.cache_creation_input_tokens || 0,
+                contextWindow: prev?.contextWindow || 200000,
+                subagentInputTokens: prev?.subagentInputTokens,
+                subagentOutputTokens: prev?.subagentOutputTokens,
+              }))
+            }
           }
           const content = assistantMsg.message?.content
           if (Array.isArray(content)) {
@@ -251,7 +257,7 @@ export function useAgentConnection({
                 if (b.name === 'Write') {
                   const filePath = b.input?.file_path as string
                   if (filePath?.includes('.claude/plans/')) {
-                    dialogsRef.current.onPlanWrite(filePath, b.input?.content as string)
+                    dialogsRef.current.onPlanWrite(b.id, filePath, b.input?.content as string)
                   }
                 }
 

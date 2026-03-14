@@ -1,4 +1,8 @@
 import type { ToolCallInfo } from '../../types'
+import { CodeBlock } from '../CodeBlock'
+import { langFromPath } from '../../utils/langUtils'
+
+const PREVIEW_LINES = 8
 
 export function WriteRenderer({ tool }: { tool: ToolCallInfo }) {
   const filePath = tool.input.file_path as string | undefined
@@ -6,9 +10,11 @@ export function WriteRenderer({ tool }: { tool: ToolCallInfo }) {
   const content = tool.input.content as string || ''
 
   const fileName = filePath.split('/').pop() || filePath
-  const lineCount = content.split('\n').length
-  const preview = content.split('\n').slice(0, 5).join('\n')
-  const hasMore = lineCount > 5
+  const lines = content.split('\n')
+  const lineCount = lines.length
+  const preview = lines.slice(0, PREVIEW_LINES).join('\n')
+  const hasMore = lineCount > PREVIEW_LINES
+  const language = langFromPath(filePath)
 
   return (
     <div className="border-t border-[#3a3a4a]">
@@ -18,9 +24,14 @@ export function WriteRenderer({ tool }: { tool: ToolCallInfo }) {
         <span className="text-[#666] ml-auto text-[0.9em]">{lineCount} lines</span>
       </div>
       {content && (
-        <pre className="m-0 px-[10px] py-[6px] bg-[#0d0d1a] font-['SF_Mono','Fira_Code',monospace] text-[0.82em] leading-[1.4] whitespace-pre-wrap break-words text-[#888] border-t border-[#3a3a4a]">
-          {preview}{hasMore ? '\n...' : ''}
-        </pre>
+        <div style={{ borderTop: '1px solid #3a3a4a', background: '#0d0d1a' }}>
+          <CodeBlock code={preview} language={language} />
+          {hasMore && (
+            <div style={{ padding: '2px 12px 6px', color: '#555', fontSize: '0.82em', fontFamily: "'SF Mono', 'Fira Code', monospace" }}>
+              ...
+            </div>
+          )}
+        </div>
       )}
     </div>
   )

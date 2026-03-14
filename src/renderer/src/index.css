@@ -76,6 +76,25 @@ body {
   background: #555;
 }
 
+/* Hide scrollbar until hover */
+.scroll-auto-hide {
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.3s;
+}
+
+.scroll-auto-hide:hover {
+  scrollbar-color: #444 transparent;
+}
+
+.scroll-auto-hide::-webkit-scrollbar-thumb {
+  background: transparent;
+  transition: background 0.3s;
+}
+
+.scroll-auto-hide:hover::-webkit-scrollbar-thumb {
+  background: #444;
+}
+
 /* Keyframe animations (referenced via Tailwind animate-[...] arbitrary values) */
 @keyframes spin {
   from { transform: rotate(0deg); }
@@ -122,6 +141,7 @@ body {
 .json-number { color: #f78c6c; }
 .json-bool { color: #c792ea; }
 
+
 /* Message content (Markdown-rendered HTML — cannot use Tailwind) */
 .message-content { word-wrap: break-word; line-height: 1.6; }
 .message-content p { margin: 0 0 8px 0; }
@@ -146,6 +166,11 @@ body {
 .streaming-thinking { color: #999; font-style: italic; border-left: 2px solid #555; padding-left: 12px; margin-bottom: 4px; max-height: 300px; overflow-y: auto; }
 .streaming-thinking p { margin: 0 0 4px 0; }
 .streaming-thinking code { background: #252535; }
+
+/* Persisted thinking content (collapsible) */
+.thinking-content { color: #999; font-style: italic; border-left: 2px solid #555; padding-left: 12px; margin-top: 4px; max-height: 400px; overflow-y: auto; }
+.thinking-content p { margin: 0 0 4px 0; }
+.thinking-content code { background: #252535; }
 
 /* System message divider lines (::before/::after pseudo-elements) */
 .message-system::before, .message-system::after {

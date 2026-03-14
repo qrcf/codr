@@ -26,7 +26,7 @@ export function BashRenderer({ tool }: { tool: ToolCallInfo }) {
             {outputExpanded ? 'Hide output' : 'Show output'}
           </div>
           {outputExpanded && (
-            <pre className={`m-0 px-[10px] py-2 bg-[#0d0d1a] border-t border-[#3a3a4a] whitespace-pre-wrap break-words leading-[1.4] max-h-[300px] overflow-y-auto ${tool.isError ? 'text-[#f44336]' : 'text-[#b0b0b0]'}`}>
+            <pre style={{ margin: 0, padding: '8px 10px', background: '#0d0d1a', fontFamily: "'SF Mono', 'Fira Code', monospace", fontSize: '0.82em', lineHeight: 1.4, whiteSpace: 'pre-wrap', wordWrap: 'break-word', color: tool.isError ? '#f44336' : '#b8b8b8', maxHeight: 300, overflowY: 'auto', borderTop: '1px solid #3a3a4a' }}>
               {result.length > 2000 ? result.slice(0, 2000) + '\n...' : result}
             </pre>
           )}

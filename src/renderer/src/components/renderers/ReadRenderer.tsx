@@ -1,7 +1,16 @@
 import { useState } from 'react'
 import type { ToolCallInfo } from '../../types'
+import { CodeBlock } from '../CodeBlock'
+import { langFromPath } from '../../utils/langUtils'
 
 const MAX_VISIBLE_LINES = 30
+const LINE_RE = /^( *\d+)([\t→])(.*)/
+
+function parseLine(raw: string): { lineNum: number; content: string } | null {
+  const m = raw.match(LINE_RE)
+  if (!m) return null
+  return { lineNum: parseInt(m[1].trim(), 10), content: m[3] }
+}
 
 export function ReadRenderer({ tool }: { tool: ToolCallInfo }) {
   const [showAll, setShowAll] = useState(false)
@@ -12,29 +21,42 @@ export function ReadRenderer({ tool }: { tool: ToolCallInfo }) {
   const result = tool.result || ''
 
   const fileName = filePath.split('/').pop() || filePath
-  const lines = result.split('\n')
-  const totalLines = lines.length
+  const allLines = result.split('\n')
+  const parsedLines = allLines.map(parseLine)
+  const totalLines = allLines.length
   const truncated = !showAll && totalLines > MAX_VISIBLE_LINES
-  const visibleContent = truncated ? lines.slice(0, MAX_VISIBLE_LINES).join('\n') : result
+
+  const visibleParsed = truncated ? parsedLines.slice(0, MAX_VISIBLE_LINES) : parsedLines
+  const codeLines = visibleParsed.map(p => (p ? p.content : ''))
+  const code = codeLines.join('\n')
+
+  const firstParsed = parsedLines.find(p => p !== null)
+  const startingLineNumber = firstParsed?.lineNum ?? 1
 
   const rangeInfo = offset || limit
     ? ` (${offset ? `from line ${offset}` : ''}${offset && limit ? ', ' : ''}${limit ? `${limit} lines` : ''})`
     : ''
 
+  const language = langFromPath(filePath)
+
   return (
-    <div className="border-t border-[#3a3a4a]">
-      <div className="flex items-center gap-[6px] px-[10px] py-[6px] text-[#aaa] text-[0.85em]">
-        <span className="text-[0.9em]">&#128196;</span>
-        <span className="font-['SF_Mono','Fira_Code',monospace] overflow-hidden text-ellipsis whitespace-nowrap" title={filePath}>{fileName}</span>
-        {rangeInfo && <span className="text-[#777] text-[0.9em]">{rangeInfo}</span>}
-        {tool.status === 'done' && <span className="text-[#666] ml-auto text-[0.9em]">{totalLines} lines</span>}
+    <div style={{ borderTop: '1px solid #3a3a4a' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', color: '#aaa', fontSize: '0.85em' }}>
+        <span style={{ fontSize: '0.9em' }}>&#128196;</span>
+        <span style={{ fontFamily: "'SF Mono', 'Fira Code', monospace", overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={filePath}>{fileName}</span>
+        {rangeInfo && <span style={{ color: '#777', fontSize: '0.9em' }}>{rangeInfo}</span>}
+        {tool.status === 'done' && <span style={{ color: '#666', marginLeft: 'auto', fontSize: '0.9em' }}>{totalLines} lines</span>}
       </div>
       {result && (
         <>
-          <pre className="m-0 px-[10px] py-2 bg-[#0d0d1a] font-['SF_Mono','Fira_Code',monospace] text-[0.82em] leading-[1.4] whitespace-pre-wrap break-words text-[#b8b8b8] max-h-[400px] overflow-y-auto">{visibleContent}</pre>
+          <div style={{ margin: 0, background: '#0d0d1a', maxHeight: 400, overflowY: 'auto' }}>
+            <CodeBlock code={code} language={language} showLineNumbers startingLineNumber={startingLineNumber} />
+          </div>
           {truncated && (
             <button
-              className="block w-full bg-[#1a1a2a] border-0 border-t border-[#3a3a4a] text-[#8142c7] py-[6px] text-[0.82em] cursor-pointer text-center hover:bg-[#222238]"
+              style={{ display: 'block', width: '100%', background: '#1a1a2a', border: 'none', borderTop: '1px solid #3a3a4a', color: '#8142c7', padding: '6px', fontSize: '0.82em', cursor: 'pointer', textAlign: 'center' }}
+              onMouseEnter={e => { e.currentTarget.style.background = '#222238' }}
+              onMouseLeave={e => { e.currentTarget.style.background = '#1a1a2a' }}
               onClick={() => setShowAll(true)}
             >
               Show all ({totalLines} lines)

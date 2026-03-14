@@ -18,10 +18,14 @@ export function ContextUsageBar({
   cacheReadInputTokens,
   cacheCreationInputTokens,
   contextWindow,
+  subagentInputTokens,
+  subagentOutputTokens,
 }: TokenUsage) {
   const totalContext = inputTokens + cacheReadInputTokens + cacheCreationInputTokens
   const pct = Math.min(totalContext / contextWindow, 1)
   const color = getBarColor(pct)
+  const hasSubagent = (subagentInputTokens || 0) + (subagentOutputTokens || 0) > 0
+  const totalAllTokens = totalContext + outputTokens + (subagentInputTokens || 0) + (subagentOutputTokens || 0)
 
   return (
     <div className="group relative inline-flex items-center" title="">
@@ -62,6 +66,18 @@ export function ContextUsageBar({
           <span>Context window</span>
           <span className="context-usage-tooltip-row">{contextWindow.toLocaleString()}</span>
         </div>
+        {hasSubagent && (
+          <>
+            <div className="flex justify-between gap-4 py-1 mt-[2px] border-t border-white/10">
+              <span>Subagent tokens</span>
+              <span className="context-usage-tooltip-row">{((subagentInputTokens || 0) + (subagentOutputTokens || 0)).toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between gap-4 py-[2px]">
+              <span>Total all tokens</span>
+              <span className="context-usage-tooltip-row">{totalAllTokens.toLocaleString()}</span>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

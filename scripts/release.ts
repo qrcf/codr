@@ -1,5 +1,7 @@
 import { execSync, spawnSync } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 
@@ -67,20 +69,35 @@ if (!commitLog) {
   process.exit(1)
 }
 
-// --- Changelog generation ---
+// --- Changelog generation with cache ---
 
-function generateChangelog(): string {
-  const prompt = [
+const cacheDir = join(tmpdir(), 'codr-changelog-cache')
+const cacheKey = createHash('sha256').update(`${newVersion}\n${commitLog}`).digest('hex').slice(0, 16)
+const cachePath = join(cacheDir, `${cacheKey}.md`)
+
+function getCachedChangelog(): string | null {
+  if (existsSync(cachePath)) return readFileSync(cachePath, 'utf-8')
+  return null
+}
+
+function cacheChangelog(content: string) {
+  mkdirSync(cacheDir, { recursive: true })
+  writeFileSync(cachePath, content)
+}
+
+function generateChangelog(extraInstruction?: string): string {
+  const parts = [
     `Generate a concise changelog in markdown for version ${newVersion} of Codr (a desktop AI coding assistant).`,
     `Group changes under categories like Features, Fixes, Improvements, etc. Only include categories that have entries.`,
     `Do not include a heading with the version number. Keep it brief and scannable.`,
     `\nCommits since ${latestTag}:\n`,
     commitLog,
-  ].join(' ')
+  ]
+  if (extraInstruction) parts.push(`\nAdditional instructions: ${extraInstruction}`)
 
   console.log('Generating changelog...\n')
 
-  const result = spawnSync('claude', ['-p', prompt], {
+  const result = spawnSync('claude', ['-p', parts.join(' ')], {
     encoding: 'utf-8',
     timeout: 120_000,
     cwd: root,
@@ -91,32 +108,37 @@ function generateChangelog(): string {
     process.exit(1)
   }
 
-  return result.stdout.trim()
+  const content = result.stdout.trim()
+  cacheChangelog(content)
+  return content
 }
 
 // --- Interactive approval loop ---
 
 const rl = createInterface({ input: process.stdin, output: process.stdout })
-let changelog = ''
+let changelog = getCachedChangelog() ?? ''
+let fromCache = !!changelog
+
+if (!fromCache) changelog = generateChangelog()
 
 while (true) {
-  changelog = generateChangelog()
+  if (fromCache) console.log('Using cached changelog\n')
+  fromCache = false
 
   console.log('─'.repeat(60))
   console.log(changelog)
   console.log('─'.repeat(60) + '\n')
 
-  const answer = await rl.question('(a)pprove / (r)egenerate / (q)uit: ')
-  const choice = answer.trim().toLowerCase()
+  const answer = await rl.question('(a)pprove / (q)uit / or type instructions to regenerate: ')
+  const choice = answer.trim()
 
-  if (choice === 'a' || choice === 'approve') break
-  if (choice === 'q' || choice === 'quit') {
+  if (choice.toLowerCase() === 'a') break
+  if (choice.toLowerCase() === 'q') {
     console.log('Aborted.')
     rl.close()
     process.exit(0)
   }
-  // Otherwise regenerate
-  console.log()
+  changelog = generateChangelog(choice || undefined)
 }
 
 rl.close()

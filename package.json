@@ -19,7 +19,8 @@
     "postinstall": "electron-builder install-app-deps",
     "dist": "tsx scripts/deploy.ts",
     "deploy": "tsx scripts/deploy.ts --upload",
-    "release": "tsx scripts/release.ts"
+    "release": "tsx scripts/release.ts",
+    "backfill-changelog": "tsx scripts/backfill-changelog.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.72",

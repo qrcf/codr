@@ -17,6 +17,8 @@ files:
 extraResources:
   - from: resources/crawl4ai
     to: crawl4ai
+  - from: resources/indexer
+    to: indexer
   - from: resources/bin
     to: bin
 

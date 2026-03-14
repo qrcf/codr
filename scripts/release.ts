@@ -150,11 +150,15 @@ rl.close()
 
 const pkgPath = join(root, 'package.json')
 const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'))
-pkg.version = newVersion
-writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n')
 
-execSync('git add package.json', { stdio: 'inherit', cwd: root })
-execSync(`git commit -m "${newTag}"`, { stdio: 'inherit', cwd: root })
+if (pkg.version !== newVersion) {
+  pkg.version = newVersion
+  writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n')
+  execSync('git add package.json', { stdio: 'inherit', cwd: root })
+  execSync(`git commit -m "${newTag}"`, { stdio: 'inherit', cwd: root })
+} else {
+  console.log('package.json already at target version, skipping commit')
+}
 
 // --- Tag, push, and create draft release ---
 

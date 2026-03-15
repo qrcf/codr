@@ -522,6 +522,7 @@ export function useAgentConnection({
             activeState?.isLoading ?? false,
           )
         } else if (state.messages) {
+          if (activeSessionIdRef.current) return
           setMessages(state.messages)
           setIsLoading(state.isLoading ?? false)
           setStreamingText(state.streamingText ?? '')

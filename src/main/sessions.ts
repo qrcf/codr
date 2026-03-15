@@ -372,7 +372,7 @@ export async function checkCliStatus(): Promise<CliStatus> {
       }
     } else {
       // Dev build — check if `claude` is on PATH
-      execSync('which claude', { stdio: 'pipe', timeout: 5000 })
+      execSync(process.platform === 'win32' ? 'where claude' : 'which claude', { stdio: 'pipe', timeout: 5000 })
     }
   } catch {
     return { status: 'not-installed' }
@@ -452,7 +452,7 @@ export async function listFilesData(dir?: string, maxFiles = 500) {
         await walk(join(current, entry.name))
       } else {
         if (ig.ignores(rel)) continue
-        results.push(rel)
+        results.push(rel.replaceAll('\\', '/'))
       }
     }
   }
@@ -490,7 +490,7 @@ export async function getProviderStatusData(): Promise<AllProviderStatus> {
         if (cliPath) {
           installed = existsSync(cliPath)
         } else {
-          execSync('which claude', { stdio: 'pipe', timeout: 3000 })
+          execSync(process.platform === 'win32' ? 'where claude' : 'which claude', { stdio: 'pipe', timeout: 3000 })
           installed = true
         }
       } catch {

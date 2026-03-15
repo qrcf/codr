@@ -37,7 +37,9 @@ console.log('Building...\n')
 try {
   execSync('tsx scripts/download-uv.ts', { stdio: 'inherit', cwd: root })
   execSync('electron-vite build', { stdio: 'inherit', cwd: root })
-  execSync('electron-builder', { stdio: 'inherit', cwd: root })
+  const platformFlag = process.platform === 'darwin' ? '--mac'
+    : process.platform === 'linux' ? '--linux' : '--win'
+  execSync(`electron-builder ${platformFlag}`, { stdio: 'inherit', cwd: root })
 } catch {
   console.error('\nBuild failed.')
   process.exit(1)

@@ -100,13 +100,17 @@ function getEnvDir(): string {
 }
 
 function getUvPath(): string {
+  const binary = process.platform === 'win32' ? 'uv.exe' : 'uv'
   if (app.isPackaged) {
-    return join(process.resourcesPath, 'bin', 'uv')
+    return join(process.resourcesPath, 'bin', binary)
   }
-  return 'uv'
+  return binary
 }
 
 function getVenvPythonPath(): string {
+  if (process.platform === 'win32') {
+    return join(getEnvDir(), 'venv', 'Scripts', 'python.exe')
+  }
   return join(getEnvDir(), 'venv', 'bin', 'python')
 }
 
@@ -449,6 +453,24 @@ export class IndexerManager {
       const existing = byPath.get(path)
       if (!existing || adjustedScore > existing.adjustedScore) {
         byPath.set(path, { path, adjustedScore, text: r.text })
+      }
+    }
+
+    // Boost/inject filename matches so files literally named after the query aren't missed
+    const meta = readMetadata(projectDir)
+    if (meta) {
+      const queryLower = query.toLowerCase()
+      const FILENAME_BOOST = 0.75
+      for (const filePath of Object.keys(meta.files)) {
+        const fileName = filePath.split('/').pop()?.toLowerCase() || ''
+        if (fileName.includes(queryLower)) {
+          const existing = byPath.get(filePath)
+          if (existing) {
+            existing.adjustedScore = Math.max(existing.adjustedScore, FILENAME_BOOST)
+          } else {
+            byPath.set(filePath, { path: filePath, adjustedScore: FILENAME_BOOST, text: '' })
+          }
+        }
       }
     }
 

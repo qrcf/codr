@@ -19,11 +19,11 @@ function getEnvDir(): string {
 }
 
 function getUvPath(): string {
+  const binary = process.platform === 'win32' ? 'uv.exe' : 'uv'
   if (app.isPackaged) {
-    return join(process.resourcesPath, 'bin', 'uv')
+    return join(process.resourcesPath, 'bin', binary)
   }
-  // In dev, use system uv (must be on PATH)
-  return 'uv'
+  return binary
 }
 
 function getSetupHash(): string {
@@ -44,6 +44,9 @@ function isSetupComplete(): boolean {
 }
 
 function getVenvPythonPath(): string {
+  if (process.platform === 'win32') {
+    return join(getEnvDir(), 'venv', 'Scripts', 'python.exe')
+  }
   return join(getEnvDir(), 'venv', 'bin', 'python')
 }
 

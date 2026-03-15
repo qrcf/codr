@@ -142,7 +142,7 @@ export class Crawl4AIBridge {
 
   private cleanup(): void {
     if (this.process) {
-      this.process.kill('SIGKILL')
+      this.process.kill()
       this.process = null
     }
     if (this.readline) {

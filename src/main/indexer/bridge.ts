@@ -170,7 +170,7 @@ export class IndexerBridge {
   private cleanup(): void {
     const proc = this.process
     if (proc) {
-      proc.kill('SIGKILL')
+      proc.kill()
       this.process = null
     }
     if (this.readline) {

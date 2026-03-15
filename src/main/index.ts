@@ -4,14 +4,16 @@ declare const __WEB_URL__: string
 declare const __API_URL__: string
 declare const __RELAY_URL__: string
 
-import fixPath from 'fix-path'
 import path from 'node:path'
 import { readFile, writeFile, stat, unlink } from 'node:fs/promises'
 import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, powerMonitor, safeStorage, shell } from 'electron'
 
 // macOS GUI apps get a minimal PATH (/usr/bin:/bin). Restore the user's full
 // shell PATH so the Claude Agent SDK can find the `claude` CLI binary.
-fixPath()
+if (process.platform === 'darwin') {
+  const fixPath = (await import('fix-path')).default
+  fixPath()
+}
 
 // The Claude Agent SDK bundles graceful-fs which registers multiple process exit
 // listeners. Raise the limit to suppress the spurious MaxListenersExceededWarning.
@@ -507,25 +509,37 @@ app.whenReady().then(() => {
     return storeAttachmentFromBuffer(Buffer.from(buffer), filename)
   })
 
-  // Clipboard: read file paths from native pasteboard (macOS Finder Cmd+C)
+  // Clipboard: read file paths from native pasteboard
   ipcMain.handle('clipboard:read-file-paths', () => {
-    const formats = clipboard.availableFormats()
-    if (formats.some(f => f.includes('FileName') || f.includes('file-url'))) {
-      try {
-        const plistXml = clipboard.read('NSFilenamesPboardType')
-        if (!plistXml) return []
-        const paths: string[] = []
-        const regex = /<string>(.*?)<\/string>/g
-        let match: RegExpExecArray | null
-        while ((match = regex.exec(plistXml)) !== null) {
-          const p = match[1]
-          if (p && p.startsWith('/')) paths.push(p)
+    if (process.platform === 'darwin') {
+      // macOS Finder Cmd+C uses NSFilenamesPboardType
+      const formats = clipboard.availableFormats()
+      if (formats.some(f => f.includes('FileName') || f.includes('file-url'))) {
+        try {
+          const plistXml = clipboard.read('NSFilenamesPboardType')
+          if (!plistXml) return []
+          const paths: string[] = []
+          const regex = /<string>(.*?)<\/string>/g
+          let match: RegExpExecArray | null
+          while ((match = regex.exec(plistXml)) !== null) {
+            const p = match[1]
+            if (p && p.startsWith('/')) paths.push(p)
+          }
+          return paths
+        } catch {
+          return []
         }
-        return paths
-      } catch {
-        return []
       }
     }
+    // Windows/Linux: check for file:// URIs in clipboard text
+    try {
+      const text = clipboard.readText()
+      if (text && text.startsWith('file://')) {
+        return text.split(/\r?\n/).filter(Boolean).map(uri => {
+          try { return new URL(uri).pathname } catch { return '' }
+        }).filter(Boolean)
+      }
+    } catch { /* ignore */ }
     return []
   })
 

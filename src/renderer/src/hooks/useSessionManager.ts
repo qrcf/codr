@@ -102,8 +102,13 @@ export function useSessionManager({
   const loadSession = useCallback((sessionId: string | null, sessionMessages: ChatMessage[], initialTokenUsage?: TokenUsage | null) => {
     const isReloadingSameSession = sessionId !== null && sessionId === activeSessionIdRef.current
 
-    // Clean up abandoned draft when switching away
+    // Interrupt any in-flight query for the previous session
     const prevId = activeSessionIdRef.current
+    if (prevId && !isReloadingSameSession) {
+      window.claude.interrupt(prevId)
+    }
+
+    // Clean up abandoned draft when switching away
     if (prevId?.startsWith('draft-') && sessionId !== prevId) {
       draftActions.removeDraft(prevId)
     }
@@ -208,11 +213,11 @@ export function useSessionManager({
   }, [loadSession])
 
   const handleNewChat = useCallback(async (provider?: 'claude' | 'codex', cwd?: string) => {
-    await window.claude.setProvider?.(provider || 'claude')
     const draft = draftActions.createDraft(cwd || activeSession?.cwd || undefined)
     loadSession(draft.draftId, [])
     resetInput()
     setMode('code')
+    await window.claude.setProvider?.(provider || 'claude')
   }, [loadSession, resetInput, setMode, draftActions, activeSession])
 
   const handleChangeProject = useCallback((cwd: string) => {

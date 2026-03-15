@@ -14,9 +14,128 @@ permissions:
   contents: write
 
 jobs:
-  build-and-release:
-    runs-on: macos-14
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: mac
+            electron-args: --mac
+          - os: ubuntu-latest
+            platform: linux
+            electron-args: --linux
+          - os: windows-latest
+            platform: win
+            electron-args: --win
+
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Set version
+        run: npm version ${{ steps.version.outputs.version }} --no-git-tag-version --allow-same-version
+
+      - name: Create env files
+        shell: bash
+        run: |
+          cat > .env << 'ENVEOF'
+          VITE_RELAY_URL=${{ vars.VITE_RELAY_URL }}
+          VITE_API_URL=${{ vars.VITE_API_URL }}
+          VITE_WEB_URL=${{ vars.VITE_WEB_URL }}
+          ENVEOF
+
+          cat > packages/web/.env << 'ENVEOF'
+          VITE_RELAY_URL=${{ vars.VITE_RELAY_URL }}
+          VITE_CLERK_PUBLISHABLE_KEY=${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+          ENVEOF
+
+      - name: Download uv binary
+        run: pnpm tsx scripts/download-uv.ts
+
+      - name: Build Electron app
+        run: pnpm build
+
+      - name: Create tag
+        if: github.event_name == 'workflow_dispatch' && matrix.platform == 'mac'
+        run: |
+          git tag "v${{ steps.version.outputs.version }}"
+          git push origin "v${{ steps.version.outputs.version }}"
+
+      - name: Package, sign, notarize, and publish to GitHub Releases
+        run: pnpm exec electron-builder ${{ matrix.electron-args }} --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ matrix.platform == 'mac' && secrets.CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.platform == 'mac' && secrets.CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ matrix.platform == 'mac' && secrets.APPLE_ID || '' }}
+          APPLE_TEAM_ID: ${{ matrix.platform == 'mac' && secrets.APPLE_TEAM_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.platform == 'mac' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+
+      - name: Ensure latest-mac.yml is on the release
+        if: matrix.platform == 'mac'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          YML="dist/latest-mac.yml"
+          if [ ! -f "$YML" ]; then
+            echo "::error::latest-mac.yml not found in dist/"
+            exit 1
+          fi
+          if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -q '^latest-mac.yml$'; then
+            echo "latest-mac.yml already on release"
+          else
+            echo "Uploading latest-mac.yml..."
+            gh release upload "$TAG" "$YML" --clobber
+          fi
+
+      - name: Ensure latest-linux.yml is on the release
+        if: matrix.platform == 'linux'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          YML="dist/latest-linux.yml"
+          if [ ! -f "$YML" ]; then
+            echo "::warning::latest-linux.yml not found in dist/"
+            exit 0
+          fi
+          if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -q '^latest-linux.yml$'; then
+            echo "latest-linux.yml already on release"
+          else
+            echo "Uploading latest-linux.yml..."
+            gh release upload "$TAG" "$YML" --clobber
+          fi
+
+  finalize:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
@@ -42,61 +161,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Set version
-        run: npm version ${{ steps.version.outputs.version }} --no-git-tag-version --allow-same-version
-
-      - name: Create env files
+      - name: Create web env
         run: |
-          cat > .env << 'ENVEOF'
-          VITE_RELAY_URL=${{ vars.VITE_RELAY_URL }}
-          VITE_API_URL=${{ vars.VITE_API_URL }}
-          VITE_WEB_URL=${{ vars.VITE_WEB_URL }}
-          ENVEOF
-
           cat > packages/web/.env << 'ENVEOF'
           VITE_RELAY_URL=${{ vars.VITE_RELAY_URL }}
           VITE_CLERK_PUBLISHABLE_KEY=${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
           ENVEOF
-
-      - name: Download uv binary
-        run: pnpm tsx scripts/download-uv.ts
-
-      - name: Build Electron app
-        run: pnpm build
-
-      - name: Create tag
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          git tag "v${{ steps.version.outputs.version }}"
-          git push origin "v${{ steps.version.outputs.version }}"
-
-      - name: Package, sign, notarize, and publish to GitHub Releases
-        run: pnpm exec electron-builder --publish always
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-
-      - name: Ensure latest-mac.yml is on the release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="v${{ steps.version.outputs.version }}"
-          YML="dist/latest-mac.yml"
-          if [ ! -f "$YML" ]; then
-            echo "::error::latest-mac.yml not found in dist/"
-            exit 1
-          fi
-          # Check if already uploaded
-          if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -q '^latest-mac.yml$'; then
-            echo "latest-mac.yml already on release"
-          else
-            echo "Uploading latest-mac.yml..."
-            gh release upload "$TAG" "$YML" --clobber
-          fi
 
       - name: Deploy web client to Vercel
         run: |

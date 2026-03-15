@@ -91,7 +91,6 @@ function ensureUpdater(): Promise<void> {
     }
   }).catch((err: Error) => {
     console.error('[auto-updater] Failed to initialize:', err.message)
-  }).finally(() => {
     updaterInitPromise = null
   })
 
@@ -107,7 +106,8 @@ export function initAutoUpdater(win: BrowserWindow, rebuildMenu?: () => void): v
   void ensureUpdater()
 }
 
-export function checkForUpdates(manual = false): void {
+export async function checkForUpdates(manual = false): Promise<void> {
+  await ensureUpdater()
   if (!updater) {
     if (manual) {
       dialog.showMessageBox({

@@ -199,3 +199,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit "v${{ steps.version.outputs.version }}" --draft=false
+
+      - name: Revalidate site release cache
+        run: |
+          curl -sf -X POST "${{ vars.RELEASE_WEB_URL }}/api/revalidate-releases" \
+            -H "x-webhook-secret: ${{ secrets.REVALIDATE_SECRET }}"

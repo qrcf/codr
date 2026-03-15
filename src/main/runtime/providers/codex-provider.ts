@@ -5,7 +5,10 @@ import type {
   ProviderRunCallbacks,
   ProviderRunResult,
 } from '../provider'
-import { Codex, type Thread, type ThreadEvent, type ThreadItem, type ThreadOptions, type Input, type UserInput } from '@openai/codex-sdk'
+import type { Thread, ThreadEvent, ThreadItem, ThreadOptions, Input, UserInput } from '@openai/codex-sdk'
+// codex-sdk is CJS — must use default import
+import codexPkg from '@openai/codex-sdk'
+const { Codex } = codexPkg
 import { preprocessPromptFull, buildContextSummary } from '../prompt-preprocessor'
 import { readAttachmentAsContentBlock } from '../../attachments'
 

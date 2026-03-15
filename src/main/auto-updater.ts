@@ -1,5 +1,7 @@
 import { BrowserWindow, dialog, app } from 'electron'
-import { autoUpdater } from 'electron-updater'
+// electron-updater is CJS — must use default import
+import pkg from 'electron-updater'
+const { autoUpdater } = pkg
 
 let mainWindow: BrowserWindow | null = null
 let pendingVersion: string | null = null

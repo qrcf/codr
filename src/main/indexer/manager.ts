@@ -11,6 +11,7 @@ import { listFilesData } from '../sessions.js'
 
 const LEANN_VERSION = '0.3.7'
 const PYTHON_VERSION = '3.12'
+const EMBEDDING_MODEL = 'sentence-transformers/all-MiniLM-L6-v2'
 const MAX_FILE_SIZE = 50 * 1024 // 50KB
 
 const BINARY_EXTENSIONS = new Set([
@@ -32,8 +33,8 @@ const INDEXER_SKIP_FILES = new Set([
 function shouldSkipForIndexing(relPath: string): boolean {
   const name = (relPath.split('/').pop() || '').toLowerCase()
   if (name.startsWith('.')) return true
-  if (INDEXER_SKIP_FILES.has(name)) return true
-  return false
+  return INDEXER_SKIP_FILES.has(name);
+
 }
 
 const CODE_EXTENSIONS = new Set([
@@ -123,6 +124,10 @@ function getRequirementsPath(): string {
   return join(__dirname, '../../resources/indexer/requirements.txt')
 }
 
+function getModelCacheDir(): string {
+  return join(app.getPath('userData'), 'models')
+}
+
 function getIndexerDataDir(): string {
   return join(app.getPath('userData'), 'indexer')
 }
@@ -134,7 +139,7 @@ function getProjectIndexDir(projectDir: string): string {
 
 function getSetupHash(): string {
   return createHash('sha256')
-    .update(`${PYTHON_VERSION}-leann-${LEANN_VERSION}-hnsw`)
+    .update(`${PYTHON_VERSION}-leann-${LEANN_VERSION}-hnsw-${EMBEDDING_MODEL}`)
     .digest('hex')
     .slice(0, 16)
 }
@@ -337,11 +342,11 @@ async function classifyFiles(
 
 // -- Shell helper --
 
-function runCommand(cmd: string, args: string[], opts?: { cwd?: string }): Promise<string> {
+function runCommand(cmd: string, args: string[], opts?: { cwd?: string; env?: Record<string, string> }): Promise<string> {
   return new Promise((resolve, reject) => {
     const proc = spawn(cmd, args, {
       cwd: opts?.cwd,
-      env: process.env,
+      env: { ...process.env, ...opts?.env },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stdout = ''
@@ -675,7 +680,7 @@ export class IndexerManager {
 
     if (!this.bridge || !this.bridge.isReady()) {
       this.bridge = new IndexerBridge()
-      await this.bridge.start(getVenvPythonPath(), getWorkerPath(), indexPath)
+      await this.bridge.start(getVenvPythonPath(), getWorkerPath(), indexPath, getModelCacheDir())
       this.currentIndexPath = indexPath
     }
 
@@ -712,6 +717,16 @@ export class IndexerManager {
         uvPath,
         ['pip', 'install', '-r', requirementsPath, '--python', pythonPath],
         { cwd: envDir }
+      )
+
+      // Pre-download the embedding model into a controlled cache directory
+      const modelCacheDir = getModelCacheDir()
+      mkdirSync(modelCacheDir, { recursive: true })
+      this.onProgress?.({ step: 'downloading-model', detail: 'Downloading embedding model...' })
+      await runCommand(
+        pythonPath,
+        ['-c', `from sentence_transformers import SentenceTransformer; SentenceTransformer("${EMBEDDING_MODEL}")`],
+        { cwd: envDir, env: { HF_HOME: modelCacheDir } }
       )
 
       // Mark complete

@@ -1,2 +1,5 @@
+sentence-transformers>=2.2.0,<4.0.0
 leann-core>=0.3.7
 leann-backend-hnsw>=0.1.0
+astchunk>=0.1.0
+requests>=2.32.0

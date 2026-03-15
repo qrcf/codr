@@ -13,7 +13,7 @@ import type {
   ProviderRunCallbacks,
   ProviderRunResult,
 } from '../provider'
-import { preprocessPromptForDocs } from '../prompt-preprocessor'
+import { preprocessPromptForDocs, buildContextSummary } from '../prompt-preprocessor'
 import { readAttachmentAsContentBlock } from '../../attachments'
 
 /**
@@ -131,11 +131,26 @@ export class ClaudeProvider implements AgentProvider {
     const stderrChunks: string[] = []
 
     const canUseTool = createCanUseTool(this.ctx.broadcaster, () => currentKey, req.askMode, origin)
-    let finalPrompt = req.askMode
-      ? `[ASK MODE] You are in Ask mode. Your job is to ANSWER the user's question — do NOT edit any code, create files, or make changes. Only read, search, and explain. Do not use Edit, Write, or NotebookEdit tools.\n\n${req.prompt}`
-      : req.prompt
+    let finalPrompt = req.prompt
 
-    finalPrompt = await preprocessPromptForDocs(this.ctx, finalPrompt, req.cwd)
+    const modeInstruction = req.askMode
+      ? '[ASK MODE] You are in Ask mode. Your job is to ANSWER the user\'s question — do NOT edit any code, create files, or make changes. Only read, search, and explain. Do not use Edit, Write, or NotebookEdit tools.'
+      : ''
+
+    // Kick off title generation as early as possible from the raw user prompt.
+    // We publish this back against the draft/new query key so renderer can
+    // show a generated title before real session ID adoption.
+    const eagerTitlePromise = isNewSession ? beginTitleGeneration(req.prompt) : null
+    if (eagerTitlePromise) {
+      void eagerTitlePromise.then((title) => {
+        const normalized = title.trim()
+        if (!normalized) return
+        this.ctx.broadcaster.send('agent:draft-title-generated', { title: normalized }, currentKey)
+      })
+    }
+
+    const { prompt: cleanedPrompt, contextChunks, contextString } = await preprocessPromptForDocs(this.ctx, finalPrompt, req.cwd)
+    finalPrompt = cleanedPrompt
 
     // Create codebase search MCP server if indexer is available
     const searchServer = this.createCodebaseSearchServer(req.cwd)
@@ -147,8 +162,8 @@ export class ClaudeProvider implements AgentProvider {
       ? await this.buildMultimodalPrompt(finalPrompt, req)
       : finalPrompt
 
-    // Start title generation eagerly for new sessions — runs concurrently with SDK init
-    const eagerTitlePromise = isNewSession ? beginTitleGeneration(req.prompt) : null
+    // Combine mode instructions and context into the system prompt append
+    const systemAppendParts = [modeInstruction, contextString].filter(Boolean).join('\n\n')
 
     const cliPath = getClaudeCliPath()
     const q = query({
@@ -164,8 +179,20 @@ export class ClaudeProvider implements AgentProvider {
         ...(req.model ? { model: req.model } : {}),
         ...(req.thinkingBudget ? { thinking: { type: 'enabled' as const, budgetTokens: { low: 3000, medium: 8000, high: 20000 }[req.thinkingBudget] } } : {}),
         ...(mcpServers ? { mcpServers } : {}),
+        ...(systemAppendParts ? { systemPrompt: { type: 'preset' as const, preset: 'claude_code' as const, append: systemAppendParts } } : {}),
       },
     })
+
+    const injectedContext = {
+      mode: (req.askMode ? 'ask' : req.planMode ? 'plan' : 'code') as 'ask' | 'plan' | 'code',
+      ...(systemAppendParts ? { systemPrompt: { preset: 'claude_code', append: systemAppendParts } } : {}),
+      context: buildContextSummary(contextChunks),
+    }
+    let injectedContextEmitted = false
+    if (!isNewSession) {
+      callbacks.onMessage({ type: 'injected_context', session_id: '', injectedContext }, currentKey)
+      injectedContextEmitted = true
+    }
 
     this.activeQueries.set(currentKey, q)
 
@@ -189,6 +216,11 @@ export class ClaudeProvider implements AgentProvider {
             if (eagerTitlePromise) {
               completeTitleGeneration(capturedSessionId, eagerTitlePromise)
             }
+          }
+
+          if (!injectedContextEmitted) {
+            callbacks.onMessage({ type: 'injected_context', session_id: capturedSessionId, injectedContext }, currentKey)
+            injectedContextEmitted = true
           }
         }
         callbacks.onMessage(message, currentKey)

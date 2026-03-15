@@ -39,12 +39,21 @@ export class IndexerBridge {
   /**
    * Spawn the Python worker and send init command.
    */
-  async start(pythonPath: string, workerPath: string, indexPath?: string): Promise<void> {
+  async start(pythonPath: string, workerPath: string, indexPath?: string, modelCacheDir?: string): Promise<void> {
     // Kill any existing process first
     this.cleanup()
 
     const proc = spawn(pythonPath, [workerPath], {
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        PYTHONWARNINGS: 'ignore',
+        ...(modelCacheDir ? {
+          HF_HOME: modelCacheDir,
+          HF_HUB_OFFLINE: '1',
+          TRANSFORMERS_VERBOSITY: 'error',
+        } : {}),
+      },
     })
     this.process = proc
 

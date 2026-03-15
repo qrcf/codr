@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import type { ChatMessage, ToolCallInfo, AgentMessage, StreamEvent, PlanReviewState } from '../types'
+import type { ChatMessage, ToolCallInfo, AgentMessage, StreamEvent, PlanReviewState, InjectedContext } from '../types'
 import { parseSessionMessages, extractTokenUsageFromRaw } from '../utils/sessionParser'
 import { reconcileParsedMessages } from '../utils/message-reconciler'
 
@@ -35,6 +35,7 @@ interface UseAgentConnectionParams {
   dialogs: DialogCallbacks
   onSessionCaptured: (sessionId: string, messages: ChatMessage[], initialTokenUsage?: TokenUsage | null) => void
   onDraftPromoted: (draftId: string, realSessionId?: string) => void
+  onDraftTitleGenerated: (draftId: string, title: string) => void
 }
 
 export function useAgentConnection({
@@ -46,6 +47,7 @@ export function useAgentConnection({
   dialogs,
   onSessionCaptured,
   onDraftPromoted,
+  onDraftTitleGenerated,
 }: UseAgentConnectionParams) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -74,6 +76,8 @@ export function useAgentConnection({
   useEffect(() => { onSessionCapturedRef.current = onSessionCaptured }, [onSessionCaptured])
   const onDraftPromotedRef = useRef(onDraftPromoted)
   useEffect(() => { onDraftPromotedRef.current = onDraftPromoted }, [onDraftPromoted])
+  const onDraftTitleGeneratedRef = useRef(onDraftTitleGenerated)
+  useEffect(() => { onDraftTitleGeneratedRef.current = onDraftTitleGenerated }, [onDraftTitleGenerated])
 
   const commitCurrentTurn = useCallback(() => {
     const text = streamingTextRef.current
@@ -342,6 +346,19 @@ export function useAgentConnection({
           }
           break
         }
+        case 'injected_context': {
+          const ic = (msg as { injectedContext?: InjectedContext }).injectedContext
+          if (ic) {
+            setMessages(prev => {
+              const lastUserIdx = prev.findLastIndex(m => m.role === 'user')
+              if (lastUserIdx < 0) return prev
+              const updated = [...prev]
+              updated[lastUserIdx] = { ...updated[lastUserIdx], injectedContext: ic }
+              return updated
+            })
+          }
+          break
+        }
       }
     }))
 
@@ -351,6 +368,13 @@ export function useAgentConnection({
           activeSessionIdRef.current = newKey
           setActiveSessionId(newKey)
         }
+      }))
+    }
+
+    if (window.claude.onDraftTitleGenerated) {
+      unsubs.push(window.claude.onDraftTitleGenerated((data, querySessionId) => {
+        if (!data?.title || !querySessionId) return
+        onDraftTitleGeneratedRef.current(querySessionId, data.title)
       }))
     }
 

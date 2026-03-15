@@ -6,7 +6,7 @@ import type {
   ProviderRunResult,
 } from '../provider'
 import type { Codex, Thread, ThreadEvent, ThreadItem, ThreadOptions, Input, UserInput } from '@openai/codex-sdk'
-import { preprocessPromptFull } from '../prompt-preprocessor'
+import { preprocessPromptFull, buildContextSummary } from '../prompt-preprocessor'
 import { readAttachmentAsContentBlock } from '../../attachments'
 
 type CodexModule = { Codex: new (options?: Record<string, unknown>) => InstanceType<typeof Codex> }
@@ -81,8 +81,26 @@ export class CodexProvider implements AgentProvider {
   }
 
   async runQuery(req: AgentQueryRequest, callbacks: ProviderRunCallbacks): Promise<ProviderRunResult> {
+    let prompt = req.prompt
+
+    // Build mode instruction for developer_instructions (system-level, not in user prompt)
+    const modeInstruction = req.askMode
+      ? 'You are in ask mode. Answer the question without making edits or executing side effects. Only read, search, and explain.'
+      : req.planMode
+        ? 'You are in plan mode. Explore the codebase and create an implementation plan. Do not edit source code — only read, search, and plan. You may write plan files to .claude/plans/ directory. When your plan is ready, call ExitPlanMode.'
+        : ''
+
+    // Resolve @docs: and @file references into structured context
+    const { prompt: cleanedPrompt, contextChunks, contextString } = await preprocessPromptFull(this.ctx, prompt, req.cwd)
+    prompt = cleanedPrompt
+
+    const codexConfig: Record<string, unknown> = {}
+    if (req.planMode) codexConfig.include_plan_tool = true
+    const devInstructionParts = [modeInstruction, contextString].filter(Boolean).join('\n\n')
+    if (devInstructionParts) codexConfig.developer_instructions = devInstructionParts
+
     const codex = await createCodexInstance(
-      req.planMode ? { include_plan_tool: true } : undefined
+      Object.keys(codexConfig).length > 0 ? codexConfig : undefined
     )
 
     const isResume = !!req.resumeSessionId
@@ -100,20 +118,6 @@ export class CodexProvider implements AgentProvider {
     const thread: Thread = isResume
       ? codex.resumeThread(sessionId, threadOptions)
       : codex.startThread(threadOptions)
-
-    let prompt = req.prompt
-
-    // Append mode instructions after the user's prompt so they don't pollute
-    // the prompt text used for title generation by the Codex SDK.
-    if (req.askMode) {
-      prompt = `${prompt}\n\n<system_instruction>You are in ask mode. Answer the question without making edits or executing side effects. Only read, search, and explain.</system_instruction>`
-    }
-    if (req.planMode) {
-      prompt = `${prompt}\n\n<system_instruction>You are in plan mode. Explore the codebase and create an implementation plan. Do not edit source code — only read, search, and plan. You may write plan files to .claude/plans/ directory. When your plan is ready, call ExitPlanMode.</system_instruction>`
-    }
-
-    // Resolve @docs: references and @file references into context blocks
-    prompt = await preprocessPromptFull(this.ctx, prompt, req.cwd)
 
     // Build Codex Input: use UserInput[] when attachments are present (supports local_image)
     let codexInput: Input = prompt
@@ -145,6 +149,14 @@ export class CodexProvider implements AgentProvider {
         session_id: sessionId,
         message: { content: [{ type: 'text', text: req.prompt }] },
       }, sessionId)
+      {
+        const injectedContext = {
+          mode: (req.askMode ? 'ask' : req.planMode ? 'plan' : 'code') as 'ask' | 'plan' | 'code',
+          ...(devInstructionParts ? { developerInstructions: devInstructionParts } : {}),
+          context: buildContextSummary(contextChunks),
+        }
+        callbacks.onMessage({ type: 'injected_context', session_id: sessionId, injectedContext }, sessionId)
+      }
     }
 
     // Per-turn accumulation state
@@ -161,18 +173,23 @@ export class CodexProvider implements AgentProvider {
         switch (event.type) {
           case 'thread.started': {
             if (!isResume) {
-              // New thread — we now have the real Codex thread UUID
               sessionId = event.thread_id
               this.abortControllers.set(sessionId, controller)
               callbacks.onSessionIdentified(sessionId)
-              // Emit and index the user's original (un-prefixed) prompt
               callbacks.onMessage({
                 type: 'user',
                 session_id: sessionId,
                 message: { content: [{ type: 'text', text: req.prompt }] },
               }, sessionId)
+              {
+                const injectedContext = {
+                  mode: (req.askMode ? 'ask' : req.planMode ? 'plan' : 'code') as 'ask' | 'plan' | 'code',
+                  ...(devInstructionParts ? { developerInstructions: devInstructionParts } : {}),
+                  context: buildContextSummary(contextChunks),
+                }
+                callbacks.onMessage({ type: 'injected_context', session_id: sessionId, injectedContext }, sessionId)
+              }
             }
-            // For resumes, thread.started may fire with the same ID — no-op
             break
           }
 

@@ -6,6 +6,7 @@ import { SidebarProfile } from './SidebarProfile'
 import type { ChatMessage } from '../types'
 import type { DraftSession } from '../hooks/useDraftSessions'
 import { hasStableSessionTitle } from '../utils/session-title'
+import { stripPromptContext } from '../utils/strip-prompt-context'
 
 export type SessionStatusType = 'question' | 'plan-review' | 'permission'
 
@@ -249,10 +250,12 @@ export function Sidebar({
   const mergeSessionWithDraft = useCallback((session: SessionInfo): SessionInfo => {
     const draft = draftById.get(session.sessionId)
     if (!draft) return session
+    const mergedGeneratedTitle = session.generatedTitle || draft.generatedTitle
     const shouldShowPlaceholder = draft.pendingNewChat && !hasStableSessionTitle(session)
     return {
       ...session,
       cwd: session.cwd || draft.cwd,
+      generatedTitle: mergedGeneratedTitle,
       customTitle: shouldShowPlaceholder ? 'New Chat' : session.customTitle,
       lastModified: session.lastModified || draft.createdAt,
     }
@@ -267,6 +270,7 @@ export function Sidebar({
       summary: '',
       lastModified: d.createdAt,
       fileSize: 0,
+      generatedTitle: d.generatedTitle,
       customTitle: d.pendingNewChat ? 'New Chat' : '',
       cwd: d.cwd,
     } as SessionInfo)), [drafts, realSessionIds])
@@ -512,7 +516,7 @@ export function Sidebar({
             const title = status === 'question' ? 'Waiting for answer' : status === 'plan-review' ? 'Review plan' : 'Needs approval'
             return <span className={statusPillClass(status)} title={title}>{label}</span>
           })()}
-          {session.customTitle || session.generatedTitle || session.summary || (isDraft ? 'New Chat' : (
+          {session.customTitle || session.generatedTitle || stripPromptContext(session.summary) || (isDraft ? 'New Chat' : (
             <span className="inline-block w-30 h-3 rounded bg-[linear-gradient(90deg,#2a2a3a_25%,#3a3a4a_50%,#2a2a3a_75%)] bg-size-[200%_100%] animate-shimmer" />
           ))}
         </div>

@@ -160,7 +160,7 @@ function upsertIndexedSessionSync(
 ): void {
   const db = getDb()
   const now = Date.now()
-  const prev = db.prepare('SELECT createdAt, archived, model, thinkingBudget FROM sessions WHERE sessionId = ?').get(sessionId) as { createdAt: number; archived: number; model: string | null; thinkingBudget: string | null } | undefined
+  const prev = db.prepare('SELECT createdAt, archived, model, thinkingBudget, title, firstPrompt FROM sessions WHERE sessionId = ?').get(sessionId) as { createdAt: number; archived: number; model: string | null; thinkingBudget: string | null; title: string | null; firstPrompt: string | null } | undefined
 
   db.prepare(
     `INSERT OR REPLACE INTO sessions
@@ -173,7 +173,7 @@ function upsertIndexedSessionSync(
     prev?.createdAt ?? now,
     data.updatedAt ?? now,
     data.title !== undefined ? data.title : (prev?.title ?? null),
-    data.firstPrompt ?? null,
+    data.firstPrompt !== undefined ? data.firstPrompt : (prev?.firstPrompt ?? null),
     data.workspaceDir ?? null,
     data.status ?? 'active',
     data.hasPlan ? 1 : 0,

@@ -49,6 +49,12 @@ const agentApi = {
     return () => { ipcRenderer.removeListener('agent:session-identified', listener) }
   },
 
+  onDraftTitleGenerated: (callback: (data: { title: string }, querySessionId?: string | null) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: { title: string }, qsid?: string | null) => callback(data, qsid ?? null)
+    ipcRenderer.on('agent:draft-title-generated', listener)
+    return () => { ipcRenderer.removeListener('agent:draft-title-generated', listener) }
+  },
+
   onPermissionRequest: (callback: (request: { id: number; tool: string; input: unknown }, querySessionId?: string | null) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, request: { id: number; tool: string; input: unknown }, qsid?: string | null) => callback(request, qsid ?? null)
     ipcRenderer.on('agent:permission-request', listener)

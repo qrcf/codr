@@ -46,6 +46,17 @@ export interface ResultMessage {
 
 export type AgentMessage = AssistantMessage | StreamEvent | ToolUseSummaryMessage | ResultMessage | { type: string; [key: string]: unknown }
 
+export interface InjectedContext {
+  mode?: 'ask' | 'plan' | 'code'
+  systemPrompt?: { preset: string; append?: string }
+  developerInstructions?: string
+  context?: {
+    codebase?: { source: string; score?: number }[]
+    documentation?: { source: string; url?: string; heading?: string }[]
+    files?: { source: string }[]
+  }
+}
+
 // Chat display types
 export interface ChatMessage {
   id: string
@@ -54,6 +65,7 @@ export interface ChatMessage {
   toolCalls: ToolCallInfo[]
   thinking?: string
   attachments?: AttachmentMeta[]
+  injectedContext?: InjectedContext
 }
 
 export interface ToolCallInfo {

@@ -2,11 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { PanelLeftClose, PanelLeftOpen, ChevronDown, Search, ClipboardList, Settings, RefreshCw } from 'lucide-react'
 import { timeAgo } from '../utils/timeAgo'
 import { getHeaderSessionTitle, hasStableSessionTitle } from '../utils/session-title'
-
-function truncate(s: string | undefined, max: number): string {
-  if (!s) return ''
-  return s.length > max ? s.slice(0, max) + '...' : s
-}
+import { stripPromptContext } from '../utils/strip-prompt-context'
 
 interface ProjectOption {
   path: string
@@ -199,7 +195,7 @@ export function ChatHeader({ sidebarOpen, onToggleSidebar, projectTitle, activeS
               {activeSession.summary && (
                 <div className="flex gap-[10px] py-1 text-[0.8em] leading-[1.4] [&+&]:border-t [&+&]:border-[#2a2a3a]">
                   <span className="text-[#666] flex-shrink-0 min-w-[90px]">SDK Summary</span>
-                  <span className="tooltip-value text-[#ccc] break-words cursor-pointer rounded px-1 py-[1px] -mx-1 -my-[1px] transition-[background] duration-150 hover:bg-[#2a2a3a]">{activeSession.summary}</span>
+                  <span className="tooltip-value text-[#ccc] break-words cursor-pointer rounded px-1 py-[1px] -mx-1 -my-[1px] transition-[background] duration-150 hover:bg-[#2a2a3a] max-h-[200px] overflow-y-auto">{stripPromptContext(activeSession.summary)}</span>
                 </div>
               )}
               {activeSession.generatedTitle && (
@@ -217,7 +213,7 @@ export function ChatHeader({ sidebarOpen, onToggleSidebar, projectTitle, activeS
               {activeSession.firstPrompt && (
                 <div className="flex gap-[10px] py-1 text-[0.8em] leading-[1.4] [&+&]:border-t [&+&]:border-[#2a2a3a]">
                   <span className="text-[#666] flex-shrink-0 min-w-[90px]">First Prompt</span>
-                  <span className="tooltip-value text-[#ccc] break-words cursor-pointer rounded px-1 py-[1px] -mx-1 -my-[1px] transition-[background] duration-150 hover:bg-[#2a2a3a]">{truncate(activeSession.firstPrompt, 120)}</span>
+                  <span className="tooltip-value text-[#ccc] break-words cursor-pointer rounded px-1 py-[1px] -mx-1 -my-[1px] transition-[background] duration-150 hover:bg-[#2a2a3a] max-h-[200px] overflow-y-auto">{stripPromptContext(activeSession.firstPrompt)}</span>
                 </div>
               )}
               {activeSession.cwd && (

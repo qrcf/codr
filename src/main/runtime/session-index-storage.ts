@@ -28,7 +28,7 @@ export function initSessionIndexStorage(db: DatabaseSync): void {
 export function shouldPersistIndexedMessage(rawMessage: unknown): boolean {
   if (!rawMessage || typeof rawMessage !== 'object') return false
   const type = (rawMessage as { type?: unknown }).type
-  return type === 'user' || type === 'assistant'
+  return type === 'user' || type === 'assistant' || type === 'injected_context'
 }
 
 export function getIndexedSessionMessagesFromDb(

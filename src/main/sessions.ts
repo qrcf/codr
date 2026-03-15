@@ -135,7 +135,7 @@ export async function listSessionsData(relayClient?: RelayClient, getAuthToken?:
       await upsertIndexedSession(session.sessionId!, {
         provider: 'claude',
         title: dbEntry?.name || session.generatedTitle || session.summary || undefined,
-        firstPrompt: stripPromptContext(dbEntry?.firstPrompt || session.firstPrompt || '') || null,
+        firstPrompt: (dbEntry?.firstPrompt || session.firstPrompt || '').trim() || null,
         workspaceDir: session.cwd || null,
         updatedAt: typeof session.lastModified === 'number' ? session.lastModified : null,
       })
@@ -219,14 +219,9 @@ export function beginTitleGeneration(prompt: string): Promise<string> {
             if (evt.event?.type === 'content_block_delta' && evt.event.delta?.type === 'text_delta' && evt.event.delta.text) {
               streamTitle += evt.event.delta.text
             }
-          } else if (msg.type === 'assistant') {
-            const content = (msg as { message?: { content?: Array<{ type: string; text?: string }> } }).message?.content
-            if (Array.isArray(content)) {
-              for (const block of content) {
-                if (block.type === 'text' && block.text) streamTitle += block.text
-              }
-            }
           }
+          // Skip 'assistant' messages — the final assistant message contains
+          // the full text that was already accumulated via stream deltas above.
         }
       } finally { titleQuery.close() }
       return streamTitle.trim()

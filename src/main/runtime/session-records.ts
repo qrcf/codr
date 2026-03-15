@@ -25,20 +25,8 @@ export interface SessionInfoWithProvider extends SessionInfo {
   thinkingBudget?: string
 }
 
-interface ChooseTitleInput {
-  dbTitle?: string | null
-  indexedTitle?: string | null
-  fallbackSummary?: string | null
-}
-
-export function chooseTitle(input: ChooseTitleInput): string {
-  const title = input.dbTitle
-    || input.indexedTitle
-    || input.fallbackSummary
-    || ''
-
-  const normalized = title.trim()
-  return normalized || ''
+function normalizeSummary(value?: string | null): string {
+  return value?.trim() || ''
 }
 
 export function shouldUseIndexedMessages(
@@ -77,11 +65,7 @@ export function buildSessionList(input: SessionListInput): {
 
     return {
       sessionId: indexed.sessionId,
-      summary: chooseTitle({
-        dbTitle: dbSession?.name,
-        indexedTitle: indexed.title,
-        fallbackSummary: sdkSession?.summary,
-      }),
+      summary: normalizeSummary(sdkSession?.summary),
       lastModified: indexed.provider === 'claude'
         ? (sdkSession?.lastModified || indexed.updatedAt || indexed.createdAt)
         : (indexed.updatedAt || sdkSession?.lastModified || indexed.createdAt),
@@ -102,11 +86,7 @@ export function buildSessionList(input: SessionListInput): {
     const dbSession = dbMap.get(sdkSession.sessionId)
     merged.push({
       ...sdkSession,
-      summary: chooseTitle({
-        dbTitle: dbSession?.name,
-        indexedTitle: sdkSession.generatedTitle,
-        fallbackSummary: sdkSession.summary,
-      }),
+      summary: normalizeSummary(sdkSession.summary),
       generatedTitle: dbSession?.name || sdkSession.generatedTitle,
       firstPrompt: dbSession?.firstPrompt || sdkSession.firstPrompt,
       provider: 'claude',

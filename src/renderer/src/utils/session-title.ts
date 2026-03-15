@@ -1,3 +1,5 @@
+import { stripPromptContext } from './strip-prompt-context'
+
 type SessionTitleInfo = Pick<SessionInfo, 'customTitle' | 'generatedTitle' | 'firstPrompt'>
 
 function normalizeTitle(value?: string | null): string {
@@ -11,7 +13,9 @@ function getCandidateTitle(session: SessionTitleInfo | null | undefined): string
 function isPromptDerivedTitle(session: SessionTitleInfo | null | undefined): boolean {
   const candidate = getCandidateTitle(session)
   if (!candidate) return false
-  return normalizeTitle(candidate) !== '' && normalizeTitle(candidate) === normalizeTitle(session?.firstPrompt)
+  const normalizedCandidate = normalizeTitle(candidate)
+  const normalizedPrompt = normalizeTitle(stripPromptContext(session?.firstPrompt))
+  return normalizedCandidate !== '' && normalizedCandidate === normalizedPrompt
 }
 
 export function hasStableSessionTitle(session: SessionTitleInfo | null | undefined): boolean {

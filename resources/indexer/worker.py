@@ -103,8 +103,8 @@ class IndexerWorker:
             chunk_size=256,
             chunk_overlap=128,
             use_ast_chunking=True,
-            ast_chunk_size=512,
-            ast_chunk_overlap=64,
+            ast_chunk_size=333,
+            ast_chunk_overlap=41,
             ast_fallback_traditional=True,
         )
 

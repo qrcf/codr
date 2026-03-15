@@ -110,6 +110,7 @@ interface ClaudeAPI {
   onError: (callback: (error: string, querySessionId?: string | null) => void) => () => void
   onDone: (callback: (querySessionId?: string | null) => void) => () => void
   onSessionIdentified?: (callback: (data: { oldKey: string; newKey: string }) => void) => () => void
+  onDraftTitleGenerated?: (callback: (data: { title: string }, querySessionId?: string | null) => void) => () => void
   onPermissionRequest: (callback: (request: PermissionRequest, querySessionId?: string | null) => void) => () => void
   respondPermission: (id: number, allowed: boolean, opts?: { alwaysAllow?: boolean; toolName?: string; message?: string }) => void
   onPermissionCleared?: (callback: (data: { id: number }, querySessionId?: string | null) => void) => () => void

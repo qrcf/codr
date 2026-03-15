@@ -110,6 +110,9 @@ export default function App() {
     },
     onSessionCaptured: (sid, msgs, usage) => onSessionCapturedRef.current(sid, msgs, usage),
     onDraftPromoted: (draftId, realSessionId) => onDraftPromotedRef.current(draftId, realSessionId),
+    onDraftTitleGenerated: (draftId, title) => {
+      draftSessions.setDraftGeneratedTitle(draftId, title)
+    },
   })
 
   // --- Hook: Session Manager ---

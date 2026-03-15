@@ -3,12 +3,11 @@ import assert from 'node:assert/strict'
 import type { SessionInfo } from '@codr-works/types'
 import {
   buildSessionList,
-  chooseTitle,
   resolveSessionProvider,
   shouldUseIndexedMessages,
   type IndexedSessionMessages,
   type SessionListInput,
-} from './session-records'
+} from './session-records.ts'
 
 function makeClaudeSession(overrides: Partial<SessionInfo> = {}): SessionInfo {
   return {
@@ -54,42 +53,6 @@ test('buildSessionList includes both providers regardless of selected provider',
   )
 })
 
-test('chooseTitle prefers db title over index title over first prompt over fallback', () => {
-  assert.equal(
-    chooseTitle({
-      dbTitle: 'DB Title',
-      indexedTitle: 'Indexed Title',
-      firstPrompt: 'Prompt title',
-      fallbackSummary: 'Summary title',
-    }),
-    'DB Title',
-  )
-
-  assert.equal(
-    chooseTitle({
-      indexedTitle: 'Indexed Title',
-      firstPrompt: 'Prompt title',
-      fallbackSummary: 'Summary title',
-    }),
-    'Indexed Title',
-  )
-
-  assert.equal(
-    chooseTitle({
-      firstPrompt: 'Prompt title',
-      fallbackSummary: 'Summary title',
-    }),
-    'Prompt title',
-  )
-
-  assert.equal(
-    chooseTitle({
-      fallbackSummary: '',
-    }),
-    'Untitled Session',
-  )
-})
-
 test('shouldUseIndexedMessages only accepts records from the same provider', () => {
   const indexed: IndexedSessionMessages = {
     provider: 'claude',
@@ -128,4 +91,29 @@ test('buildSessionList preserves Claude SDK recency over refreshed index timesta
   })
 
   assert.equal(result.sessions[0]?.lastModified, 123)
+})
+
+test('buildSessionList keeps SDK summary distinct from indexed generated title', () => {
+  const result = buildSessionList({
+    indexedSessions: [
+      {
+        sessionId: 'claude-1',
+        provider: 'claude',
+        createdAt: 1,
+        updatedAt: 10,
+        firstPrompt: 'Test Message Containing Numbers',
+        title: 'Test Message Containing Numbers',
+      },
+    ],
+    claudeSessions: [
+      makeClaudeSession({
+        sessionId: 'claude-1',
+        summary: 'SDK summary from provider',
+      }),
+    ],
+    claudeDbSessions: [],
+  })
+
+  assert.equal(result.sessions[0]?.generatedTitle, 'Test Message Containing Numbers')
+  assert.equal(result.sessions[0]?.summary, 'SDK summary from provider')
 })

@@ -5,6 +5,7 @@ import { ToolCallBlock } from './ToolCallBlock'
 import { AgentCard } from './AgentCard'
 import { PlanWriteRenderer } from './renderers/PlanWriteRenderer'
 import { MessageAttachmentChips } from './AttachmentChips'
+import { ContextChunksRenderer } from './ContextChunksRenderer'
 import type { ChatMessage, ToolCallInfo } from '../types'
 import { formatMessageContent } from '../utils/formatMessage'
 
@@ -57,8 +58,11 @@ export const MessageBubble = memo(function MessageBubble({ message, approvedPlan
     )
   }
 
+  const isUser = message.role === 'user'
+
   return (
-    <div className={`max-w-full ${message.role === 'user' ? 'self-end max-w-[80%] bg-[#2a2a3d] px-[14px] py-2 rounded-[16px_16px_4px_16px] mt-2' : 'py-1'}`}>
+    <div className={isUser ? 'self-end max-w-[80%] flex flex-col items-end' : 'max-w-full'}>
+    <div className={`max-w-full ${isUser ? 'bg-[#2a2a3d] px-[14px] py-2 rounded-[16px_16px_4px_16px] mt-2' : 'py-1'}`}>
       {message.thinking && (
         <div className="mb-1">
           <div
@@ -119,6 +123,10 @@ export const MessageBubble = memo(function MessageBubble({ message, approvedPlan
           )}
         </div>
       )}
+    </div>
+    {message.injectedContext && (
+      <ContextChunksRenderer context={message.injectedContext} />
+    )}
     </div>
   )
 })

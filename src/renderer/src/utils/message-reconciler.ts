@@ -6,9 +6,13 @@ export function reconcileParsedMessages(
 ): ChatMessage[] {
   return next.map((nextMessage, index) => {
     const previousMessage = previous[index]
-    return previousMessage && messagesMatch(previousMessage, nextMessage)
-      ? previousMessage
-      : nextMessage
+    if (previousMessage && messagesMatch(previousMessage, nextMessage)) {
+      return previousMessage
+    }
+    if (nextMessage.role === 'user' && previousMessage?.injectedContext && !nextMessage.injectedContext) {
+      return { ...nextMessage, injectedContext: previousMessage.injectedContext }
+    }
+    return nextMessage
   })
 }
 

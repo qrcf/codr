@@ -5,6 +5,7 @@ export interface DraftSession {
   createdAt: number
   cwd?: string
   pendingNewChat: boolean
+  generatedTitle?: string
 }
 
 const STORAGE_KEY = 'draft-sessions'
@@ -20,6 +21,7 @@ function readDrafts(): DraftSession[] {
       createdAt: d.createdAt,
       cwd: d.cwd,
       pendingNewChat: d.pendingNewChat ?? true,
+      generatedTitle: d.generatedTitle,
     }))
     // Clean up stale drafts
     const now = Date.now()
@@ -67,6 +69,18 @@ export function useDraftSessions() {
     })
   }, [])
 
+  const setDraftGeneratedTitle = useCallback((draftId: string, title: string) => {
+    const normalized = title.trim()
+    if (!normalized) return
+    setDrafts(prev => {
+      const next = prev.map(d => d.draftId === draftId
+        ? { ...d, generatedTitle: normalized, pendingNewChat: false }
+        : d)
+      writeDrafts(next)
+      return next
+    })
+  }, [])
+
   const promoteDraft = useCallback((draftId: string, realSessionId?: string) => {
     if (realSessionId) {
       // Replace draft ID with real session ID — keeps the row visible in sidebar
@@ -81,5 +95,5 @@ export function useDraftSessions() {
     }
   }, [removeDraft])
 
-  return { drafts, createDraft, removeDraft, updateDraftCwd, promoteDraft }
+  return { drafts, createDraft, removeDraft, updateDraftCwd, setDraftGeneratedTitle, promoteDraft }
 }

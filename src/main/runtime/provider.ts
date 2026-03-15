@@ -54,6 +54,6 @@ export interface AgentProvider {
   readonly id: AgentProviderId
   runQuery: (req: AgentQueryRequest, callbacks: ProviderRunCallbacks) => Promise<ProviderRunResult>
   interruptQuery: (sessionId?: string) => Promise<void>
-  /** Force-clear all active queries without calling SDK methods (for sleep/wake recovery). Returns cleaned-up session IDs. */
-  forceCleanupAll: () => string[]
+  /** Force-clean active queries during abnormal teardown. Returns cleaned-up session IDs. */
+  forceCleanupAll: () => Promise<string[]>
 }

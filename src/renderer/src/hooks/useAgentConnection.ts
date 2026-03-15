@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import type { ChatMessage, ToolCallInfo, AgentMessage, StreamEvent, PlanReviewState } from '../types'
 import { parseSessionMessages, extractTokenUsageFromRaw } from '../utils/sessionParser'
+import { reconcileParsedMessages } from '../utils/message-reconciler'
 
 const PAGE_SIZE = 50
 
@@ -405,7 +406,7 @@ export function useAgentConnection({
       if (sessionId) {
         window.claude.getSessionMessages(sessionId).then((raw) => {
           if (activeSessionIdRef.current !== sessionId) return
-          const parsed = parseSessionMessages(raw)
+          const parsed = reconcileParsedMessages(allMessagesRef.current, parseSessionMessages(raw))
           allMessagesRef.current = parsed
           const initial = parsed.slice(-PAGE_SIZE)
           setMessages(initial)
@@ -450,7 +451,7 @@ export function useAgentConnection({
       unsubs.push(window.claude.onSessionUpdated(({ sessionId }) => {
         if (sessionId === activeSessionIdRef.current && !isLoadingRef.current) {
           window.claude.getSessionMessages(sessionId).then((raw) => {
-            const parsed = parseSessionMessages(raw)
+            const parsed = reconcileParsedMessages(allMessagesRef.current, parseSessionMessages(raw))
             allMessagesRef.current = parsed
             setMessages(parsed.slice(-PAGE_SIZE))
             setHasMoreMessages(parsed.length > PAGE_SIZE)

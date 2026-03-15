@@ -305,7 +305,7 @@ export default function App() {
 
     container.addEventListener('scroll', handleScroll)
     return () => container.removeEventListener('scroll', handleScroll)
-  }, [agent])
+  }, [agent.hasMoreMessages, agent.loadMoreMessages, agent.isLoadingHistoryRef])
 
   // --- Send handler (orchestrates all hooks) ---
   const handleSend = async () => {

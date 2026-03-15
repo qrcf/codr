@@ -399,6 +399,20 @@ export class EventBroadcaster {
     }
   }
 
+  forceCleanup(querySessionId: string, errorMessage: string) {
+    const hadState = this.states.has(querySessionId)
+    if (hadState) {
+      this.commitCurrentTurn(querySessionId)
+      this.states.delete(querySessionId)
+    }
+    this.lastPlanWrites.delete(querySessionId)
+    if (this.mostRecentQueryKey === querySessionId) {
+      this.mostRecentQueryKey = null
+    }
+    this.send('agent:error', errorMessage, querySessionId)
+    this.send('agent:done', undefined, querySessionId)
+  }
+
   /** Check if any queries are currently active */
   hasActiveQueries(): boolean {
     return this.states.size > 0

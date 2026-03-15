@@ -210,14 +210,17 @@ export class ClaudeProvider implements AgentProvider {
 
   async interruptQuery(sessionId?: string): Promise<void> {
     const interrupt = async (q: Query, key: string) => {
+      let timeoutId: ReturnType<typeof setTimeout> | null = null
       try {
         const timeout = new Promise<void>((_, reject) =>
-          setTimeout(() => reject(new Error('interrupt timeout')), 5000),
+          { timeoutId = setTimeout(() => reject(new Error('interrupt timeout')), 5000) },
         )
         await Promise.race([q.interrupt(), timeout])
       } catch {
         // SDK subprocess may be dead — force remove
         this.activeQueries.delete(key)
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId)
       }
     }
 
@@ -230,9 +233,30 @@ export class ClaudeProvider implements AgentProvider {
     await Promise.allSettled(entries.map(([key, q]) => interrupt(q, key)))
   }
 
-  forceCleanupAll(): string[] {
+  async forceCleanupAll(): Promise<string[]> {
     const sessionIds = [...this.activeQueries.keys()]
-    this.activeQueries.clear()
+    const entries = [...this.activeQueries.entries()]
+    await Promise.allSettled(entries.map(([key, q]) => this.disposeQuery(q, key)))
     return sessionIds
+  }
+
+  private async disposeQuery(q: Query, key: string): Promise<void> {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+    try {
+      const timeout = new Promise<void>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('interrupt timeout')), 5000)
+      })
+      await Promise.race([q.interrupt(), timeout])
+    } catch {
+      // Ignore teardown failures; close() still gives the SDK a chance to release resources.
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId)
+      try {
+        q.close()
+      } catch {
+        // Ignore close errors during abnormal teardown.
+      }
+      this.activeQueries.delete(key)
+    }
   }
 }

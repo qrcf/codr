@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { MarkdownContent } from './MarkdownContent'
 import { ToolCallBlock } from './ToolCallBlock'
@@ -37,7 +37,7 @@ function buildToolSummary(tools: ToolCallInfo[]): string {
   return parts.join(', ')
 }
 
-export function MessageBubble({ message, approvedPlanToolIds }: { message: ChatMessage; approvedPlanToolIds?: Set<string> }) {
+export const MessageBubble = memo(function MessageBubble({ message, approvedPlanToolIds }: { message: ChatMessage; approvedPlanToolIds?: Set<string> }) {
   const agents = message.toolCalls.filter((t) => t.name === 'Agent')
   const planWrites = message.toolCalls.filter((t) => isPlanWrite(t))
   const otherTools = message.toolCalls.filter((t) => t.name !== 'Agent' && !isPlanWrite(t))
@@ -121,4 +121,4 @@ export function MessageBubble({ message, approvedPlanToolIds }: { message: ChatM
       )}
     </div>
   )
-}
+})

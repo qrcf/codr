@@ -357,7 +357,7 @@ export class CodexProvider implements AgentProvider {
     this.abortControllers.clear()
   }
 
-  forceCleanupAll(): string[] {
+  async forceCleanupAll(): Promise<string[]> {
     const sessionIds = [...this.abortControllers.keys()]
     for (const controller of this.abortControllers.values()) {
       try { controller.abort() } catch { /* ignore */ }

@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback } from 'react'
+import { memo, useMemo, useState, useEffect, useCallback } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { MarkdownContent } from './MarkdownContent'
 import { MessageBubble } from './MessageBubble'
@@ -23,6 +23,64 @@ function StreamingThinkingSection({ thinking }: { thinking: string }) {
     </div>
   )
 }
+
+interface StreamingAreaProps {
+  isLoading: boolean
+  streamingText: string
+  streamingTools: ToolCallInfo[]
+  streamingThinking: string
+  isCompacting: boolean
+  onInterrupt: () => void
+}
+
+const StreamingArea = memo(function StreamingArea({
+  isLoading,
+  streamingText,
+  streamingTools,
+  streamingThinking,
+  isCompacting,
+  onInterrupt,
+}: StreamingAreaProps) {
+  const formattedStreaming = useMemo(
+    () => streamingText ? formatMessageContent(streamingText) : null,
+    [streamingText],
+  )
+
+  if (!isLoading) return null
+
+  if (streamingThinking || streamingText || streamingTools.length > 0) {
+    return (
+      <div className="py-1">
+        {streamingThinking && (
+          <StreamingThinkingSection thinking={streamingThinking} />
+        )}
+        {formattedStreaming && <MarkdownContent className="message-content" tags={formattedStreaming.tags}>{formattedStreaming.text}</MarkdownContent>}
+        {streamingTools.length > 0 && (
+          <div className="flex flex-col gap-[1px] mt-1">
+            {streamingTools.map((tool) => (
+              <ToolCallBlock key={tool.id} tool={tool} />
+            ))}
+          </div>
+        )}
+        <div className="flex items-center gap-[10px] py-2">
+          <div className="w-4 h-4 border-2 border-[#444] border-t-[#8142c7] rounded-full animate-[spin_0.8s_linear_infinite] flex-shrink-0" />
+          <span className="text-[#888] italic">{isCompacting ? 'Compacting context...' : streamingThinking && !streamingText && streamingTools.length === 0 ? 'Reasoning...' : 'Working...'}</span>
+          <button className="ml-auto bg-transparent border border-[#555] text-[#aaa] rounded px-[10px] py-[2px] text-[0.8em] cursor-pointer hover:bg-[#f44336] hover:border-[#f44336] hover:text-white" onClick={onInterrupt}>Cancel</button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="py-1">
+      <div className="flex items-center gap-[10px] py-2">
+        <div className="w-4 h-4 border-2 border-[#444] border-t-[#8142c7] rounded-full animate-[spin_0.8s_linear_infinite] flex-shrink-0" />
+        <span className="text-[#888] italic">{isCompacting ? 'Compacting context...' : 'Thinking...'}</span>
+        <button className="ml-auto bg-transparent border border-[#555] text-[#aaa] rounded px-[10px] py-[2px] text-[0.8em] cursor-pointer hover:bg-[#f44336] hover:border-[#f44336] hover:text-white" onClick={onInterrupt}>Cancel</button>
+      </div>
+    </div>
+  )
+})
 
 interface MessageListProps {
   messages: ChatMessage[]
@@ -55,11 +113,6 @@ export function MessageList({
   approvedPlanToolIds,
   shouldAutoScrollRef,
 }: MessageListProps) {
-  const formattedStreaming = useMemo(
-    () => streamingText ? formatMessageContent(streamingText) : null,
-    [streamingText],
-  )
-
   const [showScrollButton, setShowScrollButton] = useState(false)
 
   useEffect(() => {
@@ -93,36 +146,14 @@ export function MessageList({
         <MessageBubble key={msg.id} message={msg} approvedPlanToolIds={approvedPlanToolIds} />
       ))}
 
-      {isLoading && (streamingThinking || streamingText || streamingTools.length > 0) && (
-        <div className="py-1">
-          {streamingThinking && (
-            <StreamingThinkingSection thinking={streamingThinking} />
-          )}
-          {formattedStreaming && <MarkdownContent className="message-content" tags={formattedStreaming.tags}>{formattedStreaming.text}</MarkdownContent>}
-          {streamingTools.length > 0 && (
-            <div className="flex flex-col gap-[1px] mt-1">
-              {streamingTools.map((tool) => (
-                <ToolCallBlock key={tool.id} tool={tool} />
-              ))}
-            </div>
-          )}
-          <div className="flex items-center gap-[10px] py-2">
-            <div className="w-4 h-4 border-2 border-[#444] border-t-[#8142c7] rounded-full animate-[spin_0.8s_linear_infinite] flex-shrink-0" />
-            <span className="text-[#888] italic">{isCompacting ? 'Compacting context...' : streamingThinking && !streamingText && streamingTools.length === 0 ? 'Reasoning...' : 'Working...'}</span>
-            <button className="ml-auto bg-transparent border border-[#555] text-[#aaa] rounded px-[10px] py-[2px] text-[0.8em] cursor-pointer hover:bg-[#f44336] hover:border-[#f44336] hover:text-white" onClick={onInterrupt}>Cancel</button>
-          </div>
-        </div>
-      )}
-
-      {isLoading && !streamingThinking && !streamingText && streamingTools.length === 0 && (
-        <div className="py-1">
-          <div className="flex items-center gap-[10px] py-2">
-            <div className="w-4 h-4 border-2 border-[#444] border-t-[#8142c7] rounded-full animate-[spin_0.8s_linear_infinite] flex-shrink-0" />
-            <span className="text-[#888] italic">{isCompacting ? 'Compacting context...' : 'Thinking...'}</span>
-            <button className="ml-auto bg-transparent border border-[#555] text-[#aaa] rounded px-[10px] py-[2px] text-[0.8em] cursor-pointer hover:bg-[#f44336] hover:border-[#f44336] hover:text-white" onClick={onInterrupt}>Cancel</button>
-          </div>
-        </div>
-      )}
+      <StreamingArea
+        isLoading={isLoading}
+        streamingText={streamingText}
+        streamingTools={streamingTools}
+        streamingThinking={streamingThinking}
+        isCompacting={isCompacting}
+        onInterrupt={onInterrupt}
+      />
 
       <div ref={messagesEndRef} />
     </div>

@@ -1,5 +1,6 @@
 import { getSelectedProvider, setSelectedProvider } from './provider-config'
 import { appendIndexedRawMessage, putIndexedRawMessages, upsertIndexedSession } from './session-index'
+import { shouldPersistIndexedMessage } from './session-index-storage'
 import type { AgentProvider, AgentProviderId, AgentProviderContext, AgentQueryRequest } from './provider'
 import { ClaudeProvider } from './providers/claude-provider'
 import { CodexProvider } from './providers/codex-provider'
@@ -43,7 +44,9 @@ export class AgentRuntime {
       },
       onMessage: (message, querySessionId) => {
         this.ctx.broadcaster.send('agent:message', message, querySessionId)
-        void appendIndexedRawMessage(querySessionId, providerId, message)
+        if (shouldPersistIndexedMessage(message)) {
+          void appendIndexedRawMessage(querySessionId, providerId, message)
+        }
       },
       onError: (errorText, querySessionId) => {
         this.ctx.broadcaster.send('agent:error', errorText, querySessionId)

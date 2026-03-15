@@ -61,11 +61,15 @@ const settings: PermissionSettings = {
 
 let permissionIdCounter = 0
 const pendingPermissions = new Map<number, {
+  querySessionId: string | null
   resolve: (allowed: boolean, message?: string) => void
+  reject: (reason?: string) => void
 }>()
 
 const pendingQuestions = new Map<number, {
+  querySessionId: string | null
   resolve: (answers: Record<string, string>) => void
+  reject: (reason?: string) => void
 }>()
 
 // Per-query "always allow" cache — tool types approved by the user with "Always Allow"
@@ -116,6 +120,30 @@ export function resolveQuestion(id: number, answers: Record<string, string>) {
   }
 }
 
+export function rejectPendingForSession(sessionId: string, reason: string): {
+  permissionIds: number[]
+  questionIds: number[]
+} {
+  const permissionIds: number[] = []
+  const questionIds: number[] = []
+
+  for (const [id, pending] of pendingPermissions.entries()) {
+    if (pending.querySessionId !== sessionId) continue
+    pending.reject(reason)
+    pendingPermissions.delete(id)
+    permissionIds.push(id)
+  }
+
+  for (const [id, pending] of pendingQuestions.entries()) {
+    if (pending.querySessionId !== sessionId) continue
+    pending.reject(reason)
+    pendingQuestions.delete(id)
+    questionIds.push(id)
+  }
+
+  return { permissionIds, questionIds }
+}
+
 /** Clear the per-query approval cache. Call at the start of each new query. */
 export function resetSessionApprovals() {
   sessionApprovedTools.clear()
@@ -154,13 +182,15 @@ export function createCanUseTool(
     if (toolName === 'ExitPlanMode') {
       const id = ++permissionIdCounter
       broadcaster.send('agent:permission-request', { id, tool: toolName, input: input as Record<string, unknown> }, qsid)
-      return new Promise((resolve) => {
+      return new Promise((resolve, reject) => {
         pendingPermissions.set(id, {
+          querySessionId: qsid,
           resolve: (allowed, message?) => resolve(
             allowed
               ? { behavior: 'allow', updatedInput: input as Record<string, unknown> }
               : { behavior: 'deny', message: message || 'User requested changes to the plan' }
           ),
+          reject: (reason?: string) => reject(new Error(reason || 'Session interrupted')),
         })
       })
     }
@@ -223,7 +253,9 @@ async function promptUser(
 
   return new Promise((resolve) => {
     pendingPermissions.set(id, {
+      querySessionId,
       resolve: (allowed) => resolve(allowed ? allow(input) : DENY),
+      reject: (reason?: string) => resolve({ behavior: 'deny', message: reason || 'Session interrupted' }),
     })
   })
 }
@@ -236,8 +268,12 @@ async function promptQuestion(
   const id = ++permissionIdCounter
   broadcaster.send('agent:question-request', { id, questions: input.questions }, querySessionId)
 
-  const answers = await new Promise<Record<string, string>>((resolve) => {
-    pendingQuestions.set(id, { resolve })
+  const answers = await new Promise<Record<string, string>>((resolve, reject) => {
+    pendingQuestions.set(id, {
+      querySessionId,
+      resolve,
+      reject: (reason?: string) => reject(new Error(reason || 'Session interrupted')),
+    })
   })
 
   return { behavior: 'allow', updatedInput: { ...input, answers } }

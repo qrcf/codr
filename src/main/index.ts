@@ -480,11 +480,11 @@ app.whenReady().then(() => {
 
   // --- Power monitor: clean up active queries on sleep/wake ---
   powerMonitor.on('suspend', () => {
-    agentHandlers?.forceCleanupAll('Session interrupted — computer went to sleep.')
+    void agentHandlers?.forceCleanupAll('Session interrupted — computer went to sleep.')
   })
   powerMonitor.on('resume', () => {
     // Safety net: clean up any queries that survived the suspend handler
-    agentHandlers?.forceCleanupAll('Session interrupted — computer woke from sleep.')
+    void agentHandlers?.forceCleanupAll('Session interrupted — computer woke from sleep.')
     // Tell renderer to reset any stuck loading state
     const win = mainWindow
     if (win && !win.isDestroyed()) {
@@ -751,7 +751,7 @@ app.on('before-quit', () => {
     clearInterval(sessionWatcherInterval)
     sessionWatcherInterval = null
   }
-  agentHandlers?.forceCleanupAll('Application shutting down.')
+  void agentHandlers?.forceCleanupAll('Application shutting down.')
   indexerManager.shutdown().catch(() => {})
   relayClient.disconnect()
 })

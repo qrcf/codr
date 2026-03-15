@@ -5,6 +5,12 @@ import path from 'node:path'
 // It writes directly to disk and handles WAL mode natively.
 import { DatabaseSync } from 'node:sqlite'
 import type { AgentProviderId } from './provider'
+import {
+  appendIndexedSessionMessage,
+  getIndexedSessionMessagesFromDb,
+  initSessionIndexStorage,
+  replaceIndexedSessionMessages,
+} from './session-index-storage'
 
 export interface IndexedSessionMeta {
   sessionId: string
@@ -62,13 +68,7 @@ function getDb(): DatabaseSync {
       archived INTEGER DEFAULT 0
     )
   `)
-  _db.exec(`
-    CREATE TABLE IF NOT EXISTS session_messages (
-      sessionId TEXT PRIMARY KEY,
-      provider TEXT NOT NULL,
-      messagesJson TEXT NOT NULL
-    )
-  `)
+  initSessionIndexStorage(_db)
 
   // Migration: add model column to sessions table
   try { _db.exec('ALTER TABLE sessions ADD COLUMN model TEXT') } catch { /* column already exists */ }
@@ -102,13 +102,7 @@ export async function listIndexedSessions(): Promise<IndexedSessionMeta[]> {
 
 export async function getIndexedSessionMessages(sessionId: string): Promise<IndexedSessionMessagesRecord | null> {
   const db = getDb()
-  const row = db.prepare('SELECT provider, messagesJson FROM session_messages WHERE sessionId = ?').get(sessionId) as { provider: string; messagesJson: string } | undefined
-  if (!row) return null
-  try {
-    return { provider: row.provider as AgentProviderId, rawMessages: JSON.parse(row.messagesJson) as unknown[] }
-  } catch {
-    return null
-  }
+  return getIndexedSessionMessagesFromDb(db, sessionId)
 }
 
 export async function upsertIndexedSession(
@@ -134,9 +128,7 @@ export async function upsertIndexedSession(
 export async function putIndexedRawMessages(sessionId: string, provider: AgentProviderId, rawMessages: unknown[]): Promise<void> {
   return withWriteLock(async () => {
     const db = getDb()
-    db.prepare(
-      'INSERT OR REPLACE INTO session_messages (sessionId, provider, messagesJson) VALUES (?, ?, ?)',
-    ).run(sessionId, provider, JSON.stringify(rawMessages))
+    replaceIndexedSessionMessages(db, sessionId, provider, rawMessages)
     upsertIndexedSessionSync(sessionId, { provider, updatedAt: Date.now() })
   })
 }
@@ -144,17 +136,7 @@ export async function putIndexedRawMessages(sessionId: string, provider: AgentPr
 export async function appendIndexedRawMessage(sessionId: string, provider: AgentProviderId, rawMessage: unknown): Promise<void> {
   return withWriteLock(async () => {
     const db = getDb()
-    const existing = db.prepare('SELECT messagesJson FROM session_messages WHERE sessionId = ?').get(sessionId) as { messagesJson: string } | undefined
-    let messages: unknown[]
-    if (existing) {
-      try { messages = JSON.parse(existing.messagesJson) as unknown[] } catch { messages = [] }
-    } else {
-      messages = []
-    }
-    messages.push(rawMessage)
-    db.prepare(
-      'INSERT OR REPLACE INTO session_messages (sessionId, provider, messagesJson) VALUES (?, ?, ?)',
-    ).run(sessionId, provider, JSON.stringify(messages))
+    appendIndexedSessionMessage(db, sessionId, provider, rawMessage)
     upsertIndexedSessionSync(sessionId, { provider, updatedAt: Date.now() })
   })
 }

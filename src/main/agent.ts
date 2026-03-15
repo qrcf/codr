@@ -1,11 +1,12 @@
 import { ipcMain, type BrowserWindow } from 'electron'
-import { registerPermissionHandlers, type MessageOrigin } from './permissions'
+import { registerPermissionHandlers, rejectPendingForSession, type MessageOrigin } from './permissions'
 import type { EventBroadcaster } from './event-broadcaster'
 import type { RelayClient } from './relay-client'
 import { setCachedAccountInfo } from './sessions'
 import { getSelectedProvider, setSelectedProvider, getSelectedModel, setSelectedModel, getClaudeSettingsDefaults } from './runtime/provider-config'
 import { getModelsForProvider } from './runtime/models'
-import { appendIndexedRawMessage, getIndexedSessionMeta, upsertIndexedSession } from './runtime/session-index'
+import { appendIndexedRawMessage, getIndexedSessionMeta, putIndexedRawMessages, upsertIndexedSession } from './runtime/session-index'
+import { shouldPersistIndexedMessage } from './runtime/session-index-storage'
 import { ClaudeProvider, getClaudeCliPath } from './runtime/providers/claude-provider'
 import { CodexProvider } from './runtime/providers/codex-provider'
 import type { AgentProvider, AgentProviderId, AgentProviderContext } from './runtime/provider'
@@ -41,7 +42,7 @@ export function registerAgentHandlers(
         })
       },
       putRawMessages: async (sessionId, provider, rawMessages) => {
-        await appendIndexedRawMessage(sessionId, provider, { type: 'session_snapshot', rawMessages })
+        await putIndexedRawMessages(sessionId, provider, rawMessages)
       },
       appendRawMessage: async (sessionId, provider, rawMessage) => {
         await appendIndexedRawMessage(sessionId, provider, rawMessage)
@@ -104,7 +105,9 @@ export function registerAgentHandlers(
         },
         onMessage: (message, querySessionId) => {
           broadcaster.send('agent:message', message, querySessionId)
-          void appendIndexedRawMessage(querySessionId, providerId, message)
+          if (shouldPersistIndexedMessage(message)) {
+            void appendIndexedRawMessage(querySessionId, providerId, message)
+          }
         },
         onError: (errorText, querySessionId) => {
           errorOccurred = true
@@ -175,14 +178,20 @@ export function registerAgentHandlers(
     return getClaudeSettingsDefaults()
   })
 
-  function forceCleanupAll(errorMessage: string) {
+  async function forceCleanupAll(errorMessage: string) {
     let cleanedUp = 0
     for (const [providerId, provider] of Object.entries(providers)) {
-      const sessionIds = provider.forceCleanupAll()
+      const sessionIds = await provider.forceCleanupAll()
       cleanedUp += sessionIds.length
       for (const sessionId of sessionIds) {
-        broadcaster.send('agent:error', errorMessage, sessionId)
-        broadcaster.send('agent:done', undefined, sessionId)
+        const rejected = rejectPendingForSession(sessionId, errorMessage)
+        for (const permissionId of rejected.permissionIds) {
+          broadcaster.clearPermissionRequest(permissionId)
+        }
+        for (const questionId of rejected.questionIds) {
+          broadcaster.clearQuestionRequest(questionId)
+        }
+        broadcaster.forceCleanup(sessionId, errorMessage)
         void upsertIndexedSession(sessionId, { provider: providerId as AgentProviderId, status: 'error' })
       }
     }

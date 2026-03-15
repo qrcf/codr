@@ -10,6 +10,7 @@ import { DialogsPanel } from './components/DialogsPanel'
 import { InputArea } from './components/InputArea'
 import { UpdateOverlay } from './components/UpdateOverlay'
 import { PlanOverlay } from './components/PlanOverlay'
+import { FolderEmptyState } from './components/FolderEmptyState'
 import type { ReasoningLevel } from './components/ReasoningSelector'
 import { useDocsAPI } from './hooks/useDocsAPI'
 import { useInputComposer } from './hooks/useInputComposer'
@@ -405,6 +406,12 @@ export default function App() {
     codr.interrupt(session.activeSessionId ?? undefined)
   }
 
+  const handleSelectFolder = async () => {
+    const folder = await codr.selectFolder()
+    if (!folder) return
+    session.handleChangeProject(folder)
+  }
+
   // --- Send handler (orchestrates all hooks) ---
   const handleSend = async () => {
     const fileRefs = selectedFiles.map(f => `@${f}`).join(' ')
@@ -598,6 +605,8 @@ export default function App() {
   const hasResolvedTitle = hasStableSessionTitle(session.activeSession)
   // isPendingNewChat: true while draft/promoted local metadata still marks this as pending.
   const isPendingNewChat = isDraft || (!!activeDraft?.pendingNewChat && !hasResolvedTitle)
+  // showFolderPrompt: true when a new draft has no folder yet and no conversation has started.
+  const showFolderPrompt = isDraft && !session.activeSession?.cwd && messages.length === 0 && !isLoading
 
   return (
     <div className="flex h-screen w-full">
@@ -736,20 +745,24 @@ export default function App() {
         />
 
         <div className="flex-1 min-h-0 relative overflow-hidden">
-          <MessageList
-            messages={agent.messages}
-            isLoading={agent.isLoading}
-            streamingText={agent.streamingText}
-            streamingTools={agent.streamingTools}
-            streamingThinking={agent.streamingThinking}
-            isCompacting={agent.isCompacting}
-            hasMoreMessages={agent.hasMoreMessages}
-            onInterrupt={handleInterrupt}
-            messagesContainerRef={messagesContainerRef}
-            messagesEndRef={messagesEndRef}
-            approvedPlanToolIds={dialogs.approvedPlanToolIds}
-            shouldAutoScrollRef={shouldAutoScrollRef}
-          />
+          {showFolderPrompt ? (
+            <FolderEmptyState onSelectFolder={handleSelectFolder} />
+          ) : (
+            <MessageList
+              messages={agent.messages}
+              isLoading={agent.isLoading}
+              streamingText={agent.streamingText}
+              streamingTools={agent.streamingTools}
+              streamingThinking={agent.streamingThinking}
+              isCompacting={agent.isCompacting}
+              hasMoreMessages={agent.hasMoreMessages}
+              onInterrupt={handleInterrupt}
+              messagesContainerRef={messagesContainerRef}
+              messagesEndRef={messagesEndRef}
+              approvedPlanToolIds={dialogs.approvedPlanToolIds}
+              shouldAutoScrollRef={shouldAutoScrollRef}
+            />
+          )}
           {showPlanOverlay && dialogs.approvedPlan && (
             <PlanOverlay
               plan={dialogs.approvedPlan}
@@ -775,6 +788,11 @@ export default function App() {
         />
 
         <div className="shrink-0 border-t border-border">
+          {showFolderPrompt ? (
+            <div className="px-4 py-3 text-[0.85em] text-text-dim text-center select-none">
+              Select a project folder above to start chatting
+            </div>
+          ) : (
           <InputArea
             input={input}
             textareaRef={textareaRef}
@@ -846,6 +864,7 @@ export default function App() {
               textareaRef.current?.focus()
             }}
           />
+          )}
         </div>
       </div>
       )}

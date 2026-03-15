@@ -803,9 +803,23 @@ export function Sidebar({
           {!sessionsLoaded ? (
             <div className="px-4 py-5 text-text-dim text-[0.85em] text-center">Loading sessions...</div>
           ) : projectGroups.entries.length === 0 && projectGroups.ungrouped.length === 0 ? (
-            <div className="px-4 py-5 text-text-dim text-[0.85em] text-center">
-              {searchQuery ? 'No matching projects' : 'No projects yet'}
-            </div>
+            searchQuery ? (
+              <div className="px-4 py-5 text-text-dim text-[0.85em] text-center">No matching projects</div>
+            ) : (
+              <div className="px-4 py-8 flex flex-col items-center gap-3 text-center select-none">
+                <FolderOpen size={20} className="text-[#444]" />
+                <p className="text-text-dim text-[0.82em] m-0 leading-relaxed max-w-40">
+                  Open a folder to start a project
+                </p>
+                <button
+                  className="flex items-center gap-1.5 bg-bg-tertiary text-text-faint border border-border rounded px-3 py-1.5 text-[0.82em] cursor-pointer hover:bg-[#252538] hover:text-[#ccc] transition-colors"
+                  onClick={handleBrowseFolder}
+                >
+                  <Plus size={13} />
+                  Add folder
+                </button>
+              </div>
+            )
           ) : (
             <>
               {projectGroups.entries.map(([cwd, group]) =>

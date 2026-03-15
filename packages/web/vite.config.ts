@@ -10,6 +10,9 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(rootPkg.version),
   },
+  server: {
+    port: 5174
+  },
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {

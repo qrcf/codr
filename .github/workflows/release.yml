@@ -20,7 +20,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Determine version
         id: version
@@ -32,7 +32,7 @@ jobs:
           fi
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version-file: '.nvmrc'
 
@@ -79,6 +79,29 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+
+      - name: Ensure latest-mac.yml is on the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          YML="dist/latest-mac.yml"
+          if [ ! -f "$YML" ]; then
+            echo "::error::latest-mac.yml not found in dist/"
+            exit 1
+          fi
+          # Check if already uploaded
+          if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -q '^latest-mac.yml$'; then
+            echo "latest-mac.yml already on release"
+          else
+            echo "Uploading latest-mac.yml..."
+            gh release upload "$TAG" "$YML" --clobber
+          fi
+
+      - name: Publish draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "v${{ steps.version.outputs.version }}" --draft=false
 
       - name: Deploy web client to Vercel
         run: |

@@ -2,19 +2,51 @@ import { BrowserWindow, dialog, app } from 'electron'
 
 let mainWindow: BrowserWindow | null = null
 let pendingVersion: string | null = null
+let pendingDownloadVersion: string | null = null
 let onMenuRebuild: (() => void) | null = null
 let manualCheck = false
+let lastProgressSend = 0
 
 // Cached reference — populated once by initAutoUpdater()
 let updater: import('electron-updater').AppUpdater | null = null
 let updaterInitPromise: Promise<void> | null = null
 let updateCheckTimersStarted = false
 
+function sendStatus(status: Record<string, unknown>): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('updater:status', status)
+  }
+}
+
 function configureUpdater(loadedUpdater: import('electron-updater').AppUpdater): void {
   loadedUpdater.autoDownload = true
   loadedUpdater.autoInstallOnAppQuit = true
 
+  loadedUpdater.on('update-available', (info: { version: string }) => {
+    pendingDownloadVersion = info.version
+    sendStatus({ status: 'available', version: info.version, manual: manualCheck })
+  })
+
+  loadedUpdater.on('download-progress', (progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => {
+    const now = Date.now()
+    // Throttle to ~200ms, but always send the final event
+    if (now - lastProgressSend < 200 && progress.percent < 100) return
+    lastProgressSend = now
+    sendStatus({
+      status: 'downloading',
+      version: pendingDownloadVersion,
+      manual: manualCheck,
+      progress: {
+        percent: progress.percent,
+        bytesPerSecond: progress.bytesPerSecond,
+        transferred: progress.transferred,
+        total: progress.total,
+      },
+    })
+  })
+
   loadedUpdater.on('update-not-available', () => {
+    sendStatus({ status: 'not-available', manual: manualCheck })
     if (manualCheck) {
       manualCheck = false
       dialog.showMessageBox({
@@ -27,36 +59,16 @@ function configureUpdater(loadedUpdater: import('electron-updater').AppUpdater):
 
   loadedUpdater.on('update-downloaded', (info: { version: string }) => {
     pendingVersion = info.version
+    pendingDownloadVersion = null
     onMenuRebuild?.()
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('updater:status', { status: 'downloaded', version: info.version })
-    }
-    if (manualCheck) {
-      manualCheck = false
-      dialog.showMessageBox(mainWindow!, {
-        type: 'info',
-        title: 'Update Ready',
-        message: `Codr v${info.version} has been downloaded.`,
-        detail: 'Restart now to apply the update.',
-        buttons: ['Restart Now', 'Later'],
-        defaultId: 0,
-      }).then(({ response }) => {
-        if (response === 0) quitAndInstall()
-      })
-    }
+    sendStatus({ status: 'downloaded', version: info.version, manual: manualCheck })
+    manualCheck = false
   })
 
   loadedUpdater.on('error', (err: Error) => {
     console.error('[auto-updater] Error:', err.message)
-    if (manualCheck) {
-      manualCheck = false
-      dialog.showMessageBox({
-        type: 'error',
-        title: 'Update Error',
-        message: 'Could not check for updates.',
-        detail: err.message,
-      })
-    }
+    sendStatus({ status: 'error', error: err.message, manual: manualCheck })
+    manualCheck = false
   })
 }
 
@@ -107,6 +119,9 @@ export function checkForUpdates(manual = false): void {
     return
   }
   manualCheck = manual
+  if (manual) {
+    sendStatus({ status: 'checking', manual: true })
+  }
   updater.checkForUpdates().catch((err: Error) => {
     console.error('[auto-updater] Check failed:', err.message)
   })

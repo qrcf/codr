@@ -52,7 +52,10 @@ export default function App() {
     })
   }, [])
 
-  const showUpdateOverlay = updateStatus?.status === 'downloaded' && updateStatus.version && !updateDismissed
+  const showUpdateOverlay = updateStatus != null && !updateDismissed && (
+    (updateStatus.manual && ['checking', 'available', 'downloading', 'downloaded', 'error'].includes(updateStatus.status)) ||
+    (!updateStatus.manual && updateStatus.status === 'downloaded' && !!updateStatus.version)
+  )
 
   // Simple UI state
   const [sidebarOpen, setSidebarOpen] = useState(() => {
@@ -450,11 +453,14 @@ export default function App() {
     <div className="flex h-screen w-full">
       {showUpdateOverlay && (
         <UpdateOverlay
-          version={updateStatus.version!}
+          status={updateStatus!}
           onRestart={() => window.claude.installUpdate?.()}
           onDismiss={() => {
+            if (updateStatus?.status === 'downloaded' && updateStatus.version) {
+              localStorage.setItem('codr:dismissed-update', updateStatus.version)
+            }
             setUpdateDismissed(true)
-            localStorage.setItem('codr:dismissed-update', updateStatus.version!)
+            setUpdateStatus(null)
           }}
         />
       )}

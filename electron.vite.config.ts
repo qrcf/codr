@@ -23,6 +23,9 @@ export default defineConfig(({ mode }) => {
       define: {
         __APP_VERSION__: JSON.stringify(pkg.version),
       },
+      server: {
+        port: 5173
+      },
       build: {
         rollupOptions: {
           output: {

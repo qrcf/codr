@@ -197,9 +197,16 @@ interface ClaudeAPI {
 }
 
 interface UpdateStatus {
-  status: 'downloaded' | 'error'
+  status: 'checking' | 'available' | 'downloading' | 'downloaded' | 'not-available' | 'error'
   version?: string
   error?: string
+  manual?: boolean
+  progress?: {
+    percent: number
+    bytesPerSecond: number
+    transferred: number
+    total: number
+  }
 }
 
 type CliStatus =

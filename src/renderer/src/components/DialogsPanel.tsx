@@ -15,7 +15,7 @@ interface DialogsPanelProps {
   onAlwaysAllow: (id: number, toolName: string) => void
   onQuestionResponse: (id: number, answers: Record<string, string>) => void
   // Plan review actions
-  currentProvider: 'claude' | 'codex'
+  currentProvider: AgentProviderId
   selectedModel: string | undefined
   onModelChange: (model: string | undefined) => void
   onPlanBuild: (permissionId: number, userNotes?: string) => void

@@ -255,16 +255,16 @@ export function createWebSocketAgentAPI(relayUrl: string, getToken: () => Promis
   // Build the CodrAPI-compatible object
   return {
     getProvider: async () => {
-      const res = await request('get_provider') as { provider?: 'claude' | 'codex' }
+      const res = await request('get_provider') as { provider?: AgentProviderId }
       return res.provider || 'claude'
     },
-    setProvider: async (provider: 'claude' | 'codex') => {
-      return request('set_provider', { provider }) as Promise<{ provider?: 'claude' | 'codex'; error?: string }>
+    setProvider: async (provider: AgentProviderId) => {
+      return request('set_provider', { provider }) as Promise<{ provider?: AgentProviderId; error?: string }>
     },
-    getModels: async (provider?: 'claude' | 'codex') => {
+    getModels: async (provider?: AgentProviderId) => {
       return request('get_models', provider ? { provider } : undefined) as Promise<{ models: Array<{ value: string; displayName: string }>; selectedModel?: string }>
     },
-    setModel: async (provider: 'claude' | 'codex', model: string | undefined) => {
+    setModel: async (provider: AgentProviderId, model: string | undefined) => {
       return request('set_model', { provider, model }) as Promise<{ model?: string }>
     },
     query: async (prompt: string, options?: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; cwd?: string; model?: string; thinkingBudget?: 'low' | 'medium' | 'high' }) => {

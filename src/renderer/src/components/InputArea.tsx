@@ -52,7 +52,7 @@ interface InputAreaProps {
   isLoading: boolean
   tokenUsage: TokenUsage | null
   // Model
-  currentProvider: 'claude' | 'codex'
+  currentProvider: AgentProviderId
   selectedModel: string | undefined
   onModelChange: (model: string | undefined) => Promise<void>
   // Reasoning

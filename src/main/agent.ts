@@ -10,6 +10,7 @@ import { shouldPersistIndexedMessage } from './runtime/session-index-storage'
 import { ClaudeProvider, getClaudeCliPath } from './runtime/providers/claude-provider'
 import { CodexProvider } from './runtime/providers/codex-provider'
 import type { AgentProvider, AgentProviderId, AgentProviderContext } from './runtime/provider'
+import { isValidProviderId } from './runtime/provider'
 import { resolveSessionProvider } from './runtime/session-records'
 import type { IndexerManager } from './indexer/manager'
 import type { AttachmentMeta } from '../shared/attachments'
@@ -64,7 +65,7 @@ export function registerAgentHandlers(
     const resolvedCwd = cwd ?? storedSession?.workspaceDir ?? undefined
     let currentKey = resumeSessionId || `new-${Date.now()}-${Math.random().toString(36).slice(2)}`
 
-    broadcaster.markQueryStart(currentKey, prompt)
+    broadcaster.markQueryStart(currentKey, prompt, providerId)
 
     // Proactively refresh the project index in the background so it's warm for search
     if (indexerManager && resolvedCwd && indexerManager.getStatus().status === 'ready') {
@@ -167,7 +168,7 @@ export function registerAgentHandlers(
   })
 
   ipcMain.handle('agent:set-provider', async (_event, provider: AgentProviderId) => {
-    if (provider !== 'claude' && provider !== 'codex') return { error: 'Invalid provider' }
+    if (!isValidProviderId(provider)) return { error: 'Invalid provider' }
     const selected = await setSelectedProvider(provider)
     broadcaster.send('sessions:refresh-hint')
     return { provider: selected }

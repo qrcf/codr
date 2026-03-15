@@ -5,7 +5,7 @@ import { ModelSelector } from './ModelSelector'
 
 interface PlanReviewDialogProps {
   request: PermissionRequest
-  currentProvider: 'claude' | 'codex'
+  currentProvider: AgentProviderId
   selectedModel: string | undefined
   onModelChange: (model: string | undefined) => void
   onRequestChanges: (permissionId: number, feedback: string) => void

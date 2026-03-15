@@ -1,74 +1,59 @@
-import { listSessions, getSessionMessages, query } from '@anthropic-ai/claude-agent-sdk'
+import { query } from '@anthropic-ai/claude-agent-sdk'
 import type { AccountInfo } from '@anthropic-ai/claude-agent-sdk'
 import type { SessionInfo } from '@codr-works/types'
 import { dialog, ipcMain } from 'electron'
 import { execSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { readFile, readdir, stat as fsStat } from 'node:fs/promises'
+import { readFile, readdir } from 'node:fs/promises'
 import { basename, join, relative } from 'node:path'
 import ignore from 'ignore'
-import { homedir } from 'node:os'
 import { getCliPath } from './agent'
 import type { RelayClient } from './relay-client'
 import type { EventBroadcaster } from './event-broadcaster'
+import type { AgentProviderId } from './runtime/provider'
+import { PROVIDER_IDS } from './runtime/provider'
 import { getSelectedProvider } from './runtime/provider-config'
 import { getIndexedSessionMessages, getIndexedSessionMeta, listIndexedSessions, putIndexedRawMessages, upsertIndexedSession } from './runtime/session-index'
 import { buildSessionList, shouldUseIndexedMessages, type ClaudeDbSessionMeta } from './runtime/session-records'
-import { listCodexThreads, getCodexThreadRolloutPath, getCodexDbPath_exported } from './runtime/codex-discovery'
-import { parseCodexRollout } from './runtime/codex-rollout-parser'
+import type { ProviderSessionDiscovery, DiscoveryContext } from './runtime/provider-discovery'
+import { ClaudeSessionDiscovery, setCachedAccountInfo as setClaudeCachedAccountInfo, getCachedAccountInfo } from './runtime/discovery/claude-discovery'
+import { CodexSessionDiscovery } from './runtime/discovery/codex-discovery'
 
+// Re-export ProviderStatusInfo for consumers
+export type { ProviderStatusInfo } from './runtime/provider-discovery'
+
+// --- Discovery registry ---
+
+const discoveries: ProviderSessionDiscovery[] = [
+  new ClaudeSessionDiscovery(),
+  new CodexSessionDiscovery(),
+]
+
+function getDiscovery(providerId: AgentProviderId): ProviderSessionDiscovery | undefined {
+  return discoveries.find(d => d.providerId === providerId)
+}
 
 // --- Session watcher: detects external changes (e.g., Claude Desktop, Codex Desktop) ---
-// Uses lightweight mtime checks instead of re-reading all session files.
 
 export function startSessionWatcher(broadcaster: EventBroadcaster): ReturnType<typeof setInterval> {
-  let lastClaudeMtime = 0
-  let lastCodexMtime = 0
-
   return setInterval(async () => {
     if (broadcaster.hasActiveQueries()) return
     try {
-      let changed = false
-
-      // Claude: check ~/.claude/projects directory mtime
-      const claudeProjectsDir = join(homedir(), '.claude', 'projects')
-      const claudeStat = await fsStat(claudeProjectsDir).catch(() => null)
-      if (claudeStat) {
-        const mtime = claudeStat.mtimeMs
-        if (lastClaudeMtime === 0) {
-          lastClaudeMtime = mtime
-        } else if (mtime !== lastClaudeMtime) {
-          lastClaudeMtime = mtime
-          changed = true
-        }
+      const results = await Promise.all(discoveries.map(d => d.checkForChanges()))
+      if (results.some(changed => changed)) {
+        broadcaster.send('sessions:refresh-hint')
       }
-
-      // Codex: check ~/.codex/state_5.sqlite mtime
-      const codexDbPath = getCodexDbPath_exported()
-      const codexStat = await fsStat(codexDbPath).catch(() => null)
-      if (codexStat) {
-        const mtime = codexStat.mtimeMs
-        if (lastCodexMtime === 0) {
-          lastCodexMtime = mtime
-        } else if (mtime !== lastCodexMtime) {
-          lastCodexMtime = mtime
-          changed = true
-        }
-      }
-
-      if (changed) broadcaster.send('sessions:refresh-hint')
     } catch {
       // Silent failure — SDK may not be ready yet
     }
   }, 5_000)
 }
 
-let cachedAccountInfo: AccountInfo | null = null
-
 /** Allow agent.ts to update the cached account info (fallback from real queries). */
 export function setCachedAccountInfo(info: AccountInfo | null) {
-  if (info) cachedAccountInfo = info
+  setClaudeCachedAccountInfo(info)
 }
+
 import { IGNORED_DIRS, IGNORE_FILES } from './runtime/files-config'
 export { IGNORED_DIRS, IGNORE_FILES }
 
@@ -114,77 +99,59 @@ let moduleBroadcaster: EventBroadcaster | undefined
 // --- Reusable data functions (called by both IPC and relay) ---
 
 export async function listSessionsData(relayClient?: RelayClient, getAuthToken?: () => Promise<string>) {
-  const baseUrl = relayClient?.getApiBaseUrl()
+  const context: DiscoveryContext = {
+    relayClient: relayClient ? {
+      getApiBaseUrl: () => relayClient.getApiBaseUrl(),
+      getAuthToken: () => relayClient.getAuthToken(),
+    } : undefined,
+    getAuthToken,
+  }
 
-  // listCodexThreads is synchronous (node:sqlite) — run it alongside async calls
-  const codexThreads = listCodexThreads()
-  const [sdkSessions, dbSessions] = await Promise.all([
-    listSessions({ limit: 50 }).catch(() => []),
-    baseUrl
-      ? (async () => {
-          try {
-            const token = getAuthToken ? await getAuthToken() : relayClient!.getAuthToken()
-            const resp = await fetch(`${baseUrl}/api/sessions`, {
-              headers: { Authorization: `Bearer ${token}` },
-            })
-            if (resp.ok) return (await resp.json()) as ClaudeDbSessionMeta[]
-            if (resp.status === 401) authFailureHandler?.()
-          } catch { /* empty */ }
-          return null
-        })()
-      : Promise.resolve(null),
-  ])
-
-  const dbFetchSucceeded = dbSessions !== null
-
-  // Keep the shared index fresh with Claude session discovery, regardless of selected provider.
-  await Promise.all(
-    (sdkSessions as Array<{ sessionId?: string; generatedTitle?: string; summary?: string; firstPrompt?: string; cwd?: string; lastModified?: number }>).map(async (session) => {
-      if (!session.sessionId) return
-      const dbEntry = (dbSessions || []).find(s => s.sessionId === session.sessionId)
-      await upsertIndexedSession(session.sessionId!, {
-        provider: 'claude',
-        title: dbEntry?.name || session.generatedTitle || session.summary || undefined,
-        firstPrompt: (dbEntry?.firstPrompt || session.firstPrompt || '').trim() || null,
-        workspaceDir: session.cwd || null,
-        updatedAt: typeof session.lastModified === 'number' ? session.lastModified : null,
-      })
-    }),
+  // Discover sessions from all providers in parallel
+  const allDiscovered = await Promise.all(
+    discoveries.map(d => d.discoverSessions(context).catch(() => []))
   )
 
-  // Upsert Codex Desktop threads so they appear in the sidebar
+  // Upsert all discovered sessions into the shared index
   await Promise.all(
-    codexThreads.map(async (thread) => {
-      await upsertIndexedSession(thread.id, {
-        provider: 'codex',
-        title: thread.title || null,
-        firstPrompt: thread.firstUserMessage || null,
-        workspaceDir: thread.cwd || null,
-        updatedAt: thread.updatedAt,
+    allDiscovered.flat().map(async (session) => {
+      await upsertIndexedSession(session.sessionId, {
+        provider: session.provider,
+        title: session.title || undefined,
+        firstPrompt: session.firstPrompt || null,
+        workspaceDir: session.workspaceDir || null,
+        updatedAt: session.updatedAt || null,
       })
     }),
   )
 
   const refreshedIndexed = await listIndexedSessions()
+
+  // Claude-specific: collect SDK sessions for buildSessionList cross-referencing
+  const claudeIdx = discoveries.findIndex(d => d.providerId === 'claude')
+  const claudeDiscovered = claudeIdx >= 0 ? allDiscovered[claudeIdx] : []
+  const claudeDbSessions = await fetchClaudeDbSessions(relayClient, getAuthToken)
+  const dbFetchSucceeded = claudeDbSessions !== null
+
   const result = buildSessionList({
     indexedSessions: refreshedIndexed,
-    claudeSessions: sdkSessions as SessionInfo[],
-    claudeDbSessions: dbSessions || [],
+    claudeSessions: claudeDiscovered.map(s => ({
+      sessionId: s.sessionId,
+      ...s,
+    })) as SessionInfo[],
+    claudeDbSessions: claudeDbSessions || [],
   })
 
-  // Backfill: generate haiku only for sessions with no title from ANY source.
-  // Sessions with provider-native titles (generatedTitle/summary) are skipped.
+  // Backfill: generate haiku titles only for Claude sessions with no title from ANY source
   const sdkMap = new Map(
-    (sdkSessions as Array<{ sessionId?: string; generatedTitle?: string; summary?: string }>)
-      .filter(s => s.sessionId)
-      .map(s => [s.sessionId!, s]),
+    claudeDiscovered.filter(s => s.sessionId).map(s => [s.sessionId, s]),
   )
   for (const indexed of refreshedIndexed) {
     if (indexed.title) continue
     if (indexed.provider !== 'claude') continue
     if (!indexed.firstPrompt) continue
     const sdk = sdkMap.get(indexed.sessionId)
-    if (sdk?.generatedTitle || sdk?.summary) continue
+    if (sdk?.title) continue
     storeSessionTitle(indexed.sessionId, indexed.firstPrompt)
   }
 
@@ -194,8 +161,22 @@ export async function listSessionsData(relayClient?: RelayClient, getAuthToken?:
   }
 }
 
+/** Fetch Claude DB sessions for title cross-referencing. */
+async function fetchClaudeDbSessions(relayClient?: RelayClient, getAuthToken?: () => Promise<string>): Promise<ClaudeDbSessionMeta[] | null> {
+  const baseUrl = relayClient?.getApiBaseUrl()
+  if (!baseUrl) return null
+  try {
+    const token = getAuthToken ? await getAuthToken() : relayClient!.getAuthToken()
+    const resp = await fetch(`${baseUrl}/api/sessions`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (resp.ok) return (await resp.json()) as ClaudeDbSessionMeta[]
+    if (resp.status === 401) authFailureHandler?.()
+  } catch { /* empty */ }
+  return null
+}
+
 function stripPromptContext(prompt: string): string {
-  // Remove injected XML blocks from prompt-preprocessor before using for title generation
   return prompt
     .replace(/<codebase_context>[\s\S]*?<\/codebase_context>\s*/g, '')
     .replace(/<file_context>[\s\S]*?<\/file_context>\s*/g, '')
@@ -230,8 +211,6 @@ export function beginTitleGeneration(prompt: string): Promise<string> {
               streamTitle += evt.event.delta.text
             }
           }
-          // Skip 'assistant' messages — the final assistant message contains
-          // the full text that was already accumulated via stream deltas above.
         }
       } finally { titleQuery.close() }
       return streamTitle.trim()
@@ -280,77 +259,35 @@ export async function getSessionMessagesData(sessionId: string, dir?: string) {
   const indexedMeta = await getIndexedSessionMeta(sessionId)
   const expectedProvider = indexedMeta?.provider
 
-  // --- Codex sessions ---
-  if (expectedProvider === 'codex') {
-    // Check our own index first (codr-initiated sessions store messages here)
-    const indexed = await getIndexedSessionMessages(sessionId)
-    if (shouldUseIndexedMessages(indexed, 'codex')) {
-      return indexed.rawMessages as Awaited<ReturnType<typeof getSessionMessages>>
-    }
-    // Fall back to Codex Desktop rollout file
-    const rolloutPath = getCodexThreadRolloutPath(sessionId)
-    if (rolloutPath && existsSync(rolloutPath)) {
-      const messages = await parseCodexRollout(rolloutPath, sessionId)
-      return messages as unknown as Awaited<ReturnType<typeof getSessionMessages>>
-    }
-    // Session exists but has no messages yet (just created)
-    return [] as unknown as Awaited<ReturnType<typeof getSessionMessages>>
-  }
-
-  // --- Claude sessions: check index first, fall back to SDK ---
+  // Check our index first for any provider
   const indexed = await getIndexedSessionMessages(sessionId)
   if (expectedProvider && shouldUseIndexedMessages(indexed, expectedProvider)) {
-    return indexed.rawMessages as Awaited<ReturnType<typeof getSessionMessages>>
+    return indexed.rawMessages
   }
 
-  const messages = await getSessionMessages(sessionId, {
-    ...(dir ? { dir } : {}),
-  })
-  await putIndexedRawMessages(sessionId, 'claude', messages as unknown[])
-  return messages
+  // Delegate to provider-specific discovery for external message sources
+  if (expectedProvider) {
+    const discovery = getDiscovery(expectedProvider)
+    if (discovery) {
+      const messages = await discovery.getSessionMessages(sessionId, dir)
+      if (messages && messages.length > 0) {
+        await putIndexedRawMessages(sessionId, expectedProvider, messages)
+        return messages
+      }
+    }
+  }
+
+  // Session exists but has no messages yet
+  return []
 }
 
 export async function getAccountInfoData() {
   const provider = await getSelectedProvider()
-  if (provider === 'codex') {
-    return { tokenSource: 'openai-codex' } as AccountInfo
+  const discovery = getDiscovery(provider)
+  if (discovery) {
+    return discovery.getAccountInfo()
   }
-
-  if (cachedAccountInfo) return cachedAccountInfo
-
-  let probeQuery: ReturnType<typeof query> | null = null
-  try {
-    console.log('[account-info] Starting probe query...')
-    const cliPath = getCliPath()
-    probeQuery = query({
-      // eslint-disable-next-line require-yield
-      prompt: (async function* () {
-        await new Promise(() => {})
-      })(),
-      options: {
-        persistSession: false,
-        ...(cliPath ? { pathToClaudeCodeExecutable: cliPath } : {}),
-      },
-    })
-
-    // Timeout after 10s — the probe query can hang if the CLI is slow to init
-    const info = await Promise.race([
-      probeQuery.accountInfo(),
-      new Promise<null>((_, reject) =>
-        setTimeout(() => reject(new Error('accountInfo timed out after 10s')), 10_000)
-      ),
-    ])
-
-    console.log('[account-info] Got info:', info ? 'yes' : 'null')
-    cachedAccountInfo = info
-    return cachedAccountInfo
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    console.error('[account-info] Failed:', msg)
-    return null
-  } finally {
-    probeQuery?.close()
-  }
+  return null
 }
 
 export type CliStatus =
@@ -361,13 +298,23 @@ export type CliStatus =
 
 export async function checkCliStatus(): Promise<CliStatus> {
   const provider = await getSelectedProvider()
-  if (provider === 'codex') {
-    return {
-      status: 'ready',
-      accountInfo: { tokenSource: 'openai-codex' } as AccountInfo,
+
+  // Non-Claude providers: check via discovery status
+  if (provider !== 'claude') {
+    const discovery = getDiscovery(provider)
+    if (discovery) {
+      const status = await discovery.checkStatus()
+      if (status.installed && status.loggedIn) {
+        const accountInfo = await discovery.getAccountInfo()
+        return { status: 'ready', accountInfo: accountInfo as AccountInfo }
+      }
+      return status.installed ? { status: 'not-logged-in' } : { status: 'not-installed' }
     }
+    return { status: 'not-installed' }
   }
 
+  // Claude: use cached info or probe
+  const cachedAccountInfo = getCachedAccountInfo()
   if (cachedAccountInfo) {
     return { status: 'ready', accountInfo: cachedAccountInfo }
   }
@@ -376,12 +323,10 @@ export async function checkCliStatus(): Promise<CliStatus> {
   const cliPath = getCliPath()
   try {
     if (cliPath) {
-      // Packaged build — verify bundled cli.js exists
       if (!existsSync(cliPath)) {
         return { status: 'not-installed' }
       }
     } else {
-      // Dev build — check if `claude` is on PATH
       execSync(process.platform === 'win32' ? 'where claude' : 'which claude', { stdio: 'pipe', timeout: 5000 })
     }
   } catch {
@@ -414,7 +359,7 @@ export async function checkCliStatus(): Promise<CliStatus> {
 
     if (info) {
       console.log('[cli-status] Ready')
-      cachedAccountInfo = info
+      setClaudeCachedAccountInfo(info)
       return { status: 'ready', accountInfo: info }
     }
 
@@ -472,183 +417,20 @@ export async function listFilesData(dir?: string, maxFiles?: number) {
   return results.sort()
 }
 
-// --- Provider status (independent check for both Claude and Codex) ---
+// --- Provider status ---
 
-export interface ProviderStatusInfo {
-  installed: boolean
-  loggedIn: boolean
-  detail?: string
-  email?: string
-  org?: string
-}
-
-export interface AllProviderStatus {
-  claude: ProviderStatusInfo
-  codex: ProviderStatusInfo
-}
-
-function normalizeOrg(raw?: string): string {
-  if (!raw || raw.endsWith('\u2019s Organization') || raw.endsWith("'s Organization")) return 'Personal'
-  return raw
-}
+export type AllProviderStatus = Record<AgentProviderId, import('./runtime/provider-discovery').ProviderStatusInfo>
 
 export async function getProviderStatusData(): Promise<AllProviderStatus> {
-  const [claudeStatus, codexStatus] = await Promise.all([
-    (async (): Promise<ProviderStatusInfo> => {
-      const cliPath = getCliPath()
-      let installed = false
-      try {
-        if (cliPath) {
-          installed = existsSync(cliPath)
-        } else {
-          execSync(process.platform === 'win32' ? 'where claude' : 'which claude', { stdio: 'pipe', timeout: 3000 })
-          installed = true
-        }
-      } catch {
-        installed = false
-      }
-      if (!installed) return { installed: false, loggedIn: false }
-
-      if (cachedAccountInfo) {
-        const detail = cachedAccountInfo.subscriptionType || cachedAccountInfo.apiKeySource
-        return {
-          installed: true, loggedIn: true, detail: detail || undefined,
-          email: cachedAccountInfo.email,
-          org: normalizeOrg(cachedAccountInfo.organization),
-        }
-      }
-
-      let probeQuery: ReturnType<typeof query> | null = null
-      try {
-        probeQuery = query({
-          // eslint-disable-next-line require-yield
-          prompt: (async function* () { await new Promise(() => {}) })(),
-          options: {
-            persistSession: false,
-            ...(cliPath ? { pathToClaudeCodeExecutable: cliPath } : {}),
-          },
-        })
-        const info = await Promise.race([
-          probeQuery.accountInfo(),
-          new Promise<null>((_, reject) => setTimeout(() => reject(new Error('timeout')), 8_000)),
-        ])
-        if (info) {
-          cachedAccountInfo = info
-          const detail = info.subscriptionType || info.apiKeySource
-          return {
-            installed: true, loggedIn: true, detail: detail || undefined,
-            email: info.email,
-            org: normalizeOrg(info.organization),
-          }
-        }
-        return { installed: true, loggedIn: false }
-      } catch {
-        return { installed: true, loggedIn: false }
-      } finally {
-        probeQuery?.close()
-      }
-    })(),
-
-    (async (): Promise<ProviderStatusInfo> => {
-      const codexHome = join(homedir(), '.codex')
-      const installed = existsSync(codexHome)
-      if (!installed) return { installed: false, loggedIn: false }
-
-      // Determine auth method and base status
-      const sqliteDb = join(codexHome, 'state_5.sqlite')
-      const authJsonPath = join(codexHome, 'auth.json')
-      let loggedIn = false
-      let baseDetail: string | undefined
-
-      if (existsSync(sqliteDb) || existsSync(authJsonPath)) {
-        loggedIn = true
-      } else if (process.env.OPENAI_API_KEY) {
-        loggedIn = true
-        baseDetail = 'API Key'
-      } else {
-        const configPaths = [join(codexHome, 'config.json'), join(codexHome, '.config.json')]
-        for (const cfgPath of configPaths) {
-          if (existsSync(cfgPath)) {
-            try {
-              const { readFileSync } = await import('node:fs')
-              const cfg = JSON.parse(readFileSync(cfgPath, 'utf-8')) as Record<string, unknown>
-              if (cfg.api_key || cfg.apiKey || cfg.openai_api_key) {
-                loggedIn = true
-                baseDetail = 'API Key'
-                break
-              }
-            } catch { /* ignore */ }
-          }
-        }
-      }
-
-      if (!loggedIn) return { installed: true, loggedIn: false }
-
-      // Try to fetch rich account info from auth.json + OpenAI API
-      try {
-        if (existsSync(authJsonPath)) {
-          const { readFileSync } = await import('node:fs')
-          const authData = JSON.parse(readFileSync(authJsonPath, 'utf-8')) as {
-            tokens?: { access_token?: string; id_token?: string }
-          }
-          const accessToken = authData.tokens?.access_token
-          const idToken = authData.tokens?.id_token
-
-          let planType: string | undefined
-          // Decode JWT id_token payload for plan type
-          if (idToken) {
-            try {
-              const payload = JSON.parse(Buffer.from(idToken.split('.')[1], 'base64').toString())
-              const authClaim = payload['https://api.openai.com/auth'] as Record<string, unknown> | undefined
-              if (authClaim?.chatgpt_plan_type) {
-                planType = String(authClaim.chatgpt_plan_type)
-                planType = planType.charAt(0).toUpperCase() + planType.slice(1)
-              }
-            } catch { /* JWT decode failed */ }
-          }
-
-          // Fetch email/org from /v1/me
-          if (accessToken) {
-            const ctrl = new AbortController()
-            const timer = setTimeout(() => ctrl.abort(), 5_000)
-            try {
-              const resp = await fetch('https://api.openai.com/v1/me', {
-                headers: { Authorization: `Bearer ${accessToken}` },
-                signal: ctrl.signal,
-              })
-              if (resp.ok) {
-                const me = await resp.json() as {
-                  email?: string
-                  orgs?: { data?: Array<{ personal?: boolean; title?: string }> }
-                }
-                // Find org name: use first real org, or "Personal"
-                const orgs = me.orgs?.data || []
-                const namedOrg = orgs.find(o => !o.personal && normalizeOrg(o.title) !== 'Personal')
-                const orgLabel = namedOrg?.title || 'Personal'
-                return {
-                  installed: true,
-                  loggedIn: true,
-                  detail: planType || baseDetail,
-                  email: me.email,
-                  org: orgLabel,
-                }
-              }
-            } catch { /* API call failed — fall through */ }
-            finally { clearTimeout(timer) }
-          }
-
-          // Had auth.json but API call failed — still use plan from JWT
-          if (planType) {
-            return { installed: true, loggedIn: true, detail: planType }
-          }
-        }
-      } catch { /* auth.json read failed */ }
-
-      return { installed: true, loggedIn: true, detail: baseDetail }
-    })(),
-  ])
-
-  return { claude: claudeStatus, codex: codexStatus }
+  const results = await Promise.all(
+    PROVIDER_IDS.map(async (id) => {
+      const discovery = getDiscovery(id)
+      if (!discovery) return [id, { installed: false, loggedIn: false }] as const
+      const status = await discovery.checkStatus()
+      return [id, status] as const
+    })
+  )
+  return Object.fromEntries(results) as AllProviderStatus
 }
 
 // --- IPC handlers ---
@@ -733,10 +515,8 @@ export function registerSessionHandlers(relayClient?: RelayClient, broadcaster?:
         timeout: 3000,
         stdio: ['pipe', 'pipe', 'pipe'],
       }).trim()
-      // SSH: git@github.com:org/repo.git
       const sshMatch = url.match(/[:/]([^/]+\/[^/]+?)(?:\.git)?$/)
       if (sshMatch) return '@' + sshMatch[1]
-      // HTTPS: https://github.com/org/repo.git
       try {
         const parsed = new URL(url)
         const parts = parsed.pathname.replace(/\.git$/, '').split('/').filter(Boolean)

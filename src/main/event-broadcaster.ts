@@ -64,6 +64,7 @@ export class EventBroadcaster {
   // Per-session state tracking for concurrent queries
   private states = new Map<string, ConversationState>()
   private lastPlanWrites = new Map<string, { filePath: string; content: string }>()
+  private queryProviders = new Map<string, string>()
   private mostRecentQueryKey: string | null = null
 
   constructor(getMainWindow: () => BrowserWindow | null) {
@@ -202,7 +203,7 @@ export class EventBroadcaster {
                     planFilePath: lastPlanWrite.filePath,
                     planContent: lastPlanWrite.content,
                     allowedPrompts: block.input?.allowedPrompts as Array<{ tool: string; prompt: string }> | undefined,
-                    provider: 'claude',
+                    provider: (this.queryProviders.get(querySessionId) || 'claude') as PlanReviewState['provider'],
                     sourceSessionId: querySessionId,
                   }
                 }
@@ -283,7 +284,8 @@ export class EventBroadcaster {
   }
 
   /** Called when a new query starts */
-  markQueryStart(queryKey: string, prompt: string) {
+  markQueryStart(queryKey: string, prompt: string, providerId?: string) {
+    if (providerId) this.queryProviders.set(queryKey, providerId)
     const state = createEmptyState(queryKey)
     state.messages.push({
       id: `msg-${Date.now()}`,
@@ -308,6 +310,11 @@ export class EventBroadcaster {
     if (planWrite) {
       this.lastPlanWrites.delete(oldKey)
       this.lastPlanWrites.set(newKey, planWrite)
+    }
+    const provider = this.queryProviders.get(oldKey)
+    if (provider) {
+      this.queryProviders.delete(oldKey)
+      this.queryProviders.set(newKey, provider)
     }
     if (this.mostRecentQueryKey === oldKey) {
       this.mostRecentQueryKey = newKey

@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { homedir } from 'node:os'
 import type { AgentProviderId } from './provider'
+import { isValidProviderId } from './provider'
 
 interface ProviderConfigFile {
   selectedProvider: AgentProviderId
@@ -40,7 +41,7 @@ async function saveConfig(cfg: ProviderConfigFile): Promise<void> {
 export async function getSelectedProvider(): Promise<AgentProviderId> {
   if (cachedProvider) return cachedProvider
   const parsed = await loadConfig()
-  if (parsed.selectedProvider === 'claude' || parsed.selectedProvider === 'codex') {
+  if (parsed.selectedProvider && isValidProviderId(parsed.selectedProvider)) {
     cachedProvider = parsed.selectedProvider
   } else {
     cachedProvider = DEFAULT_PROVIDER

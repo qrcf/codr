@@ -15,9 +15,11 @@ interface ImportMeta {
   readonly env: ImportMetaEnv
 }
 
+type AgentProviderId = import('../../shared/provider-types').AgentProviderId
+
 // Protocol/API types — sourced from @codr-works/types plus local provider metadata
 type SessionInfo = import('@codr-works/types').SessionInfo & {
-  provider?: 'claude' | 'codex'
+  provider?: AgentProviderId
   model?: string
   thinkingBudget?: string
 }
@@ -112,13 +114,13 @@ interface CodrAPI {
   storeAttachmentBuffer?: (buffer: Uint8Array, filename: string) => Promise<AttachmentMeta>
   query: (prompt: string, options?: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; cwd?: string; model?: string; thinkingBudget?: 'low' | 'medium' | 'high'; attachments?: AttachmentMeta[] }) => Promise<void>
   interrupt: (sessionId?: string) => Promise<void>
-  getProvider?: () => Promise<'claude' | 'codex'>
-  setProvider?: (provider: 'claude' | 'codex') => Promise<{ provider?: 'claude' | 'codex'; error?: string }>
-  getModels?: (provider?: 'claude' | 'codex') => Promise<{
+  getProvider?: () => Promise<AgentProviderId>
+  setProvider?: (provider: AgentProviderId) => Promise<{ provider?: AgentProviderId; error?: string }>
+  getModels?: (provider?: AgentProviderId) => Promise<{
     models: Array<{ value: string; displayName: string }>
     selectedModel?: string
   }>
-  setModel?: (provider: 'claude' | 'codex', model: string | undefined) => Promise<{ model?: string }>
+  setModel?: (provider: AgentProviderId, model: string | undefined) => Promise<{ model?: string }>
   getDefaults?: () => Promise<{ effortLevel?: string }>
   getAgentState?: (sessionId?: string) => Promise<{
     isLoading: boolean
@@ -185,11 +187,8 @@ interface CodrAPI {
   // CLI status check (desktop only)
   checkCliStatus?: () => Promise<CliStatus>
 
-  // Provider status — independent check for both Claude and Codex (desktop only)
-  getProviderStatus?: () => Promise<{
-    claude: { installed: boolean; loggedIn: boolean; detail?: string }
-    codex: { installed: boolean; loggedIn: boolean; detail?: string }
-  }>
+  // Provider status — independent check for all providers (desktop only)
+  getProviderStatus?: () => Promise<Record<import('../../shared/provider-types').AgentProviderId, { installed: boolean; loggedIn: boolean; detail?: string; email?: string; org?: string }>>
 
   // Docs feature
   addDocSource?: (source: { url: string; name: string; crawlDepth?: number; prefix?: string }) => Promise<DocSource | { error: string }>

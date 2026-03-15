@@ -81,7 +81,7 @@ export interface PlanReviewState {
   planFilePath: string
   planContent: string
   allowedPrompts?: Array<{ tool: string; prompt: string }>
-  provider?: 'claude' | 'codex'
+  provider?: AgentProviderId
   sourceSessionId?: string
   nativePlanToken?: string
 }

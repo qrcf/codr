@@ -4,7 +4,9 @@ import type { MessageOrigin } from '../permissions'
 import type { IndexerManager } from '../indexer/manager'
 import type { AttachmentMeta } from '../../shared/attachments'
 
-export type AgentProviderId = 'claude' | 'codex'
+export type { AgentProviderId } from '../../shared/provider-types'
+export { PROVIDER_IDS, isValidProviderId } from '../../shared/provider-types'
+import type { AgentProviderId } from '../../shared/provider-types'
 
 export interface AgentQueryRequest {
   prompt: string

@@ -9,7 +9,7 @@ interface ModelOption {
 }
 
 interface ModelSelectorProps {
-  provider: 'claude' | 'codex'
+  provider: AgentProviderId
   selectedModel: string | undefined
   onModelChange: (model: string | undefined) => void
   disabled?: boolean
@@ -22,7 +22,7 @@ export function ModelSelector({ provider, selectedModel, onModelChange, disabled
   const [loading, setLoading] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
-  const fetchModels = useCallback(async (p: 'claude' | 'codex') => {
+  const fetchModels = useCallback(async (p: AgentProviderId) => {
     setLoading(true)
     try {
       const result = await codr.getModels?.(p)

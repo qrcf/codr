@@ -26,8 +26,12 @@ export async function getModelsForProvider(
     return modelCache.get(provider)!
   }
 
-  const models =
-    provider === 'claude' ? await fetchClaudeModels() : await fetchCodexModels()
+  const modelFetchers: Partial<Record<AgentProviderId, () => Promise<ModelOption[]>>> = {
+    claude: fetchClaudeModels,
+    codex: fetchCodexModels,
+  }
+  const fetcher = modelFetchers[provider]
+  const models = fetcher ? await fetcher() : []
 
   if (models.length > 0) {
     modelCache.set(provider, models)
@@ -62,7 +66,7 @@ function cleanClaudeModelName(value: string, displayName: string): string {
   if (/\d/.test(name)) return name
 
   // SDK returns values like "opus[1m]", "sonnet", "haiku" — extract the family name
-  const family = value.replace(/\[.*\]$/, '').toLowerCase()
+  const family = value.replace(/\[.*]$/, '').toLowerCase()
   const version = FAMILY_VERSIONS[family]
   if (version) return `${name} ${version}`
 

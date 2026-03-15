@@ -1,5 +1,6 @@
 // Shared types used by main process modules.
 // Mirrors the renderer types without importing from renderer source.
+import type { AgentProviderId } from '../shared/provider-types'
 
 export interface ChatMessage {
   id: string
@@ -22,7 +23,7 @@ export interface PlanReviewState {
   planFilePath: string
   planContent: string
   allowedPrompts?: Array<{ tool: string; prompt: string }>
-  provider?: 'claude' | 'codex'
+  provider?: AgentProviderId
   sourceSessionId?: string
   nativePlanToken?: string
 }

@@ -5,6 +5,25 @@ import type { DocsAPI } from './DocsPanel'
 import { LabPanel } from './LabPanel'
 import { useCodr } from '../hooks/useCodr'
 
+const PROVIDER_UI = {
+  claude: {
+    label: 'Claude',
+    icon: Sparkles,
+    bg: 'bg-[rgba(129,66,199,0.15)]',
+    text: 'text-[#b89de0]',
+    badgeActive: 'bg-[#2d1f3d] text-[#b89de0]',
+    badgeInactive: 'bg-[#2a2835] text-[#9a7fc0]',
+  },
+  codex: {
+    label: 'Codex',
+    icon: Terminal,
+    bg: 'bg-[rgba(106,171,156,0.15)]',
+    text: 'text-[#7ecfbd]',
+    badgeActive: 'bg-[#192d28] text-[#7ecfbd]',
+    badgeInactive: 'bg-[#1e2a2a] text-[#6aab9c]',
+  },
+} as const
+
 interface SettingsPanelProps {
   onClose: () => void
   docsAPI?: DocsAPI
@@ -95,10 +114,7 @@ export function SettingsPanel({ onClose, docsAPI, userProfile, onAddDocSource, o
   const codr = useCodr()
   const [activeTab, setActiveTab] = useState<Tab>('general')
   const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(null)
-  const [providerStatus, setProviderStatus] = useState<{
-    claude: { installed: boolean; loggedIn: boolean; detail?: string; email?: string; org?: string }
-    codex: { installed: boolean; loggedIn: boolean; detail?: string; email?: string; org?: string }
-  } | null>(null)
+  const [providerStatus, setProviderStatus] = useState<Record<string, { installed: boolean; loggedIn: boolean; detail?: string; email?: string; org?: string }> | null>(null)
   // Fetch account info with retry — probe query may fail in packaged builds
   useEffect(() => {
     let retryTimer: ReturnType<typeof setTimeout> | null = null
@@ -209,28 +225,20 @@ export function SettingsPanel({ onClose, docsAPI, userProfile, onAddDocSource, o
                     </div>
                     {providerStatus && (
                       <div className="flex gap-1.5 flex-wrap">
-                        {providerStatus.claude.installed && (
-                          <span className={`px-2 py-0.5 rounded text-[11px] ${
-                            providerStatus.claude.loggedIn
-                              ? 'bg-[#2d1f3d] text-[#b89de0]'
-                              : 'bg-[#2a2835] text-[#9a7fc0]'
-                          }`}>
-                            {providerStatus.claude.loggedIn
-                              ? (providerStatus.claude.detail || 'Claude')
-                              : 'Claude · not logged in'}
-                          </span>
-                        )}
-                        {providerStatus.codex.installed && (
-                          <span className={`px-2 py-0.5 rounded text-[11px] ${
-                            providerStatus.codex.loggedIn
-                              ? 'bg-[#192d28] text-[#7ecfbd]'
-                              : 'bg-[#1e2a2a] text-[#6aab9c]'
-                          }`}>
-                            {providerStatus.codex.loggedIn
-                              ? (providerStatus.codex.detail && providerStatus.codex.detail !== 'Ready' ? `Codex · ${providerStatus.codex.detail}` : 'Codex')
-                              : 'Codex · not logged in'}
-                          </span>
-                        )}
+                        {Object.entries(providerStatus).map(([id, ps]) => {
+                          if (!ps.installed) return null
+                          const vis = PROVIDER_UI[id as keyof typeof PROVIDER_UI]
+                          if (!vis) return null
+                          return (
+                            <span key={id} className={`px-2 py-0.5 rounded text-[11px] ${
+                              ps.loggedIn ? vis.badgeActive : vis.badgeInactive
+                            }`}>
+                              {ps.loggedIn
+                                ? (ps.detail && ps.detail !== 'Ready' ? `${vis.label} · ${ps.detail}` : vis.label)
+                                : `${vis.label} · not logged in`}
+                            </span>
+                          )
+                        })}
                       </div>
                     )}
                   </div>
@@ -248,19 +256,20 @@ export function SettingsPanel({ onClose, docsAPI, userProfile, onAddDocSource, o
             <section className="mb-8">
               <h3 className={sectionTitleClass}>Agent Provider</h3>
               <div className="flex gap-3">
-                {(['claude', 'codex'] as const).map((id) => {
+                {Object.entries(PROVIDER_UI).map(([id, vis]) => {
                   const status = providerStatus?.[id]
+                  const Icon = vis.icon
                   return (
                     <div
                       key={id}
                       className="flex-1 border border-border-subtle rounded-[10px] px-4 py-3.5 bg-bg-tertiary flex flex-col gap-3"
                     >
                       <div className="flex items-center gap-3">
-                        <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${id === 'claude' ? 'bg-[rgba(129,66,199,0.15)] text-[#b89de0]' : 'bg-[rgba(106,171,156,0.15)] text-[#7ecfbd]'}`}>
-                          {id === 'claude' ? <Sparkles size={18} /> : <Terminal size={18} />}
+                        <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${vis.bg} ${vis.text}`}>
+                          <Icon size={18} />
                         </div>
                         <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-                          <span className="text-[15px] font-semibold text-[#e0e0e0]">{id === 'claude' ? 'Claude' : 'Codex'}</span>
+                          <span className="text-[15px] font-semibold text-[#e0e0e0]">{vis.label}</span>
                           {status?.detail && <span className="text-[12px] text-[#777]">{status.detail}</span>}
                         </div>
                       </div>

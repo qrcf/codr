@@ -223,7 +223,7 @@ export function useSessionManager({
     loadSession(sessionId, sessionMessages, initialTokenUsage)
   }, [loadSession])
 
-  const handleNewChat = useCallback(async (provider?: 'claude' | 'codex', cwd?: string) => {
+  const handleNewChat = useCallback(async (provider?: AgentProviderId, cwd?: string) => {
     const draft = draftActions.createDraft(cwd || activeSession?.cwd || undefined)
     loadSession(draft.draftId, [])
     resetInput()

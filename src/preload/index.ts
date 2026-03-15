@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { AttachmentMeta } from '../shared/attachments'
+import type { AgentProviderId } from '../shared/provider-types'
 
 const agentApi = {
   isElectron: true,
@@ -16,11 +17,11 @@ const agentApi = {
     ipcRenderer.invoke('agent:query', prompt, opts),
   interrupt: (sessionId?: string) => ipcRenderer.invoke('agent:interrupt', sessionId),
   getAgentState: (sessionId?: string) => ipcRenderer.invoke('agent:get-state', sessionId),
-  getProvider: () => ipcRenderer.invoke('agent:get-provider') as Promise<'claude' | 'codex'>,
-  setProvider: (provider: 'claude' | 'codex') => ipcRenderer.invoke('agent:set-provider', provider) as Promise<{ provider?: 'claude' | 'codex'; error?: string }>,
-  getModels: (provider?: 'claude' | 'codex') =>
+  getProvider: () => ipcRenderer.invoke('agent:get-provider') as Promise<AgentProviderId>,
+  setProvider: (provider: AgentProviderId) => ipcRenderer.invoke('agent:set-provider', provider) as Promise<{ provider?: AgentProviderId; error?: string }>,
+  getModels: (provider?: AgentProviderId) =>
     ipcRenderer.invoke('agent:get-models', provider) as Promise<{ models: Array<{ value: string; displayName: string }>; selectedModel?: string }>,
-  setModel: (provider: 'claude' | 'codex', model: string | undefined) =>
+  setModel: (provider: AgentProviderId, model: string | undefined) =>
     ipcRenderer.invoke('agent:set-model', provider, model) as Promise<{ model?: string }>,
   getDefaults: () =>
     ipcRenderer.invoke('agent:get-defaults') as Promise<{ effortLevel?: string }>,

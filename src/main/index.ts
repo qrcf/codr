@@ -1,4 +1,5 @@
 import type {AgentProviderId} from "./runtime/provider.ts";
+import {isValidProviderId} from "./runtime/provider.ts";
 
 declare const __WEB_URL__: string
 declare const __API_URL__: string
@@ -305,8 +306,8 @@ relayClient.onMessage(async (msg) => {
             data = { provider: await getSelectedProvider() }
             break
           case 'set_provider': {
-            const provider = params?.provider as 'claude' | 'codex'
-            if (provider !== 'claude' && provider !== 'codex') {
+            const provider = params?.provider as string
+            if (!isValidProviderId(provider)) {
               data = { error: 'Invalid provider' }
             } else {
               const selected = await setSelectedProvider(provider)
@@ -327,7 +328,7 @@ relayClient.onMessage(async (msg) => {
           case 'set_model': {
             const smProvider = params?.provider as AgentProviderId
             const smModel = params?.model as string | undefined
-            if (smProvider === 'claude' || smProvider === 'codex') {
+            if (isValidProviderId(smProvider)) {
               await setSelectedModel(smProvider, smModel)
               data = { model: smModel }
             } else {

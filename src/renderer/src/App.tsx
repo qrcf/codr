@@ -214,7 +214,7 @@ export default function App() {
 
   // --- Model selector state ---
   const [selectedModel, setSelectedModel] = useState<string | undefined>(undefined)
-  const [currentProvider, setCurrentProvider] = useState<'claude' | 'codex'>('claude')
+  const [currentProvider, setCurrentProvider] = useState<AgentProviderId>('claude')
 
   // --- Reasoning level ---
   const [defaultReasoning, setDefaultReasoning] = useState<ReasoningLevel>('auto')

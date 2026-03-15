@@ -20,7 +20,7 @@ interface SidebarProps {
   isOpen: boolean
   activeSessionId: string | null
   onLoadSession: (sessionId: string, messages: ChatMessage[], initialTokenUsage?: TokenUsage | null, model?: string | null) => void
-  onNewChat: (provider?: 'claude' | 'codex', cwd?: string) => void
+  onNewChat: (provider?: AgentProviderId, cwd?: string) => void
   onActiveSessionInfo?: (session: SessionInfo | null) => void
   onOpenSettings?: () => void
   onOpenManageProject?: (folderPath: string) => void
@@ -79,6 +79,7 @@ export function Sidebar({
 
   // New project-first state
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set())
+  const [expandedSessionProjects, setExpandedSessionProjects] = useState<Set<string>>(new Set())
   const [searchQuery, setSearchQuery] = useState('')
   const [contextMenuProject, setContextMenuProject] = useState<string | null>(null)
   const contextMenuRef = useRef<HTMLDivElement>(null)
@@ -368,7 +369,7 @@ export function Sidebar({
   }, [activeSessionId, sessions, drafts])
 
   const activeSessionProvider = sessions.find(s => s.sessionId === activeSessionId)?.provider || 'claude'
-  const defaultProvider: 'claude' | 'codex' = (codexAvailable && activeSessionProvider === 'codex') ? 'codex' : 'claude'
+  const defaultProvider: AgentProviderId = (codexAvailable && activeSessionProvider === 'codex') ? 'codex' : 'claude'
 
   // Apply archive filtering
   const visibleSessions = showArchived
@@ -555,11 +556,18 @@ export function Sidebar({
     )
   }
 
+  const SESSION_LIMIT = 5
+
   const renderProjectGroup = (cwd: string, groupSessions: SessionInfo[]) => {
     const isExpanded = expandedProjects.has(cwd)
+    const isSessionsExpanded = expandedSessionProjects.has(cwd)
     const hasActiveSessions = groupSessions.some(s =>
       backgroundQuerySessionIds?.has(s.sessionId) || sessionStatuses?.has(s.sessionId)
     )
+    const visibleGroupSessions = (!searchQuery && !isSessionsExpanded && groupSessions.length > SESSION_LIMIT)
+      ? groupSessions.slice(0, SESSION_LIMIT)
+      : groupSessions
+    const hiddenCount = groupSessions.length - SESSION_LIMIT
 
     return (
       <div key={cwd}>
@@ -645,7 +653,22 @@ export function Sidebar({
             )}
           </div>
         </div>
-        {isExpanded && groupSessions.map(renderSessionRow)}
+        {isExpanded && (
+          <>
+            {visibleGroupSessions.map(renderSessionRow)}
+            {!searchQuery && !isSessionsExpanded && hiddenCount > 0 && (
+              <button
+                className="w-full pl-7 pr-3 py-1.5 text-[0.78em] text-text-dim bg-transparent border-none cursor-pointer text-left hover:text-[#aaa] hover:bg-bg-card transition-colors duration-100"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setExpandedSessionProjects(prev => new Set([...prev, cwd]))
+                }}
+              >
+                View {hiddenCount} more...
+              </button>
+            )}
+          </>
+        )}
       </div>
     )
   }

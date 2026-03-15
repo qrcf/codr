@@ -43,19 +43,7 @@ if (isRetry) {
 
   console.log(`\nRetrying release for ${tag}...\n`)
 
-  // Delete existing draft release so electron-builder can re-upload artifacts
-  try {
-    const existing = execSync(`gh release view ${tag} --json isDraft`, { encoding: 'utf-8', cwd: root })
-    const release = JSON.parse(existing)
-    if (release.isDraft) {
-      console.log(`Deleting existing draft release ${tag}...`)
-      execSync(`gh release delete ${tag} --yes`, { stdio: 'inherit', cwd: root })
-    }
-  } catch {
-    // No existing release — fine
-  }
-
-  // Trigger the workflow via workflow_dispatch
+  // Re-trigger the workflow — electron-builder will upload/overwrite artifacts on the existing draft
   execSync(`gh workflow run release.yml -f version=${version}`, { stdio: 'inherit', cwd: root })
 
   console.log(`\n✓ Workflow triggered for ${tag}`)

@@ -83,8 +83,8 @@ jobs:
       - name: Create tag
         if: github.event_name == 'workflow_dispatch' && matrix.platform == 'mac'
         run: |
-          git tag "v${{ steps.version.outputs.version }}"
-          git push origin "v${{ steps.version.outputs.version }}"
+          git tag "v${{ steps.version.outputs.version }}" 2>/dev/null || true
+          git push origin "v${{ steps.version.outputs.version }}" 2>/dev/null || true
 
       - name: Package, sign, notarize, and publish to GitHub Releases
         run: pnpm exec electron-builder ${{ matrix.electron-args }} --publish always

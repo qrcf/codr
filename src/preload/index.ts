@@ -43,6 +43,12 @@ const agentApi = {
     return () => { ipcRenderer.removeListener('agent:done', listener) }
   },
 
+  onSessionIdentified: (callback: (data: { oldKey: string; newKey: string }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: { oldKey: string; newKey: string }) => callback(data)
+    ipcRenderer.on('agent:session-identified', listener)
+    return () => { ipcRenderer.removeListener('agent:session-identified', listener) }
+  },
+
   onPermissionRequest: (callback: (request: { id: number; tool: string; input: unknown }, querySessionId?: string | null) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, request: { id: number; tool: string; input: unknown }, qsid?: string | null) => callback(request, qsid ?? null)
     ipcRenderer.on('agent:permission-request', listener)
@@ -103,6 +109,7 @@ const agentApi = {
     })
   },
   listFiles: (dir?: string) => ipcRenderer.invoke('sessions:list-files', dir),
+  regenTitle: (sessionId: string, firstPrompt: string) => ipcRenderer.invoke('sessions:regen-title', sessionId, firstPrompt),
   getRepoName: (folderPath: string) => ipcRenderer.invoke('sessions:get-repo-name', folderPath),
 
   onAccountInfoUpdate: (callback: (info: unknown) => void) => {
@@ -215,6 +222,8 @@ const agentApi = {
     ipcRenderer.invoke('indexer:project-files', projectDir) as Promise<{ path: string; chunkCount: number; language: string; size: number }[]>,
   rebuildIndex: (projectDir: string) =>
     ipcRenderer.invoke('indexer:rebuild', projectDir) as Promise<{ ok: boolean }>,
+  updateIndex: (projectDir: string) =>
+    ipcRenderer.invoke('indexer:update', projectDir) as Promise<{ ok: boolean }>,
   reinstallIndexer: () =>
     ipcRenderer.invoke('indexer:reinstall') as Promise<{ ok: boolean }>,
   onIndexerSetupProgress: (callback: (progress: { step: string; detail?: string }) => void) => {

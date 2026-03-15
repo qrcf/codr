@@ -312,6 +312,12 @@ export class EventBroadcaster {
     if (this.mostRecentQueryKey === oldKey) {
       this.mostRecentQueryKey = newKey
     }
+
+    // Notify renderer so it can stop filtering live stream events by stale draft/new IDs.
+    const win = this.getMainWindow()
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('agent:session-identified', { oldKey, newKey })
+    }
   }
 
   private commitCurrentTurn(querySessionId: string) {
@@ -322,7 +328,7 @@ export class EventBroadcaster {
     const tools = state.streamingTools
     const thinking = state.streamingThinking
 
-    if (text || tools.length > 0) {
+    if (text || tools.length > 0 || thinking) {
       const last = state.messages[state.messages.length - 1]
       if (!text && tools.length > 0 && last?.role === 'assistant') {
         // Tool-only turn: merge into previous assistant message

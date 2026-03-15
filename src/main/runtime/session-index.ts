@@ -190,7 +190,7 @@ function upsertIndexedSessionSync(
     data.providerSessionId ?? null,
     prev?.createdAt ?? now,
     data.updatedAt ?? now,
-    data.title ?? null,
+    data.title !== undefined ? data.title : (prev?.title ?? null),
     data.firstPrompt ?? null,
     data.workspaceDir ?? null,
     data.status ?? 'active',

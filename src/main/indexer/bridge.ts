@@ -23,6 +23,7 @@ interface JsonMessage {
   count?: number
   results?: SearchResult[]
   chunks?: ChunkResult[]
+  new_chunks?: ChunkResult[]
 }
 
 export class IndexerBridge {
@@ -105,6 +106,24 @@ export class IndexerBridge {
     const result = await this.sendRequest({ cmd: 'build_index', chunks }, 300000)
     if (!result.ok) throw new Error(result.error || 'build_index failed')
     return { count: result.count || 0 }
+  }
+
+  /**
+   * Patch rebuild: chunk only new/changed files, rebuild HNSW from cached + new chunks.
+   * Returns the count and the newly generated chunks (for cache update).
+   */
+  async patchRebuild(params: {
+    newFiles: { path: string; content: string }[]
+    cachedChunks: ChunkResult[]
+  }): Promise<{ count: number; newChunks: ChunkResult[] }> {
+    if (!this.ready) throw new Error('Indexer bridge not started')
+    const result = await this.sendRequest({
+      cmd: 'patch_rebuild',
+      new_files: params.newFiles,
+      cached_chunks: params.cachedChunks,
+    }, 300000)
+    if (!result.ok) throw new Error(result.error || 'patch_rebuild failed')
+    return { count: result.count || 0, newChunks: result.new_chunks || [] }
   }
 
   /**

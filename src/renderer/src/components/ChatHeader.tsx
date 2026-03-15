@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { PanelLeftClose, PanelLeftOpen, ChevronDown, Search, ClipboardList, Settings } from 'lucide-react'
+import { PanelLeftClose, PanelLeftOpen, ChevronDown, Search, ClipboardList, Settings, RefreshCw } from 'lucide-react'
 import { timeAgo } from '../utils/timeAgo'
 
 function truncate(s: string | undefined, max: number): string {
@@ -23,10 +23,12 @@ interface ChatHeaderProps {
   approvedPlan?: { content: string; filePath: string } | null
   onShowPlan?: () => void
   onOpenManageProject?: (folderPath: string) => void
+  onRegenTitle?: (sessionId: string, firstPrompt: string) => Promise<void>
 }
 
-export function ChatHeader({ sidebarOpen, onToggleSidebar, projectTitle, activeSession, isDraft, allProjects, onChangeProject, approvedPlan, onShowPlan, onOpenManageProject }: ChatHeaderProps) {
+export function ChatHeader({ sidebarOpen, onToggleSidebar, projectTitle, activeSession, isDraft, allProjects, onChangeProject, approvedPlan, onShowPlan, onOpenManageProject, onRegenTitle }: ChatHeaderProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [isRegenerating, setIsRegenerating] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const dropdownRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -155,11 +157,31 @@ export function ChatHeader({ sidebarOpen, onToggleSidebar, projectTitle, activeS
           <Settings size={13} />
         </button>
       )}
-      {activeSession && (activeSession.customTitle || activeSession.generatedTitle) && (
-        <div className="relative flex-1 min-w-0 group">
-          <span className="block text-[#999] text-[0.85em] whitespace-nowrap overflow-hidden text-ellipsis cursor-default">
-            {activeSession.customTitle || activeSession.generatedTitle}
-          </span>
+      {activeSession && !activeSession.sessionId.startsWith('draft-') && (
+        <div className="relative flex-1 min-w-0 group flex items-center gap-1">
+          {(activeSession.customTitle || activeSession.generatedTitle) && (
+            <span className="block text-[#999] text-[0.85em] whitespace-nowrap overflow-hidden text-ellipsis cursor-default min-w-0">
+              {activeSession.customTitle || activeSession.generatedTitle}
+            </span>
+          )}
+          {onRegenTitle && (activeSession.firstPrompt || activeSession.summary) && (
+            <button
+              className={`hidden group-hover:flex items-center justify-center flex-shrink-0 bg-transparent border-none text-[#555] p-0.5 rounded cursor-pointer transition-colors duration-150 hover:text-[#aaa] ${isRegenerating ? '!flex' : ''}`}
+              title="Regenerate title"
+              onClick={async (e) => {
+                e.stopPropagation()
+                if (isRegenerating) return
+                setIsRegenerating(true)
+                try {
+                  await onRegenTitle(activeSession.sessionId, activeSession.firstPrompt || activeSession.summary || '')
+                } finally {
+                  setIsRegenerating(false)
+                }
+              }}
+            >
+              <RefreshCw size={11} className={isRegenerating ? 'animate-spin' : ''} />
+            </button>
+          )}
           <div className="hidden group-hover:block max-[768px]:!hidden absolute top-full left-0 min-w-[280px] max-w-[420px] bg-[#1e1e2e] border border-[#333] rounded-lg px-3 pb-[10px] pt-[18px] z-[100] shadow-[0_4px_16px_rgba(0,0,0,0.5)]" onClick={(e) => {
             const target = e.target as HTMLElement
             if (target.classList.contains('tooltip-value')) {

@@ -38,7 +38,7 @@ export function chooseTitle(input: ChooseTitleInput): string {
     || ''
 
   const normalized = title.trim()
-  return normalized || 'Untitled Session'
+  return normalized || ''
 }
 
 export function shouldUseIndexedMessages(

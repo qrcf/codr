@@ -398,7 +398,7 @@ relayClient.onMessage(async (msg) => {
             data = indexerManager.getProjectFiles(params?.projectDir as string)
             break
           case 'indexer_rebuild':
-            await indexerManager.buildIndex(params?.projectDir as string)
+            await indexerManager.buildIndex(params?.projectDir as string, true)
             data = { ok: true }
             break
           case 'indexer_reinstall':
@@ -717,7 +717,11 @@ app.whenReady().then(() => {
     return indexerManager.getProjectFiles(projectDir)
   })
   ipcMain.handle('indexer:rebuild', async (_event, projectDir: string) => {
-    await indexerManager.buildIndex(projectDir)
+    await indexerManager.buildIndex(projectDir, true)
+    return { ok: true }
+  })
+  ipcMain.handle('indexer:update', async (_event, projectDir: string) => {
+    await indexerManager.buildIndex(projectDir, false)
     return { ok: true }
   })
   ipcMain.handle('indexer:reinstall', async () => {

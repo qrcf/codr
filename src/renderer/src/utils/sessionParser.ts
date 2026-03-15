@@ -104,7 +104,7 @@ export function parseSessionMessages(raw: RawSessionMessage[]): ChatMessage[] {
 
       const text = textParts.join('\n')
       const thinking = thinkingParts.join('\n') || undefined
-      if (text || toolCalls.length > 0) {
+      if (text || toolCalls.length > 0 || thinking) {
         // Merge tool-only assistant messages into the previous assistant
         // message. Tool call chains produce many assistant→user→assistant
         // cycles in the raw data but should display as one message bubble.

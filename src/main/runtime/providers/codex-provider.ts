@@ -149,6 +149,7 @@ export class CodexProvider implements AgentProvider {
 
     // Per-turn accumulation state
     let agentText = ''
+    let reasoningText = ''
     const toolUseBlocks: Array<{ id: string; name: string; input: Record<string, unknown> }> = []
     const toolResultBlocks: Array<{ tool_use_id: string; content: string; is_error: boolean }> = []
     const prevItemTextLen = new Map<string, number>()
@@ -201,6 +202,7 @@ export class CodexProvider implements AgentProvider {
                 }, sessionId)
                 prevItemTextLen.set(item.id, item.text.length)
               }
+              reasoningText = item.text
             } else if (item.type === 'todo_list') {
               // Emit todo_list as a TodoWrite tool_use so the renderer displays it
               const input = mapTodoListToTodoWrite(item)
@@ -282,6 +284,7 @@ export class CodexProvider implements AgentProvider {
 
             // Emit the canonical assistant message (indexed for session replay)
             const assistantContent: unknown[] = []
+            if (reasoningText) assistantContent.push({ type: 'thinking', thinking: reasoningText })
             if (agentText) assistantContent.push({ type: 'text', text: agentText })
             for (const block of toolUseBlocks) {
               assistantContent.push({ type: 'tool_use', id: block.id, name: block.name, input: block.input })
@@ -313,6 +316,7 @@ export class CodexProvider implements AgentProvider {
 
             // Reset for any subsequent turn
             agentText = ''
+            reasoningText = ''
             toolUseBlocks.length = 0
             toolResultBlocks.length = 0
             prevItemTextLen.clear()

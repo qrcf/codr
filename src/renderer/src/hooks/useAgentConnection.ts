@@ -79,7 +79,7 @@ export function useAgentConnection({
     const tools = [...streamingToolsRef.current]
     const thinking = streamingThinkingRef.current
 
-    if (text || tools.length > 0) {
+    if (text || tools.length > 0 || thinking) {
       setMessages((prev) => {
         const last = prev[prev.length - 1]
         if (!text && tools.length > 0 && last?.role === 'assistant') {
@@ -110,6 +110,22 @@ export function useAgentConnection({
     setStreamingText('')
     setStreamingThinking('')
     setStreamingTools([])
+  }, [])
+
+  const applyStreamingState = useCallback((state: {
+    streamingText?: string
+    streamingThinking?: string
+    streamingTools?: ToolCallInfo[]
+  }) => {
+    const text = state.streamingText || ''
+    const thinking = state.streamingThinking || ''
+    const tools = state.streamingTools || []
+    streamingTextRef.current = text
+    streamingThinkingRef.current = thinking
+    streamingToolsRef.current = [...tools]
+    setStreamingText(text)
+    setStreamingThinking(thinking)
+    setStreamingTools([...tools])
   }, [])
 
   const loadMessages = useCallback((sessionMessages: ChatMessage[], initialTokenUsage?: TokenUsage | null) => {
@@ -328,6 +344,15 @@ export function useAgentConnection({
       }
     }))
 
+    if (window.claude.onSessionIdentified) {
+      unsubs.push(window.claude.onSessionIdentified(({ oldKey, newKey }) => {
+        if (activeSessionIdRef.current === oldKey) {
+          activeSessionIdRef.current = newKey
+          setActiveSessionId(newKey)
+        }
+      }))
+    }
+
     unsubs.push(window.claude.onError((error, querySessionId) => {
       if (querySessionId) {
         setBackgroundQuerySessionIds(prev => {
@@ -520,6 +545,7 @@ export function useAgentConnection({
     streamingToolsRef,
     commitCurrentTurn,
     resetStreaming,
+    applyStreamingState,
     loadMessages,
     loadMoreMessages,
     nextId,

@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { app } from 'electron'
 import path from 'node:path'
 import { createCanUseTool } from '../../permissions'
-import { setCachedAccountInfo } from '../../sessions'
+import { setCachedAccountInfo, storeSessionTitle } from '../../sessions'
 import type {
   AgentProvider,
   AgentProviderContext,
@@ -183,6 +183,7 @@ export class ClaudeProvider implements AgentProvider {
 
           if (isNewSession) {
             this.ctx.broadcaster.send('sessions:refresh-hint')
+            storeSessionTitle(capturedSessionId, req.prompt)
           }
         }
         callbacks.onMessage(message, currentKey)

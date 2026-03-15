@@ -117,6 +117,7 @@ export default function App() {
     agent: {
       loadMessages: agent.loadMessages,
       resetStreaming: agent.resetStreaming,
+      applyStreamingState: agent.applyStreamingState,
       setIsLoading: agent.setIsLoading,
       setMessages: agent.setMessages,
     },
@@ -535,6 +536,7 @@ export default function App() {
           approvedPlan={dialogs.approvedPlan}
           onShowPlan={() => setShowPlanOverlay(true)}
           onOpenManageProject={(folder) => { setManageProjectFolder(folder); setManageProjectOpen(true); setSettingsOpen(false) }}
+          onRegenTitle={window.claude.regenTitle ? (sessionId, firstPrompt) => window.claude.regenTitle!(sessionId, firstPrompt) : undefined}
         />
 
         <div className="flex-1 min-h-0 relative overflow-hidden">
@@ -620,8 +622,6 @@ export default function App() {
             onInterrupt={handleInterrupt}
             onCompact={handleCompact}
             docSources={docsAPI.sources}
-            attachments={attachments}
-            setAttachments={setAttachments}
           />
         </div>
       </div>

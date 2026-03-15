@@ -5,11 +5,12 @@ Long-lived process that communicates with the Electron main process
 via JSON lines over stdin (commands) and stdout (responses).
 
 Commands:
-  init         — Initialize LEANN with config (index_path, model, backend)
-  chunk_files  — AST-aware chunking of source files
-  build_index  — Build embedding index from pre-chunked documents
-  search       — Semantic search over the index
-  shutdown     — Graceful cleanup
+  init           — Initialize LEANN with config (index_path, model, backend)
+  chunk_files    — AST-aware chunking of source files
+  build_index    — Build embedding index from pre-chunked documents
+  patch_rebuild  — Chunk only new/changed files, rebuild index from cached + new chunks
+  search         — Semantic search over the index
+  shutdown       — Graceful cleanup
 """
 
 import asyncio
@@ -233,6 +234,21 @@ async def main():
                 chunks = msg.get("chunks", [])
                 count = worker.build_index(chunks)
                 emit({"id": msg_id, "ok": True, "count": count})
+
+            elif cmd == "patch_rebuild":
+                new_files = msg.get("new_files", [])
+                cached_chunks = msg.get("cached_chunks", [])
+
+                # Chunk only the new/changed files
+                new_chunks = []
+                if new_files:
+                    new_chunks = worker.chunk_files(new_files)
+
+                # Combine cached + new chunks and rebuild full HNSW index
+                all_chunks = cached_chunks + new_chunks
+                count = worker.build_index(all_chunks)
+
+                emit({"id": msg_id, "ok": True, "count": count, "new_chunks": new_chunks})
 
             elif cmd == "search":
                 results = worker.search(

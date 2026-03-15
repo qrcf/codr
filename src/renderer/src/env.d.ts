@@ -109,6 +109,7 @@ interface ClaudeAPI {
   onMessage: (callback: (message: unknown, querySessionId?: string | null) => void) => () => void
   onError: (callback: (error: string, querySessionId?: string | null) => void) => () => void
   onDone: (callback: (querySessionId?: string | null) => void) => () => void
+  onSessionIdentified?: (callback: (data: { oldKey: string; newKey: string }) => void) => () => void
   onPermissionRequest: (callback: (request: PermissionRequest, querySessionId?: string | null) => void) => () => void
   respondPermission: (id: number, allowed: boolean, opts?: { alwaysAllow?: boolean; toolName?: string; message?: string }) => void
   onPermissionCleared?: (callback: (data: { id: number }, querySessionId?: string | null) => void) => () => void
@@ -121,6 +122,7 @@ interface ClaudeAPI {
   getSessionMessages: (sessionId: string) => Promise<RawSessionMessage[]>
   getAccountInfo: () => Promise<AccountInfo | null>
   listFiles: (dir?: string) => Promise<string[]>
+  regenTitle?: (sessionId: string, firstPrompt: string) => Promise<void>
   getRepoName?: (folderPath: string) => Promise<string>
   readClaudeMd?: (folderPath: string) => Promise<{ content?: string | null; error?: string }>
   writeClaudeMd?: (folderPath: string, content: string) => Promise<{ ok?: boolean; error?: string }>
@@ -180,6 +182,7 @@ interface ClaudeAPI {
   getIndexerProjectStatus?: (projectDir: string) => Promise<{status: string, fileCount?: number, detail?: string}>
   getIndexerProjectFiles?: (projectDir: string) => Promise<{path: string, chunkCount: number, language: string, size: number}[]>
   rebuildIndex?: (projectDir: string) => Promise<{ok: boolean}>
+  updateIndex?: (projectDir: string) => Promise<{ok: boolean}>
   reinstallIndexer?: () => Promise<{ok: boolean}>
   onIndexerSetupProgress?: (cb: (progress: {step: string, detail?: string, projectDir?: string, progress?: {current: number, total: number}}) => void) => () => void
 

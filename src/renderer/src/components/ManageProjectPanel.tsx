@@ -411,6 +411,19 @@ function ProjectIndexTab({ folderPath }: { folderPath: string }) {
       .finally(() => setRebuilding(false))
   }
 
+  const handleUpdate = () => {
+    setRebuilding(true)
+    setIndexingDetail(null)
+    setIndexingProgress(null)
+    window.claude.updateIndex?.(folderPath)
+      .then(() => {
+        window.claude.getIndexerProjectStatus?.(folderPath).then(setProjectStatus).catch(() => {})
+        loadFiles()
+      })
+      .catch(() => {})
+      .finally(() => setRebuilding(false))
+  }
+
   const globalReady = globalStatus.status === 'ready'
   const isIndexed = projectStatus.status === 'indexed'
   const isIndexing = projectStatus.status === 'indexing' || rebuilding
@@ -494,6 +507,15 @@ function ProjectIndexTab({ folderPath }: { folderPath: string }) {
           )}
 
           <div className="flex gap-2 mt-4 pt-3 border-t border-[#2a2a3a]">
+            {isIndexed && (
+              <button
+                className="bg-[#2a2a3d] border border-[#3a3a5a] text-[#ccc] py-1.5 px-3.5 rounded-md text-[12px] cursor-pointer transition-colors duration-150 hover:bg-[#3a3a5a] hover:text-[#e0e0e0] disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={handleUpdate}
+                disabled={isIndexing || !globalReady}
+              >
+                {isIndexing ? 'Updating...' : 'Update Index'}
+              </button>
+            )}
             <button
               className="bg-[#2a2a3d] border border-[#3a3a5a] text-[#ccc] py-1.5 px-3.5 rounded-md text-[12px] cursor-pointer transition-colors duration-150 hover:bg-[#3a3a5a] hover:text-[#e0e0e0] disabled:opacity-50 disabled:cursor-not-allowed"
               onClick={handleRebuild}

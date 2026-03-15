@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync, readFileSync, renameSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import { join, extname } from 'node:path'
 import { createHash } from 'node:crypto'
@@ -12,7 +12,6 @@ import { listFilesData } from '../sessions.js'
 const LEANN_VERSION = '0.3.7'
 const PYTHON_VERSION = '3.12'
 const MAX_FILE_SIZE = 50 * 1024 // 50KB
-const CHUNK_BATCH_SIZE = 50 // Files per chunk_files request
 
 const BINARY_EXTENSIONS = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.ico', '.svg', '.webp', '.bmp',
@@ -66,6 +65,7 @@ export interface IndexerSetupProgress {
 }
 
 export interface FileIndexInfo {
+  contentHash: string
   mtime: number
   chunkCount: number
   language: string
@@ -176,7 +176,7 @@ function readMetadata(projectDir: string): IndexMetadata | null {
         // Convert old format (Record<string, number>) → new format
         const converted: Record<string, FileIndexInfo> = {}
         for (const [path, mtime] of Object.entries(raw.files)) {
-          converted[path] = { mtime: mtime as number, chunkCount: 0, language: 'unknown', size: 0 }
+          converted[path] = { contentHash: '', mtime: mtime as number, chunkCount: 0, language: 'unknown', size: 0 }
         }
         return { files: converted, builtAt: raw.builtAt }
       }
@@ -186,6 +186,7 @@ function readMetadata(projectDir: string): IndexMetadata | null {
         for (const [path, info] of Object.entries(raw.files)) {
           const old = info as Record<string, unknown>
           converted[path] = {
+            contentHash: '',
             mtime: (old.mtime as number) || 0,
             chunkCount: (old.symbolCount as number) || 0,
             language: (old.language as string) || 'unknown',
@@ -193,6 +194,15 @@ function readMetadata(projectDir: string): IndexMetadata | null {
           }
         }
         return { files: converted, builtAt: raw.builtAt }
+      }
+    }
+    // Migrate entries missing contentHash (added in patch-rebuild update)
+    if (raw.files && typeof raw.files === 'object') {
+      const firstEntry = Object.values(raw.files)[0] as Record<string, unknown> | undefined
+      if (firstEntry && !('contentHash' in firstEntry)) {
+        for (const info of Object.values(raw.files) as Record<string, unknown>[]) {
+          info.contentHash = ''
+        }
       }
     }
     return raw
@@ -205,6 +215,124 @@ function writeMetadata(projectDir: string, meta: IndexMetadata): void {
   const dir = getProjectIndexDir(projectDir)
   mkdirSync(dir, { recursive: true })
   writeFileSync(getMetadataPath(projectDir), JSON.stringify(meta))
+}
+
+// -- Content hashing --
+
+function computeContentHash(content: string): string {
+  return createHash('sha256').update(content).digest('hex').slice(0, 16)
+}
+
+// -- Chunk cache for patch-based rebuilds --
+
+interface ChunkCacheEntry {
+  contentHash: string
+  chunks: { id: string; text: string; metadata: Record<string, unknown> }[]
+}
+type ChunkCache = Record<string, ChunkCacheEntry>
+
+function getChunkCachePath(projectDir: string): string {
+  return join(getProjectIndexDir(projectDir), 'chunk_cache.json')
+}
+
+function readChunkCache(projectDir: string): ChunkCache {
+  const cachePath = getChunkCachePath(projectDir)
+  if (!existsSync(cachePath)) return {}
+  try {
+    return JSON.parse(readFileSync(cachePath, 'utf-8'))
+  } catch {
+    return {}
+  }
+}
+
+function writeChunkCache(projectDir: string, cache: ChunkCache): void {
+  const dir = getProjectIndexDir(projectDir)
+  mkdirSync(dir, { recursive: true })
+  const cachePath = getChunkCachePath(projectDir)
+  const tmpPath = cachePath + '.tmp'
+  writeFileSync(tmpPath, JSON.stringify(cache))
+  renameSync(tmpPath, cachePath)
+}
+
+// -- File classification for incremental updates --
+
+interface FileClassification {
+  unchanged: string[]
+  changed: string[]
+  added: string[]
+  removed: string[]
+  /** Content hashes computed during classification (for changed + added files) */
+  newHashes: Map<string, string>
+  /** Updated mtimes for files whose mtime changed but content didn't */
+  updatedMtimes: Map<string, number>
+}
+
+async function classifyFiles(
+  projectDir: string,
+  currentFiles: string[],
+  meta: IndexMetadata | null,
+  chunkCache: ChunkCache,
+): Promise<FileClassification> {
+  const result: FileClassification = {
+    unchanged: [], changed: [], added: [], removed: [],
+    newHashes: new Map(), updatedMtimes: new Map(),
+  }
+
+  if (!meta) {
+    // No previous metadata — everything is new
+    result.added = currentFiles
+    return result
+  }
+
+  const oldSet = new Set(Object.keys(meta.files))
+  const currentSet = new Set(currentFiles)
+
+  // Removed files
+  result.removed = [...oldSet].filter(f => !currentSet.has(f))
+
+  for (const file of currentFiles) {
+    const oldInfo = meta.files[file]
+    if (!oldInfo) {
+      // New file
+      result.added.push(file)
+      continue
+    }
+
+    // File exists in both old and new — check if changed
+    try {
+      const s = await stat(join(projectDir, file))
+
+      // Fast path: mtime unchanged → assume content unchanged
+      if (Math.abs(s.mtimeMs - (oldInfo.mtime || 0)) <= 1000 && oldInfo.contentHash) {
+        // Also verify cache entry exists and hash matches
+        const cached = chunkCache[file]
+        if (cached && cached.contentHash === oldInfo.contentHash) {
+          result.unchanged.push(file)
+          continue
+        }
+      }
+
+      // Slow path: mtime changed or no contentHash — read and hash content
+      const fullPath = join(projectDir, file)
+      const content = await readFile(fullPath, 'utf-8')
+      const hash = computeContentHash(content)
+
+      if (oldInfo.contentHash && hash === oldInfo.contentHash) {
+        // Content unchanged despite mtime change (e.g. git checkout)
+        result.unchanged.push(file)
+        result.updatedMtimes.set(file, s.mtimeMs)
+      } else {
+        // Content actually changed
+        result.changed.push(file)
+        result.newHashes.set(file, hash)
+      }
+    } catch {
+      // Can't read file — treat as removed
+      result.removed.push(file)
+    }
+  }
+
+  return result
 }
 
 // -- Shell helper --
@@ -331,9 +459,10 @@ export class IndexerManager {
 
   /**
    * Build or rebuild the index for a project.
-   * Uses LEANN's AST-aware chunking for code files.
+   * Uses patch-based approach: only re-chunks changed/added files, rebuilds HNSW from cached + new chunks.
+   * When force=true, ignores cache and re-chunks everything (used by manual "Rebuild Index" button).
    */
-  async buildIndex(projectDir: string): Promise<void> {
+  async buildIndex(projectDir: string, force = false): Promise<void> {
     if (!projectDir) throw new Error('projectDir is required')
     if (this.globalStatus !== 'ready') throw new Error('Indexer not installed')
 
@@ -350,70 +479,107 @@ export class IndexerManager {
       // List files
       const files = await listFilesData(projectDir, 2000)
       const totalFiles = files.length
-      this.onProgress?.({ step: 'indexing', detail: `Chunking ${totalFiles} files...`, projectDir, progress: { current: 0, total: totalFiles } })
 
-      // Read file contents and send to Python for AST chunking in batches
-      const allChunks: { id: string; text: string; metadata: Record<string, unknown> }[] = []
-      const chunkCountPerFile = new Map<string, number>()
-      let processed = 0
+      // Load existing metadata and chunk cache
+      const meta = force ? null : readMetadata(projectDir)
+      const chunkCache = force ? {} as ChunkCache : readChunkCache(projectDir)
 
-      for (let i = 0; i < files.length; i += CHUNK_BATCH_SIZE) {
-        const batch = files.slice(i, i + CHUNK_BATCH_SIZE)
-        const fileContents: { path: string; content: string }[] = []
+      // Classify files into unchanged/changed/added/removed
+      const classification = await classifyFiles(projectDir, files, meta, chunkCache)
+      const { unchanged, changed, added, removed, newHashes, updatedMtimes } = classification
 
-        for (const filePath of batch) {
-          if (BINARY_EXTENSIONS.has(extname(filePath).toLowerCase())) continue
-          if (shouldSkipForIndexing(filePath)) continue
-          try {
-            const fullPath = join(projectDir, filePath)
-            const content = await readFile(fullPath, 'utf-8')
-            if (content.length > MAX_FILE_SIZE) {
-              // Still include but truncate for very large files
-              fileContents.push({ path: filePath, content: content.slice(0, MAX_FILE_SIZE) })
-            } else {
-              fileContents.push({ path: filePath, content })
-            }
-          } catch { /* skip unreadable files */ }
-        }
+      const filesToProcess = [...changed, ...added]
+      const totalChanged = filesToProcess.length + removed.length
+      this.onProgress?.({ step: 'indexing', detail: `${totalChanged} file${totalChanged !== 1 ? 's' : ''} changed, reading...`, projectDir, progress: { current: 0, total: totalFiles } })
 
-        if (fileContents.length > 0) {
-          const chunks = await bridge.chunkFiles(fileContents)
-          allChunks.push(...chunks)
+      // Read ONLY changed + added file contents
+      const newFileContents: { path: string; content: string }[] = []
+      const contentsByPath = new Map<string, string>()
 
-          // Track chunk count per file
-          for (const chunk of chunks) {
-            const fp = (chunk.metadata?.file_path as string) || ''
-            chunkCountPerFile.set(fp, (chunkCountPerFile.get(fp) || 0) + 1)
-          }
-        }
+      for (const filePath of filesToProcess) {
+        if (BINARY_EXTENSIONS.has(extname(filePath).toLowerCase())) continue
+        if (shouldSkipForIndexing(filePath)) continue
+        try {
+          const fullPath = join(projectDir, filePath)
+          const content = await readFile(fullPath, 'utf-8')
+          const truncated = content.length > MAX_FILE_SIZE ? content.slice(0, MAX_FILE_SIZE) : content
+          newFileContents.push({ path: filePath, content: truncated })
+          contentsByPath.set(filePath, content)
+        } catch { /* skip unreadable files */ }
+      }
 
-        processed += batch.length
-        if (batch.length > 0) {
-          this.onProgress?.({
-            step: 'indexing',
-            detail: batch[batch.length - 1],
-            projectDir,
-            progress: { current: processed, total: totalFiles },
-          })
+      // Collect cached chunks for unchanged files
+      const cachedChunks: { id: string; text: string; metadata: Record<string, unknown> }[] = []
+      for (const file of unchanged) {
+        const entry = chunkCache[file]
+        if (entry?.chunks) {
+          cachedChunks.push(...entry.chunks)
         }
       }
 
       this.onProgress?.({
         step: 'indexing',
-        detail: `Building embedding index for ${allChunks.length} chunks from ${files.length} files...`,
+        detail: `Chunking ${newFileContents.length} changed file${newFileContents.length !== 1 ? 's' : ''}, rebuilding index with ${cachedChunks.length} cached chunks...`,
         projectDir,
-        progress: { current: totalFiles, total: totalFiles },
+        progress: { current: Math.round(totalFiles * 0.3), total: totalFiles },
       })
 
-      await bridge.buildIndex(allChunks)
+      // Patch rebuild: chunk new files + rebuild HNSW from cached + new
+      const { count, newChunks } = await bridge.patchRebuild({
+        newFiles: newFileContents,
+        cachedChunks,
+      })
 
-      // Save metadata with per-file info
+      // Update chunk cache: remove old entries, add new ones
+      const updatedCache: ChunkCache = {}
+
+      // Keep unchanged entries
+      for (const file of unchanged) {
+        if (chunkCache[file]) {
+          updatedCache[file] = chunkCache[file]
+        }
+      }
+
+      // Add new entries for changed + added files, grouped by file path
+      const chunksByFile = new Map<string, { id: string; text: string; metadata: Record<string, unknown> }[]>()
+      for (const chunk of newChunks) {
+        const fp = (chunk.metadata?.file_path as string) || ''
+        if (!chunksByFile.has(fp)) chunksByFile.set(fp, [])
+        chunksByFile.get(fp)!.push(chunk)
+      }
+
+      for (const file of filesToProcess) {
+        const fileChunks = chunksByFile.get(file) || []
+        const content = contentsByPath.get(file)
+        const hash = newHashes.get(file) || (content ? computeContentHash(content) : '')
+        updatedCache[file] = { contentHash: hash, chunks: fileChunks }
+      }
+
+      writeChunkCache(projectDir, updatedCache)
+
+      // Save metadata with per-file info including content hashes
+      const chunkCountPerFile = new Map<string, number>()
+      for (const chunk of [...cachedChunks, ...newChunks]) {
+        const fp = (chunk.metadata?.file_path as string) || ''
+        chunkCountPerFile.set(fp, (chunkCountPerFile.get(fp) || 0) + 1)
+      }
+
       const fileInfos: Record<string, FileIndexInfo> = {}
       for (const file of files) {
         try {
           const s = await stat(join(projectDir, file))
+          // Use hash from classification if available, otherwise from cache or compute fresh
+          let hash = newHashes.get(file) || ''
+          if (!hash && updatedCache[file]?.contentHash) {
+            hash = updatedCache[file].contentHash
+          }
+          if (!hash && meta?.files[file]?.contentHash) {
+            hash = meta.files[file].contentHash
+          }
+          const mtime = updatedMtimes.get(file) ?? s.mtimeMs
           fileInfos[file] = {
-            mtime: s.mtimeMs,
+            contentHash: hash,
+            mtime,
             chunkCount: chunkCountPerFile.get(file) || 0,
             language: detectLanguage(file),
             size: s.size,
@@ -423,7 +589,7 @@ export class IndexerManager {
       writeMetadata(projectDir, { files: fileInfos, builtAt: Date.now() })
 
       this.indexingProjectDir = null
-      this.onProgress?.({ step: 'indexed', detail: `${allChunks.length} chunks from ${files.length} files indexed`, projectDir })
+      this.onProgress?.({ step: 'indexed', detail: `${count} chunks from ${files.length} files (${filesToProcess.length} re-chunked)`, projectDir })
     } catch (err) {
       this.indexingProjectDir = null
       const detail = err instanceof Error ? err.message : String(err)
@@ -434,8 +600,8 @@ export class IndexerManager {
   }
 
   /**
-   * Check if the index is stale and rebuild if needed.
-   * LEANN compact HNSW doesn't support incremental updates, so any changes trigger a full rebuild.
+   * Check if the index is stale and patch-rebuild if needed.
+   * Uses content hashes for reliable change detection. Only re-chunks changed files.
    */
   async refreshIfStale(projectDir: string): Promise<void> {
     const meta = readMetadata(projectDir)
@@ -444,31 +610,23 @@ export class IndexerManager {
       return
     }
 
-    // Check for changes
     const currentFiles = await listFilesData(projectDir, 2000)
-    const currentSet = new Set(currentFiles)
-    const oldSet = new Set(Object.keys(meta.files))
+    const chunkCache = readChunkCache(projectDir)
+    const classification = await classifyFiles(projectDir, currentFiles, meta, chunkCache)
 
-    const added = currentFiles.filter(f => !oldSet.has(f))
-    const removed = [...oldSet].filter(f => !currentSet.has(f))
-
-    // Check modified files
-    const modified: string[] = []
-    for (const file of currentFiles) {
-      if (oldSet.has(file)) {
-        try {
-          const s = await stat(join(projectDir, file))
-          if (Math.abs(s.mtimeMs - (meta.files[file]?.mtime || 0)) > 1000) {
-            modified.push(file)
-          }
-        } catch { /* skip */ }
+    const totalChanged = classification.changed.length + classification.added.length + classification.removed.length
+    if (totalChanged === 0) {
+      // No content changes — just update mtimes if any changed
+      if (classification.updatedMtimes.size > 0) {
+        for (const [file, mtime] of classification.updatedMtimes) {
+          if (meta.files[file]) meta.files[file].mtime = mtime
+        }
+        writeMetadata(projectDir, meta)
       }
+      return
     }
 
-    const totalChanged = added.length + removed.length + modified.length
-    if (totalChanged === 0) return
-
-    // Any changes → full rebuild (LEANN compact HNSW doesn't support incremental updates)
+    // Patch rebuild with only the changed files
     await this.buildIndex(projectDir)
   }
 

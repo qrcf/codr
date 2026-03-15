@@ -5,6 +5,11 @@ import { parseSessionMessages, extractTokenUsageFromRaw } from '../utils/session
 interface AgentHandle {
   loadMessages: (sessionMessages: ChatMessage[], initialTokenUsage?: TokenUsage | null) => void
   resetStreaming: () => void
+  applyStreamingState: (state: {
+    streamingText?: string
+    streamingThinking?: string
+    streamingTools?: import('../types').ToolCallInfo[]
+  }) => void
   setIsLoading: (v: boolean) => void
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>
 }
@@ -141,6 +146,13 @@ export function useSessionManager({
         if (activeSessionIdRef.current !== capturedSessionId) return
         if (state.isLoading) {
           agent.setIsLoading(true)
+          if (state.streamingThinking || state.streamingText || (state.streamingTools?.length ?? 0) > 0) {
+            agent.applyStreamingState({
+              streamingThinking: state.streamingThinking,
+              streamingText: state.streamingText,
+              streamingTools: state.streamingTools,
+            })
+          }
           restoreDialogState(capturedSessionId, {
             permissionRequest: state.permissionRequest,
             questionRequest: state.questionRequest,

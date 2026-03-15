@@ -95,6 +95,12 @@ export function setAuthFailureHandler(handler: () => void): void {
   authFailureHandler = handler
 }
 
+// --- Title generation: index-based, provider-first ---
+
+const titleGenerationBySession = new Map<string, Promise<void>>()
+let moduleRelayClient: RelayClient | undefined
+let moduleBroadcaster: EventBroadcaster | undefined
+
 // --- Reusable data functions (called by both IPC and relay) ---
 
 export async function listSessionsData(relayClient?: RelayClient, getAuthToken?: () => Promise<string>) {
@@ -123,13 +129,13 @@ export async function listSessionsData(relayClient?: RelayClient, getAuthToken?:
 
   // Keep the shared index fresh with Claude session discovery, regardless of selected provider.
   await Promise.all(
-    (sdkSessions as Array<{ sessionId?: string; generatedTitle?: string; firstPrompt?: string; cwd?: string; lastModified?: number }>).map(async (session) => {
+    (sdkSessions as Array<{ sessionId?: string; generatedTitle?: string; summary?: string; firstPrompt?: string; cwd?: string; lastModified?: number }>).map(async (session) => {
       if (!session.sessionId) return
       const dbEntry = (dbSessions || []).find(s => s.sessionId === session.sessionId)
       await upsertIndexedSession(session.sessionId!, {
         provider: 'claude',
-        title: dbEntry?.name || session.generatedTitle || null,
-        firstPrompt: dbEntry?.firstPrompt || session.firstPrompt || null,
+        title: dbEntry?.name || session.generatedTitle || session.summary || undefined,
+        firstPrompt: stripPromptContext(dbEntry?.firstPrompt || session.firstPrompt || '') || null,
         workspaceDir: session.cwd || null,
         updatedAt: typeof session.lastModified === 'number' ? session.lastModified : null,
       })
@@ -156,10 +162,101 @@ export async function listSessionsData(relayClient?: RelayClient, getAuthToken?:
     claudeDbSessions: dbSessions || [],
   })
 
+  // Backfill: generate haiku only for sessions with no title from ANY source.
+  // Sessions with provider-native titles (generatedTitle/summary) are skipped.
+  const sdkMap = new Map(
+    (sdkSessions as Array<{ sessionId?: string; generatedTitle?: string; summary?: string }>)
+      .filter(s => s.sessionId)
+      .map(s => [s.sessionId!, s]),
+  )
+  for (const indexed of refreshedIndexed) {
+    if (indexed.title) continue
+    if (indexed.provider !== 'claude') continue
+    if (!indexed.firstPrompt) continue
+    const sdk = sdkMap.get(indexed.sessionId)
+    if (sdk?.generatedTitle || sdk?.summary) continue
+    storeSessionTitle(indexed.sessionId, indexed.firstPrompt)
+  }
+
   return {
     sessions: result.sessions,
     titlesLoaded: dbFetchSucceeded || result.titlesLoaded,
   }
+}
+
+function stripPromptContext(prompt: string): string {
+  // Remove injected XML blocks from prompt-preprocessor before using for title generation
+  return prompt
+    .replace(/<codebase_context>[\s\S]*?<\/codebase_context>\s*/g, '')
+    .replace(/<file_context>[\s\S]*?<\/file_context>\s*/g, '')
+    .replace(/<documentation_context>[\s\S]*?<\/documentation_context>\s*/g, '')
+    .trim()
+}
+
+async function generateAndStoreTitle(sessionId: string, firstPrompt: string): Promise<void> {
+  if (!moduleRelayClient || !moduleBroadcaster) return
+  const cleanPrompt = stripPromptContext(firstPrompt)
+  if (!cleanPrompt) return
+  let title = ''
+  try {
+    const cliPath = getCliPath()
+    const titleQuery = query({
+      prompt: `Respond with ONLY a 3-6 word title in proper case summarizing this message. No quotes, no punctuation at end, no extra text.\n\nMessage: ${cleanPrompt.slice(0, 200)}`,
+      options: {
+        model: 'claude-haiku-4-5-20251001',
+        maxTurns: 1,
+        persistSession: false,
+        includePartialMessages: true,
+        ...(cliPath ? { pathToClaudeCodeExecutable: cliPath } : {}),
+      },
+    })
+    let streamTitle = ''
+    try {
+      for await (const message of titleQuery) {
+        const msg = message as Record<string, unknown>
+        if (msg.type === 'stream_event') {
+          const evt = msg as { event?: { type?: string; delta?: { type?: string; text?: string } } }
+          if (evt.event?.type === 'content_block_delta' && evt.event.delta?.type === 'text_delta' && evt.event.delta.text) {
+            streamTitle += evt.event.delta.text
+          }
+        } else if (msg.type === 'assistant') {
+          const content = (msg as { message?: { content?: Array<{ type: string; text?: string }> } }).message?.content
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              if (block.type === 'text' && block.text) streamTitle += block.text
+            }
+          }
+        }
+      }
+    } finally { titleQuery.close() }
+    title = streamTitle.trim()
+  } catch { /* generation failed */ }
+
+  if (!title) return
+
+  await upsertIndexedSession(sessionId, { provider: 'claude', title })
+
+  const baseUrl = moduleRelayClient.getApiBaseUrl()
+  if (baseUrl) {
+    try {
+      const token = await moduleRelayClient.getAuthToken()
+      const resp = await fetch(`${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: title }),
+      })
+      if (resp.status === 401) authFailureHandler?.()
+    } catch { /* relay PUT failed — title still in local index */ }
+  }
+
+  moduleBroadcaster.send('sessions:refresh-hint')
+}
+
+export function storeSessionTitle(sessionId: string, firstPrompt: string): void {
+  const trimmed = firstPrompt.trim()
+  if (!trimmed || titleGenerationBySession.has(sessionId)) return
+  const generation = generateAndStoreTitle(sessionId, trimmed)
+  titleGenerationBySession.set(sessionId, generation)
 }
 
 export async function getSessionMessagesData(sessionId: string, dir?: string) {
@@ -539,6 +636,9 @@ export async function getProviderStatusData(): Promise<AllProviderStatus> {
 // --- IPC handlers ---
 
 export function registerSessionHandlers(relayClient?: RelayClient, broadcaster?: EventBroadcaster, getAuthToken?: () => Promise<string>) {
+  moduleRelayClient = relayClient
+  moduleBroadcaster = broadcaster
+
   ipcMain.handle('sessions:list', async () => {
     return listSessionsData(relayClient, getAuthToken)
   })
@@ -570,6 +670,13 @@ export function registerSessionHandlers(relayClient?: RelayClient, broadcaster?:
 
   ipcMain.handle('sessions:list-files', async (_event, dir?: string) => {
     return listFilesData(dir)
+  })
+
+  ipcMain.handle('sessions:regen-title', async (_event, sessionId: string, firstPrompt: string) => {
+    if (!firstPrompt?.trim()) return
+    await upsertIndexedSession(sessionId, { provider: 'claude', title: null })
+    titleGenerationBySession.delete(sessionId)
+    await generateAndStoreTitle(sessionId, firstPrompt.trim())
   })
 
   ipcMain.handle('sessions:get-repo-name', async (_event, folderPath: string) => {

@@ -78,6 +78,7 @@ async function fetchClaudeModels(): Promise<ModelOption[]> {
   try {
     const cliPath = getClaudeCliPath()
     probeQuery = query({
+      // eslint-disable-next-line require-yield
       prompt: (async function* () {
         await new Promise(() => {}) // never resolves
       })(),

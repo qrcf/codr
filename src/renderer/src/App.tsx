@@ -281,10 +281,21 @@ export default function App() {
     }
   }, [])
 
+  const {
+    messages,
+    isLoading,
+    streamingText,
+    streamingThinking,
+    streamingTools,
+    hasMoreMessages,
+    loadMoreMessages,
+    isLoadingHistoryRef,
+  } = agent
+
   useEffect(() => {
-    if (!agent.isLoadingHistoryRef.current) requestAnimationFrame(scrollToBottom)
-  }, [agent.messages, agent.isLoading, agent.streamingText, agent.streamingThinking, agent.streamingTools,
-    agent.isLoadingHistoryRef, dialogs.permissionRequests, dialogs.questionRequests, dialogs.planReady, scrollToBottom])
+    if (!isLoadingHistoryRef.current) requestAnimationFrame(scrollToBottom)
+  }, [messages, isLoading, streamingText, streamingThinking, streamingTools,
+    isLoadingHistoryRef, dialogs.permissionRequests, dialogs.questionRequests, dialogs.planReady, scrollToBottom])
 
   // Scroll-based pagination
   useEffect(() => {
@@ -292,20 +303,20 @@ export default function App() {
     if (!container) return
 
     const handleScroll = () => {
-      if (container.scrollTop < 200 && agent.hasMoreMessages) {
+      if (container.scrollTop < 200 && hasMoreMessages) {
         const prevScrollHeight = container.scrollHeight
-        agent.isLoadingHistoryRef.current = true
-        agent.loadMoreMessages()
+        isLoadingHistoryRef.current = true
+        loadMoreMessages()
         requestAnimationFrame(() => {
           container.scrollTop = container.scrollHeight - prevScrollHeight
-          agent.isLoadingHistoryRef.current = false
+          isLoadingHistoryRef.current = false
         })
       }
     }
 
     container.addEventListener('scroll', handleScroll)
     return () => container.removeEventListener('scroll', handleScroll)
-  }, [agent.hasMoreMessages, agent.loadMoreMessages, agent.isLoadingHistoryRef])
+  }, [hasMoreMessages, loadMoreMessages, isLoadingHistoryRef])
 
   // --- Send handler (orchestrates all hooks) ---
   const handleSend = async () => {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   ClerkProvider,
   SignedIn,
@@ -71,18 +71,10 @@ if (!isElectron) {
   ;(window as unknown as { claude: ReturnType<typeof createStubAgentAPI>; agent: ReturnType<typeof createStubAgentAPI> }).agent = stub
 }
 
-function ConnectedApp() {
-  // If running inside the Electron shell, the preload script already provides
-  // window.claude via IPC — no need for the WebSocket adapter
-  if (isElectron) {
-    return <App />
-  }
-
+function WebConnectedApp() {
   const { getToken, signOut } = useAuth()
-  const [ready, setReady] = useState(false)
   const [desktopOnline, setDesktopOnline] = useState<boolean | null>(null)
   const [desktopVersion, setDesktopVersion] = useState<string | null>(null)
-  const apiRef = useRef<ReturnType<typeof createWebSocketClaudeAPI> | null>(null)
 
   const getClerkToken = useCallback(async () => {
     const token = await getToken()
@@ -92,7 +84,6 @@ function ConnectedApp() {
 
   useEffect(() => {
     const api = createWebSocketClaudeAPI(RELAY_URL, getClerkToken)
-    apiRef.current = api
 
     // Keep both names during migration.
     ;(window as unknown as { claude: typeof api; agent: typeof api }).claude = api
@@ -101,8 +92,6 @@ function ConnectedApp() {
     const unsubDesktop = api.onDesktopStatus((online) => setDesktopOnline(online))
     const unsubVersion = api.onDesktopVersion((version) => setDesktopVersion(version))
     const unsubAuthFailed = api.onAuthFailed(() => { void signOut() })
-
-    setReady(true)
 
     return () => {
       unsubDesktop()
@@ -122,7 +111,7 @@ function ConnectedApp() {
     && desktopVersion !== null
     && desktopVersion !== webVersion
 
-  if (!ready || desktopOnline !== true) {
+  if (desktopOnline !== true) {
     // Show ConnectionOverlay until desktop is confirmed online.
     // This covers: initial load, relay connecting, and desktop explicitly offline.
     return showVersionMismatch
@@ -136,6 +125,12 @@ function ConnectedApp() {
       <App />
     </>
   )
+}
+
+function ConnectedApp() {
+  // If running inside the Electron shell, the preload script already provides
+  // window.claude via IPC — no need for the WebSocket adapter
+  return isElectron ? <App /> : <WebConnectedApp />
 }
 
 const isElectronAuth = new URLSearchParams(window.location.search).get('mode') === 'electron-auth'

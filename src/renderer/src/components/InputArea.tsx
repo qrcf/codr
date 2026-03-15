@@ -164,6 +164,7 @@ export function InputArea({
         />
       )}
       <ReferenceFinderDialog
+        key={`${projectFolder ?? 'no-project'}:${refFinderOpen ? 'open' : 'closed'}`}
         isOpen={refFinderOpen}
         onClose={() => setRefFinderOpen(false)}
         onApprove={handleRefFinderApprove}

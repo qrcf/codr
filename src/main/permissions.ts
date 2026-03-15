@@ -170,7 +170,8 @@ export function createCanUseTool(
   const effectiveAskMode = askMode || (origin === 'remote' && settings.remoteQueryPolicy === 'ask-mode')
   const askAll = origin === 'remote' && settings.remoteQueryPolicy === 'ask-all'
 
-  return async (toolName, input, _options) => {
+  return async (toolName, input, options) => {
+    void options
     const qsid = getQuerySessionId?.() ?? null
 
     // AskUserQuestion: intercept and prompt user for answers

@@ -12,6 +12,7 @@ interface ReferenceFinderDialogProps {
 
 type Phase = 'input' | 'loading' | 'results'
 type FilterType = 'all' | 'config' | 'code' | 'docs'
+type ProjectIndexStatus = 'unknown' | 'not-indexed' | 'indexing' | 'indexed' | 'error'
 
 interface SearchResult {
   path: string
@@ -58,7 +59,7 @@ export function ReferenceFinderDialog({ isOpen, onClose, onApprove, projectFolde
   const [searchHistory, setSearchHistory] = useState<string[]>(loadHistory)
   const [showHistory, setShowHistory] = useState(false)
   const [historyIndex, setHistoryIndex] = useState(-1)
-  const [projectIndexStatus, setProjectIndexStatus] = useState<string>('not-indexed')
+  const [projectIndexStatus, setProjectIndexStatus] = useState<ProjectIndexStatus>('unknown')
   const [buildingIndex, setBuildingIndex] = useState(false)
 
   const inputRef = useRef<HTMLInputElement>(null)
@@ -67,45 +68,35 @@ export function ReferenceFinderDialog({ isOpen, onClose, onApprove, projectFolde
 
   const displayResults = filterResults(results, filter)
 
-  // Reset state when dialog closes
-  useEffect(() => {
-    if (!isOpen) {
-      setPhase('input')
-      setPrompt('')
-      setResults([])
-      setChecked(new Set())
-      setError(null)
-      setFilter('all')
-      setIsCached(false)
-      setShowHistory(false)
-      setHistoryIndex(-1)
-      cache.current.clear()
-    }
-  }, [isOpen])
-
   // Fetch per-project index status when dialog opens
   useEffect(() => {
     if (!isOpen || !projectFolder) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setProjectIndexStatus('not-indexed')
-    window.claude.getIndexerProjectStatus?.(projectFolder).then(s => {
-      setProjectIndexStatus(s?.status || 'not-indexed')
+    let cancelled = false
+
+    window.claude.getIndexerProjectStatus?.(projectFolder).then((s) => {
+      if (cancelled) return
+      setProjectIndexStatus((s?.status as ProjectIndexStatus | undefined) || 'not-indexed')
     }).catch(() => {})
 
     // Listen for project-specific progress
     const unsub = window.claude.onIndexerSetupProgress?.((p: { step: string; projectDir?: string }) => {
+      if (cancelled) return
       if (p.projectDir !== projectFolder) return
       if (p.step === 'indexed') {
         setProjectIndexStatus('indexed')
         setBuildingIndex(false)
       } else if (p.step === 'indexing') {
         setProjectIndexStatus('indexing')
+        setBuildingIndex(true)
       } else if (p.step === 'error') {
         setProjectIndexStatus('error')
         setBuildingIndex(false)
       }
     })
-    return () => { unsub?.() }
+    return () => {
+      cancelled = true
+      unsub?.()
+    }
   }, [isOpen, projectFolder])
 
   // Focus input on open
@@ -285,19 +276,19 @@ export function ReferenceFinderDialog({ isOpen, onClose, onApprove, projectFolde
   ]
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-200 flex items-center justify-center bg-black/50" onMouseDown={onClose}>
       <div
-        className="bg-[#1e1e2e] border border-[#444] rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] w-[460px] max-h-[70vh] flex flex-col"
+        className="bg-bg-card border border-[#444] rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] w-115 max-h-[70vh] flex flex-col"
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[#333] shrink-0">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
           <div className="flex items-center gap-2">
             <Search size={14} className="text-[#a78bfa]" />
             <span className="text-[14px] font-medium text-[#e0e0e0]">Find references</span>
           </div>
           <button
-            className="bg-transparent border-none text-[#666] cursor-pointer p-1 rounded hover:text-[#ccc] hover:bg-[#2a2a3d]"
+            className="bg-transparent border-none text-text-dim cursor-pointer p-1 rounded hover:text-[#ccc] hover:bg-[#2a2a3d]"
             onClick={onClose}
           >
             <X size={14} />
@@ -329,7 +320,7 @@ export function ReferenceFinderDialog({ isOpen, onClose, onApprove, projectFolde
           {/* Index building */}
           {(projectIndexStatus === 'indexing' || buildingIndex) && (
             <div className="flex items-center gap-2 text-[11px] text-[#d4a845] mb-2 px-1">
-              <div className="w-3 h-3 border-2 border-[#333] border-t-[#d4a845] rounded-full animate-[spin_0.8s_linear_infinite]" />
+              <div className="w-3 h-3 border-2 border-border border-t-[#d4a845] rounded-full animate-[spin_0.8s_linear_infinite]" />
               Index is building — search may return incomplete results.
             </div>
           )}
@@ -343,14 +334,14 @@ export function ReferenceFinderDialog({ isOpen, onClose, onApprove, projectFolde
           {/* Input phase */}
           {phase === 'input' && (
             <div>
-              <label className="text-[12px] text-[#888] block mb-1.5">
+              <label className="text-[12px] text-text-faint block mb-1.5">
                 Describe what you want to work on
               </label>
               <div className="flex gap-2 relative">
                 <div className="flex-1 relative">
                   <input
                     ref={inputRef}
-                    className="w-full bg-[#141420] border border-[#333] text-[#e0e0e0] px-3 py-2 rounded-md text-[13px] outline-none transition-colors duration-150 focus:border-[#a78bfa] placeholder:text-[#555]"
+                    className="w-full bg-[#141420] border border-border text-[#e0e0e0] px-3 py-2 rounded-md text-[13px] outline-none transition-colors duration-150 focus:border-[#a78bfa] placeholder:text-[#555]"
                     type="text"
                     placeholder="e.g., authentication flow, sidebar layout..."
                     value={prompt}
@@ -367,7 +358,7 @@ export function ReferenceFinderDialog({ isOpen, onClose, onApprove, projectFolde
                   />
                   {/* History autocomplete dropdown */}
                   {showHistory && matchingHistory.length > 0 && (
-                    <div className="absolute top-full left-0 right-0 mt-1 z-10 bg-[#1a1a2e] border border-[#333] rounded-md shadow-lg overflow-hidden">
+                    <div className="absolute top-full left-0 right-0 mt-1 z-10 bg-[#1a1a2e] border border-border rounded-md shadow-lg overflow-hidden">
                       {matchingHistory.slice(0, 5).map((entry, i) => (
                         <div
                           key={entry}
@@ -395,7 +386,7 @@ export function ReferenceFinderDialog({ isOpen, onClose, onApprove, projectFolde
                 </button>
               </div>
               {currentSelectedFiles.length > 0 && (
-                <div className="mt-3 text-[11px] text-[#666]">
+                <div className="mt-3 text-[11px] text-text-dim">
                   Currently attached: {currentSelectedFiles.map(f => f.split('/').pop()).join(', ')}
                 </div>
               )}
@@ -407,8 +398,8 @@ export function ReferenceFinderDialog({ isOpen, onClose, onApprove, projectFolde
 
           {/* Loading phase */}
           {phase === 'loading' && (
-            <div className="flex items-center justify-center gap-2.5 py-8 text-[#888]">
-              <div className="w-4 h-4 border-2 border-[#333] border-t-[#a78bfa] rounded-full animate-[spin_0.8s_linear_infinite]" />
+            <div className="flex items-center justify-center gap-2.5 py-8 text-text-faint">
+              <div className="w-4 h-4 border-2 border-border border-t-[#a78bfa] rounded-full animate-[spin_0.8s_linear_infinite]" />
               <span className="text-[13px]">Searching index...</span>
             </div>
           )}
@@ -419,7 +410,7 @@ export function ReferenceFinderDialog({ isOpen, onClose, onApprove, projectFolde
               {/* Count + refresh + select-all row */}
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[12px] text-[#888]">
+                  <span className="text-[12px] text-text-faint">
                     {displayResults.length} file{displayResults.length !== 1 ? 's' : ''} found
                   </span>
                   {isCached && (
@@ -449,7 +440,7 @@ export function ReferenceFinderDialog({ isOpen, onClose, onApprove, projectFolde
                     className={`text-[11px] px-2.5 py-1 rounded-md border transition-colors duration-100 cursor-pointer ${
                       filter === key
                         ? 'bg-[#7c3aed] border-[#7c3aed] text-white'
-                        : 'bg-transparent border-[#333] text-[#888] hover:bg-[#2a2a3d] hover:text-[#ccc]'
+                        : 'bg-transparent border-border text-text-faint hover:bg-[#2a2a3d] hover:text-[#ccc]'
                     }`}
                   >
                     {label}
@@ -459,7 +450,7 @@ export function ReferenceFinderDialog({ isOpen, onClose, onApprove, projectFolde
 
               <div className="flex flex-col gap-0.5">
                 {displayResults.length === 0 ? (
-                  <div className="text-[12px] text-[#666] px-1 py-2">No {filter} files in results.</div>
+                  <div className="text-[12px] text-text-dim px-1 py-2">No {filter} files in results.</div>
                 ) : (
                   displayResults.map((r) => (
                     <label
@@ -495,16 +486,16 @@ export function ReferenceFinderDialog({ isOpen, onClose, onApprove, projectFolde
 
         {/* Footer */}
         {phase === 'results' && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-[#333] shrink-0">
+          <div className="flex items-center justify-between px-4 py-3 border-t border-border shrink-0">
             <button
-              className="bg-transparent border border-[#333] text-[#888] py-1.5 px-3 rounded-md text-[12px] cursor-pointer transition-colors duration-150 hover:bg-[#2a2a3a] hover:text-[#ccc]"
+              className="bg-transparent border border-border text-text-faint py-1.5 px-3 rounded-md text-[12px] cursor-pointer transition-colors duration-150 hover:bg-border-subtle hover:text-[#ccc]"
               onClick={handleReprompt}
             >
               Refine search
             </button>
             <div className="flex gap-2">
               <button
-                className="bg-transparent border border-[#333] text-[#888] py-1.5 px-3 rounded-md text-[12px] cursor-pointer transition-colors duration-150 hover:bg-[#2a2a3a] hover:text-[#ccc]"
+                className="bg-transparent border border-border text-text-faint py-1.5 px-3 rounded-md text-[12px] cursor-pointer transition-colors duration-150 hover:bg-border-subtle hover:text-[#ccc]"
                 onClick={onClose}
               >
                 Cancel

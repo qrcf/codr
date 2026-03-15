@@ -253,7 +253,8 @@ export function Sidebar({
       } as SessionInfo)
       return
     }
-    onActiveSessionInfo(null)
+    // Session may be in transition (draft → real ID) — don't null out,
+    // preserve previous activeSession until the session list refreshes.
   }, [sessions, drafts, activeSessionId, onActiveSessionInfo])
 
   // Close provider dropdown on outside click
@@ -453,16 +454,16 @@ export function Sidebar({
         className={[
           'pl-7 pr-3 py-2 cursor-pointer border-l-[3px] transition-colors duration-100 relative group',
           'max-[768px]:pl-8 max-[768px]:pr-4 max-[768px]:py-3',
-          isActive ? 'bg-[#1e1e2e] border-l-[#8142c7]' : 'border-l-transparent hover:bg-[#1e1e2e]',
+          isActive ? 'bg-bg-card border-l-accent' : 'border-l-transparent hover:bg-bg-card',
           isLoading ? 'opacity-60' : '',
           isSessionArchived ? 'opacity-50 hover:opacity-70' : '',
         ].filter(Boolean).join(' ')}
         onClick={() => handleSessionClick(session.sessionId)}
       >
-        <div className={`text-[0.82em] whitespace-nowrap overflow-hidden text-ellipsis text-[#ddd] leading-[1.3] flex items-center gap-1.5 max-[768px]:text-[0.88em] ${isDraft ? 'italic text-[#999]' : ''}`}>
+        <div className={`text-[0.82em] whitespace-nowrap overflow-hidden text-ellipsis text-[#ddd] leading-[1.3] flex items-center gap-1.5 max-[768px]:text-[0.88em] ${isDraft ? 'italic text-text-muted' : ''}`}>
           {backgroundQuerySessionIds?.has(session.sessionId) && session.sessionId !== activeSessionId && (
             <span
-              className="inline-block w-2 h-2 min-w-[8px] rounded-full border-2 border-[#e8a03e] border-t-transparent animate-[spin_0.8s_linear_infinite]"
+              className="inline-block w-2 h-2 min-w-2 rounded-full border-2 border-[#e8a03e] border-t-transparent animate-[spin_0.8s_linear_infinite]"
               title="Query running in background"
             />
           )}
@@ -473,26 +474,26 @@ export function Sidebar({
             return <span className={statusPillClass(status)} title={title}>{label}</span>
           })()}
           {session.customTitle || session.generatedTitle || session.summary || (isDraft ? 'New Chat' : (
-            <span className="inline-block w-[120px] h-3 rounded bg-[linear-gradient(90deg,#2a2a3a_25%,#3a3a4a_50%,#2a2a3a_75%)] bg-[length:200%_100%] animate-[shimmer_1.5s_infinite]" />
+            <span className="inline-block w-30 h-3 rounded bg-[linear-gradient(90deg,#2a2a3a_25%,#3a3a4a_50%,#2a2a3a_75%)] bg-size-[200%_100%] animate-shimmer" />
           ))}
         </div>
         <div className="flex items-center gap-1.5 mt-0.5 text-[0.72em] text-[#777]">
           <span>{timeAgo(session.lastModified)}</span>
           {session.provider === 'claude' && (
-            <Sparkles size={11} className="text-[#8142c7] shrink-0" />
+            <Sparkles size={11} className="text-accent shrink-0" />
           )}
           {session.provider === 'codex' && (
             <Terminal size={11} className="text-[#4aa3df] shrink-0" />
           )}
           {session.gitBranch && session.gitBranch !== 'HEAD' && (
-            <span className="flex items-center gap-[3px] bg-[#1a2e1a] text-[#6cb86c] px-[5px] rounded-[3px] font-mono text-[0.9em] whitespace-nowrap overflow-hidden text-ellipsis max-w-[100px] max-[768px]:max-w-[160px]">
+            <span className="flex items-center gap-0.75 bg-[#1a2e1a] text-[#6cb86c] px-1.25 rounded-[3px] font-mono text-[0.9em] whitespace-nowrap overflow-hidden text-ellipsis max-w-25 max-[768px]:max-w-40">
               <GitBranch size={9} className="shrink-0" />
               {session.gitBranch}
             </span>
           )}
         </div>
         <button
-          className="absolute right-2 top-1/2 -translate-y-1/2 bg-[#1a1a2a] border border-[#333] text-[#888] rounded w-6 h-6 hidden items-center justify-center cursor-pointer transition-colors duration-150 group-hover:flex hover:text-[#ccc] hover:bg-[#2a2a3a]"
+          className="absolute right-2 top-1/2 -translate-y-1/2 bg-bg-tertiary border border-border text-text-faint rounded w-6 h-6 hidden items-center justify-center cursor-pointer transition-colors duration-150 group-hover:flex hover:text-[#ccc] hover:bg-border-subtle"
           onClick={(e) => {
             e.stopPropagation()
             if (isSessionArchived) {
@@ -518,13 +519,13 @@ export function Sidebar({
     return (
       <div key={cwd}>
         <div
-          className="flex items-center gap-1.5 px-2 py-2 cursor-pointer hover:bg-[#1e1e2e] transition-colors duration-100 group/project max-[768px]:px-3 max-[768px]:py-2.5"
+          className="flex items-center gap-1.5 px-2 py-2 cursor-pointer hover:bg-bg-card transition-colors duration-100 group/project max-[768px]:px-3 max-[768px]:py-2.5"
           onClick={() => toggleProject(cwd)}
         >
-          <span className="text-[#666] shrink-0 w-4 flex items-center justify-center self-start mt-[3px]">
+          <span className="text-text-dim shrink-0 w-4 flex items-center justify-center self-start mt-0.75">
             {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           </span>
-          <FolderOpen size={14} className="text-[#666] shrink-0 self-start mt-[3px]" />
+          <FolderOpen size={14} className="text-text-dim shrink-0 self-start mt-0.75" />
           <div className="flex-1 min-w-0">
             <span className="block text-[0.85em] text-[#ccc] overflow-hidden text-ellipsis whitespace-nowrap max-[768px]:text-[0.9em]">
               {displayName(cwd)}
@@ -540,7 +541,7 @@ export function Sidebar({
             {groupSessions.length}
           </span>
           <button
-            className="bg-transparent border-none text-[#555] rounded w-6 h-6 hidden items-center justify-center cursor-pointer transition-colors duration-150 group-hover/project:flex hover:text-[#ccc] hover:bg-[#2a2a3a]"
+            className="bg-transparent border-none text-[#555] rounded w-6 h-6 hidden items-center justify-center cursor-pointer transition-colors duration-150 group-hover/project:flex hover:text-[#ccc] hover:bg-border-subtle"
             onClick={(e) => {
               e.stopPropagation()
               onNewChat('claude', cwd)
@@ -552,7 +553,7 @@ export function Sidebar({
           </button>
           <div className="relative shrink-0" ref={contextMenuProject === cwd ? contextMenuRef : undefined}>
             <button
-              className="bg-transparent border-none text-[#555] rounded w-6 h-6 hidden items-center justify-center cursor-pointer transition-colors duration-150 group-hover/project:flex hover:text-[#ccc] hover:bg-[#2a2a3a]"
+              className="bg-transparent border-none text-[#555] rounded w-6 h-6 hidden items-center justify-center cursor-pointer transition-colors duration-150 group-hover/project:flex hover:text-[#ccc] hover:bg-border-subtle"
               onClick={(e) => {
                 e.stopPropagation()
                 setContextMenuProject(prev => prev === cwd ? null : cwd)
@@ -562,7 +563,7 @@ export function Sidebar({
               <MoreVertical size={14} />
             </button>
             {contextMenuProject === cwd && (
-              <div className="absolute right-0 top-full mt-1 bg-[#1e1e2e] border border-[#333] rounded-md py-1 z-10 shadow-[0_4px_12px_rgba(0,0,0,0.4)] min-w-[160px]">
+              <div className="absolute right-0 top-full mt-1 bg-bg-card border border-border rounded-md py-1 z-10 shadow-[0_4px_12px_rgba(0,0,0,0.4)] min-w-40">
                 <button
                   className="w-full flex items-center gap-2 px-3 py-2 text-[0.82em] text-[#ccc] bg-transparent border-none cursor-pointer hover:bg-[#2a2a3e] hover:text-white text-left"
                   onClick={(e) => {
@@ -571,7 +572,7 @@ export function Sidebar({
                     setContextMenuProject(null)
                   }}
                 >
-                  <Settings size={13} className="text-[#888]" /> Manage Project
+                  <Settings size={13} className="text-text-faint" /> Manage Project
                 </button>
                 <button
                   className="w-full flex items-center gap-2 px-3 py-2 text-[0.82em] text-[#ccc] bg-transparent border-none cursor-pointer hover:bg-[#2a2a3e] hover:text-white text-left"
@@ -582,18 +583,18 @@ export function Sidebar({
                     if (window.innerWidth <= 768) onCloseSidebar?.()
                   }}
                 >
-                  <Sparkles size={13} className="text-[#8142c7]" /> New Chat Here
+                  <Sparkles size={13} className="text-accent" /> New Chat Here
                 </button>
-                <div className="border-t border-[#2a2a3a] my-1" />
+                <div className="border-t border-border-subtle my-1" />
                 <button
-                  className="w-full flex items-center gap-2 px-3 py-2 text-[0.82em] text-[#999] bg-transparent border-none cursor-pointer hover:bg-[#2a2a3e] hover:text-white text-left"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-[0.82em] text-text-muted bg-transparent border-none cursor-pointer hover:bg-[#2a2a3e] hover:text-white text-left"
                   onClick={(e) => {
                     e.stopPropagation()
                     hideProject(cwd)
                     setContextMenuProject(null)
                   }}
                 >
-                  <EyeOff size={13} className="text-[#666]" /> Hide Project
+                  <EyeOff size={13} className="text-text-dim" /> Hide Project
                 </button>
               </div>
             )}
@@ -609,19 +610,19 @@ export function Sidebar({
       {/* Sidebar backdrop (mobile only) */}
       {!isOpen && (
         <div
-          className="hidden max-[768px]:block fixed inset-0 bg-black/50 z-[199]"
+          className="hidden max-[768px]:block fixed inset-0 bg-black/50 z-199"
           onClick={onCloseSidebar}
         />
       )}
 
       <div
         className={[
-          'w-[300px] h-screen bg-[#161622] border-r border-[#333] flex flex-col shrink-0 overflow-hidden',
+          'w-75 h-screen bg-bg-secondary border-r border-border flex flex-col shrink-0 overflow-hidden',
           'transition-[margin-left] duration-200 ease-[ease]',
-          'max-[768px]:fixed max-[768px]:top-0 max-[768px]:left-0 max-[768px]:w-full max-[768px]:h-[100dvh] max-[768px]:z-[200] max-[768px]:border-r-0 max-[768px]:transition-transform max-[768px]:duration-[250ms]',
+          'max-[768px]:fixed max-[768px]:top-0 max-[768px]:left-0 max-[768px]:w-full max-[768px]:h-dvh max-[768px]:z-200 max-[768px]:border-r-0 max-[768px]:transition-transform max-[768px]:duration-250',
           isOpen
             ? 'max-[768px]:translate-x-0'
-            : 'ml-[-300px] max-[768px]:ml-0 max-[768px]:-translate-x-full',
+            : '-ml-75 max-[768px]:ml-0 max-[768px]:-translate-x-full',
         ].join(' ')}
       >
         {/* Header */}
@@ -635,7 +636,7 @@ export function Sidebar({
               className={`flex-1 flex items-center justify-center gap-1.5 text-white border-none rounded-l-md py-2 text-[0.9em] font-medium cursor-pointer transition-colors duration-150 max-[768px]:min-h-11 max-[768px]:text-[1em] ${
                 defaultProvider === 'codex'
                   ? 'bg-[#1a4a72] hover:bg-[#14406b]'
-                  : 'bg-[#8142c7] hover:bg-[#6e35ab]'
+                  : 'bg-accent hover:bg-accent-hover'
               }`}
               onClick={() => { onNewChat(defaultProvider); setProviderDropdownOpen(false); if (window.innerWidth <= 768) onCloseSidebar?.() }}
             >
@@ -648,7 +649,7 @@ export function Sidebar({
               className={`text-white border-none border-l rounded-r-md px-2 cursor-pointer transition-colors duration-150 flex items-center max-[768px]:min-h-11 max-[768px]:px-3 ${
                 defaultProvider === 'codex'
                   ? 'bg-[#14406b] border-[#0f3357] hover:bg-[#0e3050]'
-                  : 'bg-[#6e35ab] border-[#5a2a90] hover:bg-[#5a2a90]'
+                  : 'bg-accent-hover border-[#5a2a90] hover:bg-[#5a2a90]'
               }`}
               onClick={() => setProviderDropdownOpen(prev => !prev)}
               title="New chat with..."
@@ -656,12 +657,12 @@ export function Sidebar({
               <ChevronDown size={13} />
             </button>
             {providerDropdownOpen && (
-              <div className="absolute top-full left-0 right-0 mt-1 bg-[#1e1e2e] border border-[#333] rounded-md py-1 z-10 shadow-[0_4px_12px_rgba(0,0,0,0.4)]">
+              <div className="absolute top-full left-0 right-0 mt-1 bg-bg-card border border-border rounded-md py-1 z-10 shadow-[0_4px_12px_rgba(0,0,0,0.4)]">
                 <button
                   className="w-full flex items-center gap-2 px-3 py-2 text-[0.85em] text-[#ccc] bg-transparent border-none cursor-pointer hover:bg-[#2a2a3e] hover:text-white text-left"
                   onClick={() => { onNewChat('claude'); setProviderDropdownOpen(false); if (window.innerWidth <= 768) onCloseSidebar?.() }}
                 >
-                  <Sparkles size={13} className="text-[#8142c7]" /> New Chat with Claude
+                  <Sparkles size={13} className="text-accent" /> New Chat with Claude
                 </button>
                 <button
                   className={`w-full flex items-center gap-2 px-3 py-2 text-[0.85em] bg-transparent border-none text-left ${
@@ -680,7 +681,7 @@ export function Sidebar({
             )}
           </div>
           <button
-            className="bg-[#2a2a3a] text-[#aaa] border border-[#444] rounded-md w-9 text-[1.1em] cursor-pointer flex items-center justify-center shrink-0 transition-colors duration-150 hover:bg-[#3a3a4a] hover:text-[#ddd] max-[768px]:min-h-11 max-[768px]:w-11"
+          className="bg-border-subtle text-[#aaa] border border-[#444] rounded-md w-9 text-[1.1em] cursor-pointer flex items-center justify-center shrink-0 transition-colors duration-150 hover:bg-[#3a3a4a] hover:text-[#ddd] max-[768px]:min-h-11 max-[768px]:w-11"
             onClick={fetchSessions}
             title="Refresh sessions"
           >
@@ -689,8 +690,8 @@ export function Sidebar({
         </div>
 
         {/* Search bar */}
-        <div className="px-3 py-2 border-b border-[#2a2a3a] flex items-center gap-1.5">
-          <div className="flex-1 flex items-center bg-[#1a1a2a] rounded px-2 py-1.5 gap-1.5 max-[768px]:min-h-10">
+        <div className="px-3 py-2 border-b border-border-subtle flex items-center gap-1.5">
+          <div className="flex-1 flex items-center bg-bg-tertiary rounded px-2 py-1.5 gap-1.5 max-[768px]:min-h-10">
             <Search size={14} className="text-[#555] shrink-0" />
             <input
               type="text"
@@ -701,7 +702,7 @@ export function Sidebar({
             />
             {searchQuery && (
               <button
-                className="bg-transparent border-none text-[#666] cursor-pointer p-0 flex items-center hover:text-[#ccc]"
+                className="bg-transparent border-none text-text-dim cursor-pointer p-0 flex items-center hover:text-[#ccc]"
                 onClick={() => setSearchQuery('')}
               >
                 <X size={14} />
@@ -709,7 +710,7 @@ export function Sidebar({
             )}
           </div>
           <button
-            className="bg-[#1a1a2a] text-[#888] border-none rounded w-8 h-8 cursor-pointer flex items-center justify-center shrink-0 transition-colors duration-150 hover:bg-[#252538] hover:text-[#ccc] max-[768px]:min-h-10 max-[768px]:w-10"
+            className="bg-bg-tertiary text-text-faint border-none rounded w-8 h-8 cursor-pointer flex items-center justify-center shrink-0 transition-colors duration-150 hover:bg-[#252538] hover:text-[#ccc] max-[768px]:min-h-10 max-[768px]:w-10"
             onClick={handleBrowseFolder}
             title="Add project folder"
           >
@@ -720,7 +721,7 @@ export function Sidebar({
         {/* Archive toggle */}
         <div className="px-3 py-1">
           <button
-            className={`bg-transparent border-none text-[0.78em] cursor-pointer flex items-center gap-1 px-1.5 py-1 rounded transition-colors duration-150 hover:text-[#aaa] hover:bg-[#1e1e2e] ${showArchived ? 'text-[#8142c7]' : 'text-[#666]'}`}
+            className={`bg-transparent border-none text-[0.78em] cursor-pointer flex items-center gap-1 px-1.5 py-1 rounded transition-colors duration-150 hover:text-[#aaa] hover:bg-bg-card ${showArchived ? 'text-accent' : 'text-text-dim'}`}
             onClick={onToggleShowArchived}
             title={showArchived ? 'Hide archived chats' : 'Show archived chats'}
           >
@@ -732,9 +733,9 @@ export function Sidebar({
         {/* Project groups */}
         <div className="flex-1 overflow-y-auto py-1 scroll-auto-hide">
           {!sessionsLoaded ? (
-            <div className="px-4 py-5 text-[#666] text-[0.85em] text-center">Loading sessions...</div>
+            <div className="px-4 py-5 text-text-dim text-[0.85em] text-center">Loading sessions...</div>
           ) : projectGroups.entries.length === 0 && projectGroups.ungrouped.length === 0 ? (
-            <div className="px-4 py-5 text-[#666] text-[0.85em] text-center">
+            <div className="px-4 py-5 text-text-dim text-[0.85em] text-center">
               {searchQuery ? 'No matching projects' : 'No projects yet'}
             </div>
           ) : (
@@ -745,13 +746,13 @@ export function Sidebar({
               {projectGroups.ungrouped.length > 0 && (
                 <div>
                   <div
-                    className="flex items-center gap-1.5 px-2 py-2 cursor-pointer hover:bg-[#1e1e2e] transition-colors duration-100 max-[768px]:px-3 max-[768px]:py-2.5"
+                    className="flex items-center gap-1.5 px-2 py-2 cursor-pointer hover:bg-bg-card transition-colors duration-100 max-[768px]:px-3 max-[768px]:py-2.5"
                     onClick={() => toggleProject('__ungrouped__')}
                   >
-                    <span className="text-[#666] shrink-0 w-4 flex items-center justify-center">
+                    <span className="text-text-dim shrink-0 w-4 flex items-center justify-center">
                       {expandedProjects.has('__ungrouped__') ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                     </span>
-                    <span className="flex-1 text-[0.85em] text-[#888] overflow-hidden text-ellipsis whitespace-nowrap italic max-[768px]:text-[0.9em]">
+                    <span className="flex-1 text-[0.85em] text-text-faint overflow-hidden text-ellipsis whitespace-nowrap italic max-[768px]:text-[0.9em]">
                       Other
                     </span>
                     <span className="text-[0.72em] text-[#555] shrink-0">
@@ -766,7 +767,7 @@ export function Sidebar({
         </div>
 
         {/* Footer */}
-        <div className="p-3 border-t border-[#2a2a3a] text-[0.85em] max-[768px]:p-4 max-[768px]:pb-[max(16px,env(safe-area-inset-bottom))]">
+        <div className="p-3 border-t border-border-subtle text-[0.85em] max-[768px]:p-4 max-[768px]:pb-[max(16px,env(safe-area-inset-bottom))]">
           <SidebarProfile accountInfo={accountInfo} accountError={accountError} onOpenSettings={onOpenSettings} userProfile={userProfile} />
         </div>
       </div>

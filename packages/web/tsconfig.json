@@ -26,6 +26,10 @@
     "../../src/renderer/src/**/*"
   ],
   "exclude": [
-    "../../src/renderer/src/main.tsx"
+    "../../src/renderer/src/main.tsx",
+    "../../src/renderer/src/**/*.test.ts",
+    "../../src/renderer/src/**/*.test.tsx",
+    "../../src/renderer/src/**/*.spec.ts",
+    "../../src/renderer/src/**/*.spec.tsx"
   ]
 }

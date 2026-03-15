@@ -40,7 +40,13 @@ export function SidebarProfile({ accountInfo, accountError, onOpenSettings, user
         </div>
       </div>
       <div className="flex items-center gap-1.5 shrink-0">
-        <span className="text-[#555] text-[0.65em] select-none">{import.meta.env.DEV ? 'dev' : `v${__APP_VERSION__}`}</span>
+        {import.meta.env.DEV ? (
+          <span className="select-none px-1.5 py-0.5 rounded text-[0.6em] font-semibold tracking-wider uppercase bg-amber-500/15 text-amber-400 border border-amber-500/25">
+            dev
+          </span>
+        ) : (
+          <span className="text-[#555] text-[0.65em] select-none">{`v${__APP_VERSION__}`}</span>
+        )}
         <button
           className="bg-transparent border border-[#333] text-[#888] cursor-pointer text-[18px] w-8 h-8 flex items-center justify-center rounded-md transition-colors duration-150 shrink-0 hover:text-[#ccc] hover:bg-[#2a2a3a] max-[768px]:w-10 max-[768px]:h-10"
           onClick={onOpenSettings}

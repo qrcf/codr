@@ -7,20 +7,14 @@ let manualCheck = false
 
 // Cached reference — populated once by initAutoUpdater()
 let updater: import('electron-updater').AppUpdater | null = null
+let updaterInitPromise: Promise<void> | null = null
+let updateCheckTimersStarted = false
 
-export function initAutoUpdater(win: BrowserWindow, rebuildMenu?: () => void): void {
-  // Lazy-require electron-updater so nothing runs at import time.
-  // In dev mode (unpackaged) this function is never called, avoiding the
-  // missing app-update.yml crash.
-  updater = require('electron-updater').autoUpdater
+function configureUpdater(loadedUpdater: import('electron-updater').AppUpdater): void {
+  loadedUpdater.autoDownload = true
+  loadedUpdater.autoInstallOnAppQuit = true
 
-  mainWindow = win
-  onMenuRebuild = rebuildMenu ?? null
-
-  updater.autoDownload = true
-  updater.autoInstallOnAppQuit = true
-
-  updater.on('update-not-available', () => {
+  loadedUpdater.on('update-not-available', () => {
     if (manualCheck) {
       manualCheck = false
       dialog.showMessageBox({
@@ -31,7 +25,7 @@ export function initAutoUpdater(win: BrowserWindow, rebuildMenu?: () => void): v
     }
   })
 
-  updater.on('update-downloaded', (info: { version: string }) => {
+  loadedUpdater.on('update-downloaded', (info: { version: string }) => {
     pendingVersion = info.version
     onMenuRebuild?.()
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -52,7 +46,7 @@ export function initAutoUpdater(win: BrowserWindow, rebuildMenu?: () => void): v
     }
   })
 
-  updater.on('error', (err: Error) => {
+  loadedUpdater.on('error', (err: Error) => {
     console.error('[auto-updater] Error:', err.message)
     if (manualCheck) {
       manualCheck = false
@@ -64,12 +58,41 @@ export function initAutoUpdater(win: BrowserWindow, rebuildMenu?: () => void): v
       })
     }
   })
+}
 
-  // Check after a short delay so the app finishes loading
-  setTimeout(() => checkForUpdates(), 5000)
+function ensureUpdater(): Promise<void> {
+  if (updater) return Promise.resolve()
+  if (updaterInitPromise) return updaterInitPromise
 
-  // Periodic check every 4 hours
-  setInterval(() => checkForUpdates(), 4 * 60 * 60 * 1000)
+  updaterInitPromise = import('electron-updater').then(({ autoUpdater }) => {
+    updater = autoUpdater
+    configureUpdater(autoUpdater)
+
+    if (!updateCheckTimersStarted) {
+      updateCheckTimersStarted = true
+
+      // Check after a short delay so the app finishes loading
+      setTimeout(() => checkForUpdates(), 5000)
+
+      // Periodic check every 4 hours
+      setInterval(() => checkForUpdates(), 4 * 60 * 60 * 1000)
+    }
+  }).catch((err: Error) => {
+    console.error('[auto-updater] Failed to initialize:', err.message)
+  }).finally(() => {
+    updaterInitPromise = null
+  })
+
+  return updaterInitPromise
+}
+
+export function initAutoUpdater(win: BrowserWindow, rebuildMenu?: () => void): void {
+  // Lazy-load electron-updater so nothing runs at import time.
+  // In dev mode (unpackaged) this function is never called, avoiding the
+  // missing app-update.yml crash.
+  mainWindow = win
+  onMenuRebuild = rebuildMenu ?? null
+  void ensureUpdater()
 }
 
 export function checkForUpdates(manual = false): void {

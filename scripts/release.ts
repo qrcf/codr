@@ -44,7 +44,7 @@ if (isRetry) {
   console.log(`\nRetrying release for ${tag}...\n`)
 
   // Re-trigger the workflow — electron-builder will upload/overwrite artifacts on the existing draft
-  execSync(`gh workflow run release.yml -f version=${version}`, { stdio: 'inherit', cwd: root })
+  execSync(`gh workflow run release.yml --ref ${tag} -f version=${version}`, { stdio: 'inherit', cwd: root })
 
   console.log(`\n✓ Workflow triggered for ${tag}`)
   console.log(`  Monitor: https://github.com/qrcf/codr/actions\n`)

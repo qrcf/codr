@@ -264,7 +264,7 @@ export default function App() {
       if (e.key !== 'Tab' || !e.shiftKey) return
       if (!session.activeSessionId) return
       e.preventDefault()
-      const modes = ['plan', 'code', 'ask'] as const
+      const modes = ['code', 'plan', 'ask'] as const
       dialogs.setMode(prev => modes[(modes.indexOf(prev) + 1) % modes.length])
     }
     document.addEventListener('keydown', handler)

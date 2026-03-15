@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://github.com/qrcf/codr/releases"><img src="https://img.shields.io/github/v/release/qrcf/codr?label=version" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License" /></a>
-  <img src="https://img.shields.io/badge/platform-macOS-lightgrey" alt="Platform" />
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey" alt="Platform" />
   <img src="https://img.shields.io/badge/node-22-green" alt="Node" />
 </p>
 
@@ -36,9 +36,13 @@
 
 ### Download
 
-Grab the latest `.dmg` from [GitHub Releases](https://github.com/qrcf/codr/releases).
+Grab the latest build from [GitHub Releases](https://github.com/qrcf/codr/releases):
 
-> Codr currently supports **macOS (Apple Silicon)**. Intel Mac and other platform support is planned.
+| Platform | Format |
+|----------|--------|
+| macOS (Apple Silicon & Intel) | `.dmg` |
+| Linux (x64 & arm64) | `.AppImage`, `.deb` |
+| Windows (x64) | `.exe` installer |
 
 ### Build from Source
 
@@ -75,7 +79,7 @@ For production builds, additional signing and notarization credentials are requi
 |---------|-------------|
 | `pnpm dev` | Run Electron app with HMR |
 | `pnpm build` | Production build (electron-vite) |
-| `pnpm dist` | Package as macOS DMG |
+| `pnpm dist` | Package for current platform |
 | `pnpm lint` | Run ESLint |
 | `pnpm web:dev` | Start companion web client (port 5174) |
 | `pnpm web:build` | Build web client for production |
@@ -141,7 +145,6 @@ Contributions are welcome! Since this is an early-stage project, here are some g
 
 ### Areas where help is welcome
 
-- Linux and Windows platform support
 - Test infrastructure
 - Documentation improvements
 - Tool renderer components for additional tools
@@ -149,7 +152,6 @@ Contributions are welcome! Since this is an early-stage project, here are some g
 
 ## Known Limitations
 
-- **macOS only** — Currently targets macOS Apple Silicon. Intel Mac and other platform support is planned.
 - **No test suite** — The project relies on linting and manual testing.
 - **External relay required** — The relay server for web client connectivity is not included in this repo.
 - **Early stage** — APIs and architecture may change between versions.

@@ -147,13 +147,18 @@ export async function resolveFileContents(
   return chunks
 }
 
+const CODEBASE_MIN_SCORE = 0.3 // Minimum relevance threshold (0-1)
+
 /**
  * Retrieve codebase context chunks from the LEANN index.
+ * Filters out results below the minimum score threshold and
+ * any paths the user already referenced via @file.
  */
 export async function getCodebaseContextChunks(
   ctx: AgentProviderContext,
   query: string,
   cwd?: string,
+  excludePaths?: string[],
 ): Promise<ContextChunk[]> {
   if (!ctx.indexerManager || !cwd) return []
 
@@ -167,12 +172,28 @@ export async function getCodebaseContextChunks(
     const results = await ctx.indexerManager.search(query, cwd, 8)
     if (!results.length) return []
 
-    return results.map(r => ({
-      type: 'codebase' as const,
-      source: r.path,
-      score: r.score * 100,
-      content: r.text,
-    }))
+    const excludeSet = excludePaths?.length
+      ? new Set(excludePaths.map(p => {
+          const abs = isAbsolute(p) ? p : resolve(cwd, p)
+          return abs
+        }))
+      : null
+
+    return results
+      .filter(r => {
+        if (r.score < CODEBASE_MIN_SCORE) return false
+        if (excludeSet) {
+          const absPath = isAbsolute(r.path) ? r.path : resolve(cwd, r.path)
+          if (excludeSet.has(absPath)) return false
+        }
+        return true
+      })
+      .map(r => ({
+        type: 'codebase' as const,
+        source: r.path,
+        score: r.score * 100,
+        content: r.text,
+      }))
   } catch (err) {
     console.error('[indexer] Failed to enrich prompt with codebase context:', err)
     return []
@@ -193,10 +214,13 @@ export async function preprocessPromptForDocs(
   const searchPrompt = docNames.length > 0 ? cleanedPrompt : prompt
   const finalPrompt = docNames.length > 0 ? cleanedPrompt : prompt
 
+  // Parse @file refs so we can exclude them from codebase results (Claude SDK handles them natively)
+  const { filePaths: userFiles } = parseFileRefs(searchPrompt)
+
   const allChunks: ContextChunk[] = []
 
   if (opts?.includeCodebaseContext !== false) {
-    const codebaseChunks = await getCodebaseContextChunks(ctx, searchPrompt, cwd)
+    const codebaseChunks = await getCodebaseContextChunks(ctx, searchPrompt, cwd, userFiles)
     allChunks.push(...codebaseChunks)
   }
 
@@ -228,7 +252,7 @@ export async function preprocessPromptFull(
   const allChunks: ContextChunk[] = []
 
   if (opts?.includeCodebaseContext !== false) {
-    const codebaseChunks = await getCodebaseContextChunks(ctx, afterFiles, cwd)
+    const codebaseChunks = await getCodebaseContextChunks(ctx, afterFiles, cwd, filePaths)
     allChunks.push(...codebaseChunks)
   }
 

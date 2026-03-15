@@ -1,6 +1,7 @@
 import { AlertTriangle, ClipboardList } from 'lucide-react'
 import { CollapsibleDialog } from './CollapsibleDialog'
 import { PermissionDialog } from './PermissionDialog'
+import { PlanReviewDialog } from './PlanReviewDialog'
 import { QuestionDialog } from './QuestionDialog'
 import type { PlanReviewState } from '../types'
 
@@ -13,8 +14,13 @@ interface DialogsPanelProps {
   onPermissionResponse: (id: number, allowed: boolean, message?: string) => void
   onAlwaysAllow: (id: number, toolName: string) => void
   onQuestionResponse: (id: number, answers: Record<string, string>) => void
-  onPlanApprove: () => void
-  onPlanRequestChanges: (feedback: string) => void
+  // Plan review actions
+  currentProvider: 'claude' | 'codex'
+  selectedModel: string | undefined
+  onModelChange: (model: string | undefined) => void
+  onPlanBuild: (permissionId: number, userNotes?: string) => void
+  onPlanClearContextBuild: (permissionId: number, userNotes?: string) => void
+  onPlanRequestChanges: (permissionId: number, feedback: string) => void
 }
 
 export function DialogsPanel({
@@ -25,10 +31,18 @@ export function DialogsPanel({
   planReady,
   onPermissionResponse,
   onAlwaysAllow,
-  onQuestionResponse
+  onQuestionResponse,
+  currentProvider,
+  selectedModel,
+  onModelChange,
+  onPlanBuild,
+  onPlanClearContextBuild,
+  onPlanRequestChanges,
 }: DialogsPanelProps) {
   const key = activeSessionId || '_unknown'
-  const hasPermission = !!permissionRequests[key]
+  const permRequest = permissionRequests[key]
+  const hasPermission = !!permRequest
+  const isPlanPermission = permRequest?.tool === 'ExitPlanMode'
   const hasQuestion = !!questionRequests[key]
   const hasPlan = !!(planReview && planReady)
 
@@ -36,13 +50,30 @@ export function DialogsPanel({
 
   return (
     <div className="flex flex-col gap-2 px-6 py-2 max-h-[70vh] overflow-y-auto max-[768px]:px-2">
-      {hasPermission && (
+      {hasPermission && isPlanPermission && (
         <CollapsibleDialog
-          title={permissionRequests[key].tool === 'ExitPlanMode' ? 'Plan Review' : 'Permission Required'}
-          icon={permissionRequests[key].tool === 'ExitPlanMode' ? <ClipboardList size={14} /> : <AlertTriangle size={14} />}
-          variant={permissionRequests[key].tool === 'ExitPlanMode' ? 'plan' : 'permission'}
+          title="Plan Review"
+          icon={<ClipboardList size={14} />}
+          variant="plan"
         >
-          <PermissionDialog request={permissionRequests[key]} onRespond={onPermissionResponse} onAlwaysAllow={onAlwaysAllow} />
+          <PlanReviewDialog
+            request={permRequest}
+            currentProvider={currentProvider}
+            selectedModel={selectedModel}
+            onModelChange={onModelChange}
+            onRequestChanges={onPlanRequestChanges}
+            onBuild={onPlanBuild}
+            onClearContextBuild={onPlanClearContextBuild}
+          />
+        </CollapsibleDialog>
+      )}
+      {hasPermission && !isPlanPermission && (
+        <CollapsibleDialog
+          title="Permission Required"
+          icon={<AlertTriangle size={14} />}
+          variant="permission"
+        >
+          <PermissionDialog request={permRequest} onRespond={onPermissionResponse} onAlwaysAllow={onAlwaysAllow} />
         </CollapsibleDialog>
       )}
       {hasQuestion && (
@@ -50,7 +81,7 @@ export function DialogsPanel({
           <QuestionDialog request={questionRequests[key]} onRespond={onQuestionResponse} />
         </CollapsibleDialog>
       )}
-     
+
     </div>
   )
 }

@@ -131,7 +131,7 @@ class IndexerWorker:
 
         return result
 
-    def build_index(self, chunks: list[dict]) -> int:
+    def build_index(self, chunks: list[dict], msg_id: str = "") -> int:
         """Build the full index from pre-chunked documents."""
         from leann import LeannBuilder
 
@@ -150,10 +150,17 @@ class IndexerWorker:
             compact=True,
         )
 
-        for chunk in chunks:
+        total = len(chunks)
+        for i, chunk in enumerate(chunks):
             text = chunk.get("text", "")
             metadata = chunk.get("metadata", {})
             builder.add_text(text, metadata)
+            # Emit progress every 50 chunks to avoid flooding
+            if msg_id and (i + 1) % 50 == 0:
+                emit({"id": msg_id, "type": "progress", "phase": "embedding", "current": i + 1, "total": total})
+
+        if msg_id:
+            emit({"id": msg_id, "type": "progress", "phase": "building", "current": total, "total": total})
 
         if self.index_path:
             os.makedirs(self.index_path, exist_ok=True)
@@ -242,11 +249,12 @@ async def main():
                 # Chunk only the new/changed files
                 new_chunks = []
                 if new_files:
+                    emit({"id": msg_id, "type": "progress", "phase": "chunking", "current": 0, "total": len(new_files)})
                     new_chunks = worker.chunk_files(new_files)
 
                 # Combine cached + new chunks and rebuild full HNSW index
                 all_chunks = cached_chunks + new_chunks
-                count = worker.build_index(all_chunks)
+                count = worker.build_index(all_chunks, msg_id=msg_id)
 
                 emit({"id": msg_id, "ok": True, "count": count, "new_chunks": new_chunks})
 

@@ -742,6 +742,10 @@ app.whenReady().then(() => {
     await indexerManager.reinstall()
     return { ok: true }
   })
+  ipcMain.handle('indexer:background-refresh', async (_event, projectDir: string) => {
+    if (!projectDir || indexerManager.getStatus().status !== 'ready') return
+    indexerManager.refreshIfStale(projectDir).catch(() => {})
+  })
 
   // Check if launched via deep link (cold start)
   const deepLinkArg = process.argv.find(arg => arg.startsWith('codr://'))

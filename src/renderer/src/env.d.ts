@@ -209,6 +209,7 @@ interface ClaudeAPI {
   rebuildIndex?: (projectDir: string) => Promise<{ok: boolean}>
   updateIndex?: (projectDir: string) => Promise<{ok: boolean}>
   reinstallIndexer?: () => Promise<{ok: boolean}>
+  backgroundRefreshIndex?: (projectDir: string) => Promise<void>
   onIndexerSetupProgress?: (cb: (progress: {step: string, detail?: string, projectDir?: string, progress?: {current: number, total: number}}) => void) => () => void
 
   // Files config (desktop only)

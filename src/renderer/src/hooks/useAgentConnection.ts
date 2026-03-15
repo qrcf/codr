@@ -86,6 +86,7 @@ interface UseAgentConnectionParams {
   onSessionCaptured: (sessionId: string, messages: ChatMessage[], initialTokenUsage?: TokenUsage | null) => void
   onDraftPromoted: (draftId: string, realSessionId?: string) => void
   onDraftTitleGenerated: (draftId: string, title: string) => void
+  onQueueProcess: () => void
 }
 
 export function useAgentConnection({
@@ -98,6 +99,7 @@ export function useAgentConnection({
   onSessionCaptured,
   onDraftPromoted,
   onDraftTitleGenerated,
+  onQueueProcess,
 }: UseAgentConnectionParams) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -132,6 +134,8 @@ export function useAgentConnection({
   useEffect(() => { onDraftPromotedRef.current = onDraftPromoted }, [onDraftPromoted])
   const onDraftTitleGeneratedRef = useRef(onDraftTitleGenerated)
   useEffect(() => { onDraftTitleGeneratedRef.current = onDraftTitleGenerated }, [onDraftTitleGenerated])
+  const onQueueProcessRef = useRef(onQueueProcess)
+  useEffect(() => { onQueueProcessRef.current = onQueueProcess }, [onQueueProcess])
 
   const commitCurrentTurn = useCallback(() => {
     const text = streamingTextRef.current
@@ -160,6 +164,15 @@ export function useAgentConnection({
     setStreamingText('')
     setStreamingThinking('')
     setStreamingTools([])
+  }, [])
+
+  const addUserMessage = useCallback((msg: ChatMessage) => {
+    allMessagesRef.current = [...allMessagesRef.current, msg]
+    setMessages((prev) => [...prev, msg])
+    // Mark loading synchronously so any in-flight reconciliation from a prior
+    // onDone knows a new query is about to start and skips its stale overwrite.
+    isLoadingRef.current = true
+    setIsLoading(true)
   }, [])
 
   const resetStreaming = useCallback(() => {
@@ -201,12 +214,13 @@ export function useAgentConnection({
 
   // --- Save/restore active session to/from cache ---
 
-  const saveActiveToCache = useCallback(() => {
+  /** Save the active session's state to cache. Returns true if saved (session was loading). */
+  const saveActiveToCache = useCallback((): boolean => {
     const sid = activeSessionIdRef.current
-    if (!sid) return
+    if (!sid) return false
     // Only cache sessions that are currently loading (have an active query).
     // Completed sessions will be reloaded from main process on switch-back.
-    if (!isLoadingRef.current) return
+    if (!isLoadingRef.current) return false
 
     // Save raw streaming state (not committed) so restore is faithful.
     // Messages come from allMessagesRef which is the canonical full history.
@@ -220,6 +234,7 @@ export function useAgentConnection({
       isCompacting: false,
       tokenUsage: null,
     })
+    return true
   }, [activeSessionIdRef])
 
   const restoreFromCache = useCallback((sessionId: string | null): boolean => {
@@ -679,9 +694,11 @@ export function useAgentConnection({
         ...prev,
         { id: nextId(), role: 'assistant', content: error, toolCalls: [] },
       ])
+      isLoadingRef.current = false
       setIsLoading(false)
 
       dialogsRef.current.onDoneWithPlanExit()
+      setTimeout(() => onQueueProcessRef.current(), 0)
     }))
 
     unsubs.push(window.claude.onDone((querySessionId) => {
@@ -720,6 +737,7 @@ export function useAgentConnection({
       if (!activeId && querySessionId) return
 
       commitCurrentTurn()
+      isLoadingRef.current = false
       setIsLoading(false)
 
       dialogsRef.current.onDoneWithPlanExit()
@@ -730,6 +748,8 @@ export function useAgentConnection({
       if (doneSessionId && !hadError) {
         window.claude.getSessionMessages(doneSessionId).then((raw) => {
           if (activeSessionIdRef.current !== doneSessionId) return
+          // Skip stale reconciliation if a new query has already started (e.g. from queue)
+          if (isLoadingRef.current) return
           const parsed = reconcileParsedMessages(allMessagesRef.current, parseSessionMessages(raw))
           allMessagesRef.current = parsed
           const initial = parsed.slice(-PAGE_SIZE)
@@ -739,6 +759,8 @@ export function useAgentConnection({
           if (usage) setTokenUsage(usage)
         }).catch(() => {})
       }
+
+      setTimeout(() => onQueueProcessRef.current(), 0)
     }))
 
     unsubs.push(window.claude.onPermissionRequest((request, querySessionId) => {
@@ -913,6 +935,7 @@ export function useAgentConnection({
     streamingThinkingRef,
     streamingToolsRef,
     commitCurrentTurn,
+    addUserMessage,
     resetStreaming,
     applyStreamingState,
     loadMessages,

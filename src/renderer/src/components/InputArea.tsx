@@ -7,6 +7,8 @@ const ReferenceFinderDialog = lazy(() => import('./ReferenceFinderDialog').then(
 import { ReasoningSelector, type ReasoningLevel } from './ReasoningSelector'
 import { ContextUsageBar } from './ContextUsageBar'
 import { InputAttachmentChips } from './AttachmentChips'
+import { QueuedMessageAccordion } from './QueuedMessageCard'
+import type { QueuedMessage } from '../hooks/useMessageQueue'
 
 interface InputAreaProps {
   // From useInputComposer
@@ -63,6 +65,11 @@ interface InputAreaProps {
   onCompact: () => void
   // Docs
   docSources: DocSource[]
+  // Queue
+  queuedMessages: QueuedMessage[]
+  onRemoveQueued: (id: string) => void
+  onSendQueued: (id: string) => void
+  onEditQueued: (id: string) => void
 }
 
 const MODE_CONFIG = {
@@ -105,7 +112,7 @@ export function InputArea({
   setMode,
   autoApproveEdits,
   handleToggleAutoEdits,
-  planReady,
+  // planReady — reserved for future use
   isLoading,
   tokenUsage,
   currentProvider,
@@ -118,6 +125,10 @@ export function InputArea({
   onInterrupt,
   onCompact,
   docSources,
+  queuedMessages,
+  onRemoveQueued,
+  onSendQueued,
+  onEditQueued,
 }: InputAreaProps) {
   const [modeOpen, setModeOpen] = useState(false)
   const modeRef = useRef<HTMLDivElement>(null)
@@ -141,8 +152,6 @@ export function InputArea({
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [compactConfirmOpen])
-
-  if (planReady) return null
 
   const isRealSession = activeSessionId && !activeSessionId.startsWith('draft-')
 
@@ -175,6 +184,16 @@ export function InputArea({
           indexerStatus={indexerStatus}
         />
       </Suspense>
+      {/* Queued messages */}
+      {queuedMessages.length > 0 && (
+        <QueuedMessageAccordion
+          messages={queuedMessages}
+          onSendNow={onSendQueued}
+          onEdit={onEditQueued}
+          onRemove={onRemoveQueued}
+        />
+      )}
+
       <div
         className={`flex flex-col rounded-xl border transition-[border-color,background] duration-150 ${isDragOver ? 'border-accent bg-[rgba(129,66,199,0.06)]' : 'border-border bg-bg-tertiary'}`}
         onDragOver={handleDragOver}
@@ -210,14 +229,13 @@ export function InputArea({
         {/* Textarea */}
         <textarea
           ref={textareaRef}
-          className="w-full bg-transparent border-none px-3 py-3 text-inherit font-[inherit] text-[0.95em] resize-none leading-normal min-h-11 max-h-60 overflow-y-hidden focus:outline-none disabled:opacity-50"
+          className="w-full bg-transparent border-none px-3 py-3 text-inherit font-[inherit] text-[0.95em] resize-none leading-normal min-h-11 max-h-60 overflow-y-hidden focus:outline-none"
           value={input}
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           placeholder="Send a message... (@ for files)"
           rows={1}
-          disabled={isLoading}
         />
 
         {/* Bottom toolbar */}
@@ -228,7 +246,6 @@ export function InputArea({
             <button
               className="w-7 h-7 inline-flex items-center justify-center rounded-md text-text-faint bg-transparent border-none cursor-pointer transition-all duration-150 hover:text-accent hover:bg-white/4 disabled:opacity-40 disabled:cursor-not-allowed"
               onClick={handlePlusClick}
-              disabled={isLoading}
               title="Attach file (@)"
             >
               <Plus size={13} />
@@ -299,12 +316,25 @@ export function InputArea({
 
             {/* Send / Stop */}
             {isLoading ? (
-              <button
-                className="w-8 h-8 inline-flex items-center justify-center rounded-lg bg-[#3e3e50] border border-[#555] text-[#ccc] cursor-pointer transition-all duration-150 hover:bg-[#4a3a3a] hover:border-[#c0392b] hover:text-[#e74c3c]"
-                onClick={onInterrupt}
-              >
-                <Square size={13} />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  className="w-8 h-8 inline-flex items-center justify-center rounded-lg bg-linear-to-b from-[#9354d4] to-[#7438b8] text-white shadow-[0_1px_3px_rgba(129,66,199,0.35),inset_0_1px_0_rgba(255,255,255,0.1)] cursor-pointer transition-all duration-150 enabled:hover:from-[#8548c5] enabled:hover:to-[#6830a8] enabled:hover:shadow-[0_2px_6px_rgba(129,66,199,0.45)] disabled:opacity-40 disabled:cursor-not-allowed"
+                  onClick={onSend}
+                  disabled={!input.trim() && selectedFiles.length === 0 && selectedDocs.length === 0 && attachments.length === 0}
+                  title="Queue message"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="12" y1="19" x2="12" y2="5" />
+                    <polyline points="5 12 12 5 19 12" />
+                  </svg>
+                </button>
+                <button
+                  className="w-8 h-8 inline-flex items-center justify-center rounded-lg bg-[#3e3e50] border border-[#555] text-[#ccc] cursor-pointer transition-all duration-150 hover:bg-[#4a3a3a] hover:border-[#c0392b] hover:text-[#e74c3c]"
+                  onClick={onInterrupt}
+                >
+                  <Square size={13} />
+                </button>
+              </div>
             ) : (
               <button
                 className="w-8 h-8 inline-flex items-center justify-center rounded-lg bg-linear-to-b from-[#9354d4] to-[#7438b8] text-white shadow-[0_1px_3px_rgba(129,66,199,0.35),inset_0_1px_0_rgba(255,255,255,0.1)] cursor-pointer transition-all duration-150 enabled:hover:from-[#8548c5] enabled:hover:to-[#6830a8] enabled:hover:shadow-[0_2px_6px_rgba(129,66,199,0.45)] disabled:opacity-40 disabled:cursor-not-allowed"

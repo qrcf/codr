@@ -66,6 +66,11 @@ export function registerAgentHandlers(
 
     broadcaster.markQueryStart(currentKey, prompt)
 
+    // Proactively refresh the project index in the background so it's warm for search
+    if (indexerManager && resolvedCwd && indexerManager.getStatus().status === 'ready') {
+      indexerManager.refreshIfStale(resolvedCwd).catch(() => {})
+    }
+
     let errorOccurred = false
 
     await provider.runQuery(

@@ -14,6 +14,12 @@ export interface ChunkResult {
   metadata: Record<string, unknown>
 }
 
+export interface ProgressInfo {
+  phase: string
+  current: number
+  total: number
+}
+
 interface JsonMessage {
   id?: string
   type?: string
@@ -24,6 +30,9 @@ interface JsonMessage {
   results?: SearchResult[]
   chunks?: ChunkResult[]
   new_chunks?: ChunkResult[]
+  phase?: string
+  current?: number
+  total?: number
 }
 
 export class IndexerBridge {
@@ -35,6 +44,7 @@ export class IndexerBridge {
     resolve: (value: JsonMessage) => void
     reject: (reason: Error) => void
   }>()
+  private progressCallbacks = new Map<string, (p: ProgressInfo) => void>()
 
   /**
    * Spawn the Python worker and send init command.
@@ -74,6 +84,7 @@ export class IndexerBridge {
         pending.reject(new Error(`Indexer worker exited (code=${code}, signal=${signal})`))
       }
       this.pendingRequests.clear()
+      this.progressCallbacks.clear()
     })
 
     proc.on('error', (err) => {
@@ -85,6 +96,7 @@ export class IndexerBridge {
         pending.reject(new Error(`Indexer worker spawn failed: ${err.message}`))
       }
       this.pendingRequests.clear()
+      this.progressCallbacks.clear()
     })
 
     const config: Record<string, unknown> = {}
@@ -124,13 +136,13 @@ export class IndexerBridge {
   async patchRebuild(params: {
     newFiles: { path: string; content: string }[]
     cachedChunks: ChunkResult[]
-  }): Promise<{ count: number; newChunks: ChunkResult[] }> {
+  }, onProgress?: (p: ProgressInfo) => void): Promise<{ count: number; newChunks: ChunkResult[] }> {
     if (!this.ready) throw new Error('Indexer bridge not started')
     const result = await this.sendRequest({
       cmd: 'patch_rebuild',
       new_files: params.newFiles,
       cached_chunks: params.cachedChunks,
-    }, 300000)
+    }, 300000, onProgress)
     if (!result.ok) throw new Error(result.error || 'patch_rebuild failed')
     return { count: result.count || 0, newChunks: result.new_chunks || [] }
   }
@@ -182,6 +194,7 @@ export class IndexerBridge {
       pending.reject(new Error('Worker killed'))
     }
     this.pendingRequests.clear()
+    this.progressCallbacks.clear()
   }
 
   private handleLine(line: string): void {
@@ -193,9 +206,18 @@ export class IndexerBridge {
     }
 
     const id = msg.id || ''
+
+    // Handle intermediate progress messages (don't resolve the promise)
+    if (msg.type === 'progress') {
+      const cb = this.progressCallbacks.get(id)
+      if (cb) cb({ phase: msg.phase || '', current: msg.current || 0, total: msg.total || 0 })
+      return
+    }
+
     const pending = this.pendingRequests.get(id)
     if (pending) {
       this.pendingRequests.delete(id)
+      this.progressCallbacks.delete(id)
       if (msg.ok === false || msg.type === 'error') {
         pending.reject(new Error(msg.error || 'Request failed'))
       } else {
@@ -204,7 +226,7 @@ export class IndexerBridge {
     }
   }
 
-  private sendRequest(msg: Record<string, unknown>, timeoutMs = 60000): Promise<JsonMessage> {
+  private sendRequest(msg: Record<string, unknown>, timeoutMs = 60000, onProgress?: (p: ProgressInfo) => void): Promise<JsonMessage> {
     const id = String(this.nextId++)
     msg.id = id
 
@@ -214,11 +236,13 @@ export class IndexerBridge {
         return
       }
       this.pendingRequests.set(id, { resolve, reject })
+      if (onProgress) this.progressCallbacks.set(id, onProgress)
       this.process.stdin.write(JSON.stringify(msg) + '\n')
 
       setTimeout(() => {
         if (this.pendingRequests.has(id)) {
           this.pendingRequests.delete(id)
+          this.progressCallbacks.delete(id)
           reject(new Error(`Request ${id} timed out after ${timeoutMs}ms`))
         }
       }, timeoutMs)

@@ -232,6 +232,8 @@ const agentApi = {
     ipcRenderer.invoke('indexer:update', projectDir) as Promise<{ ok: boolean }>,
   reinstallIndexer: () =>
     ipcRenderer.invoke('indexer:reinstall') as Promise<{ ok: boolean }>,
+  backgroundRefreshIndex: (projectDir: string) =>
+    ipcRenderer.invoke('indexer:background-refresh', projectDir),
   onIndexerSetupProgress: (callback: (progress: { step: string; detail?: string }) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, progress: { step: string; detail?: string }) => callback(progress)
     ipcRenderer.on('indexer:setup-progress', listener)

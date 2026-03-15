@@ -125,7 +125,7 @@ export const MessageBubble = memo(function MessageBubble({ message, approvedPlan
       )}
     </div>
     {message.injectedContext && (
-      message.injectedContext.mode || message.injectedContext.systemPrompt || message.injectedContext.developerInstructions ||
+      message.injectedContext.systemPrompt || message.injectedContext.developerInstructions ||
       message.injectedContext.context?.codebase?.length || message.injectedContext.context?.documentation?.length || message.injectedContext.context?.files?.length
     ) && (
       <ContextChunksRenderer context={message.injectedContext} />

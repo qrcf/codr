@@ -435,9 +435,6 @@ export class IndexerManager {
     const indexDir = getProjectIndexDir(projectDir)
     const bridge = await this.ensureBridge(indexDir)
 
-    // Ensure index is fresh for this project
-    await this.refreshIfStale(projectDir)
-
     // Over-fetch to compensate for dedup and filtering
     const results = await bridge.search(query, limit * 3)
 
@@ -555,6 +552,22 @@ export class IndexerManager {
       const { count, newChunks } = await bridge.patchRebuild({
         newFiles: newFileContents,
         cachedChunks,
+      }, (progress) => {
+        let detail: string
+        let pct: number
+        if (progress.phase === 'chunking') {
+          detail = `Chunking files...`; pct = 0.3
+        } else if (progress.phase === 'embedding') {
+          detail = `Embedding chunks (${progress.current}/${progress.total})...`
+          pct = 0.3 + (progress.current / progress.total) * 0.6 // 30% → 90%
+        } else if (progress.phase === 'building') {
+          detail = 'Building search index...'; pct = 0.92
+        } else return
+
+        this.onProgress?.({
+          step: 'indexing', detail, projectDir,
+          progress: { current: Math.round(totalFiles * pct), total: totalFiles },
+        })
       })
 
       // Update chunk cache: remove old entries, add new ones
@@ -631,6 +644,9 @@ export class IndexerManager {
    * Uses content hashes for reliable change detection. Only re-chunks changed files.
    */
   async refreshIfStale(projectDir: string): Promise<void> {
+    // Skip if already indexing this project
+    if (this.indexingProjectDir === projectDir) return
+
     const meta = readMetadata(projectDir)
     if (!meta) {
       await this.buildIndex(projectDir)

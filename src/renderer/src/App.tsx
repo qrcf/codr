@@ -17,6 +17,7 @@ import { useAgentConnection } from './hooks/useAgentConnection'
 import { useSessionManager } from './hooks/useSessionManager'
 import { useDraftSessions } from './hooks/useDraftSessions'
 import { useArchivedSessions } from './hooks/useArchivedSessions'
+import { useMessageQueue, type QueuedMessage } from './hooks/useMessageQueue'
 import { hasStableSessionTitle } from './utils/session-title'
 
 export default function App() {
@@ -85,6 +86,11 @@ export default function App() {
   const resetInputRef = useRef<() => void>(() => {})
   const invalidatedSessionsRef = useRef<Set<string>>(new Set())
 
+  // --- Hook: Message Queue ---
+  const messageQueue = useMessageQueue()
+  const processQueueRef = useRef<() => void>(() => {})
+  const pendingSendFromQueueRef = useRef<QueuedMessage | null>(null)
+
   // --- Hook: Draft Sessions ---
   const draftSessions = useDraftSessions()
 
@@ -116,6 +122,7 @@ export default function App() {
     onDraftTitleGenerated: (draftId, title) => {
       draftSessions.setDraftGeneratedTitle(draftId, title)
     },
+    onQueueProcess: () => processQueueRef.current(),
   })
 
   // --- Hook: Session Manager ---
@@ -173,6 +180,8 @@ export default function App() {
     window.claude.getIndexerProjectStatus?.(projectFolder).then(s => {
       setProjectIndexStatus(s?.status || 'not-indexed')
     }).catch(() => {})
+    // Proactively refresh index in the background when switching projects
+    window.claude.backgroundRefreshIndex?.(projectFolder)
     const unsub = window.claude.onIndexerSetupProgress?.((p: { step: string; detail?: string; projectDir?: string }) => {
       if (!p.projectDir || p.projectDir !== projectFolder) return
       if (p.step === 'indexed') setProjectIndexStatus('indexed')
@@ -219,6 +228,9 @@ export default function App() {
   // Track whether the last onLoadSession call provided a model from session messages.
   // onActiveSessionInfo fires after onLoadSession, so if no model was found we fetch the provider default.
   const sessionLoadHadModelRef = useRef(false)
+  // Track explicit user model changes so onActiveSessionInfo doesn't overwrite them
+  // with the stale session-indexed model.
+  const userChangedModelRef = useRef(false)
 
   // Initialize provider + model + default reasoning on mount
   useEffect(() => {
@@ -242,8 +254,57 @@ export default function App() {
   }, [])
 
   const handleModelChange = async (model: string | undefined) => {
+    userChangedModelRef.current = true
     setSelectedModel(model)
     await window.claude.setModel?.(currentProviderRef.current, model)
+  }
+
+  // --- Send from queue (pulls data from a QueuedMessage instead of input state) ---
+  const handleSendFromQueue = async (msg: QueuedMessage) => {
+    shouldAutoScrollRef.current = true
+
+    const usePlanMode = dialogs.mode === 'plan'
+    const useAskMode = dialogs.mode === 'ask'
+    const currentAttachments = msg.attachments.length > 0 ? msg.attachments : undefined
+
+    // addUserMessage pushes to both allMessagesRef and setMessages, sets isLoading
+    // synchronously on the ref so in-flight reconciliation from prior onDone skips
+    agent.addUserMessage({
+      id: agent.nextId(),
+      role: 'user',
+      content: msg.prompt || '(attachments)',
+      toolCalls: [],
+      attachments: currentAttachments,
+    })
+    agent.resetStreaming()
+
+    if (session.activeSessionId) {
+      dialogs.clearQuestionForSession(session.activeSessionId)
+    }
+    dialogs.resetPlan()
+
+    const isDraftSession = session.activeSessionId?.startsWith('draft-')
+    const isInvalidated = session.activeSessionId && invalidatedSessionsRef.current.has(session.activeSessionId)
+    const isNewSession = !session.activeSessionId || isDraftSession || isInvalidated
+
+    if (isInvalidated) {
+      invalidatedSessionsRef.current.delete(session.activeSessionId!)
+    }
+
+    const opts: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; cwd?: string; model?: string; thinkingBudget?: 'low' | 'medium' | 'high'; attachments?: AttachmentMeta[] } = {}
+    if (!isNewSession) opts.resumeSessionId = session.activeSessionId!
+    if (usePlanMode) opts.planMode = true
+    if (useAskMode) opts.askMode = true
+    if (isNewSession && session.activeSession?.cwd) opts.cwd = session.activeSession.cwd
+    if (selectedModel) opts.model = selectedModel
+    if (reasoning !== 'auto') opts.thinkingBudget = reasoning
+    if (currentAttachments) opts.attachments = currentAttachments
+
+    if (isNewSession) {
+      awaitingNewSessionRef.current = true
+    }
+
+    await window.claude.query(msg.prompt || '', Object.keys(opts).length > 0 ? opts : undefined)
   }
 
   // Wire the bridge refs now that all hooks exist.
@@ -257,6 +318,16 @@ export default function App() {
     resetInputRef.current = resetInput
     onDraftPromotedRef.current = (draftId, realSessionId) => {
       draftSessions.promoteDraft(draftId, realSessionId)
+    }
+    processQueueRef.current = () => {
+      const pending = pendingSendFromQueueRef.current
+      if (pending) {
+        pendingSendFromQueueRef.current = null
+        handleSendFromQueue(pending)
+        return
+      }
+      const next = messageQueue.dequeue()
+      if (next) handleSendFromQueue(next)
     }
   })
 
@@ -273,9 +344,9 @@ export default function App() {
     return () => document.removeEventListener('keydown', handler)
   }, [session.activeSessionId, dialogs])
 
-  // Close plan overlay when switching sessions
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { setShowPlanOverlay(false) }, [session.activeSessionId])
+  // Close plan overlay and clear queue when switching sessions
+  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
+  useEffect(() => { setShowPlanOverlay(false); messageQueue.clear(); pendingSendFromQueueRef.current = null }, [session.activeSessionId])
 
   // Reset scroll lock when session changes or user sends a message
   useEffect(() => {
@@ -328,6 +399,10 @@ export default function App() {
     return () => container.removeEventListener('scroll', handleScroll)
   }, [hasMoreMessages, loadMoreMessages, isLoadingHistoryRef])
 
+  const handleInterrupt = () => {
+    window.claude.interrupt(session.activeSessionId ?? undefined)
+  }
+
   // --- Send handler (orchestrates all hooks) ---
   const handleSend = async () => {
     const fileRefs = selectedFiles.map(f => `@${f}`).join(' ')
@@ -335,7 +410,41 @@ export default function App() {
     const rawInput = input.trim()
     const prompt = [docRefs, fileRefs, rawInput].filter(Boolean).join(' ')
     const currentAttachments = attachments.length > 0 ? [...attachments] : undefined
-    if ((!prompt && !currentAttachments) || agent.isLoading) return
+
+    // Empty input: if queued messages exist, stop AI (or send first queued)
+    if (!prompt && !currentAttachments) {
+      if (messageQueue.queueRef.current.length > 0) {
+        if (agent.isLoading) {
+          handleInterrupt()
+          // onDone will fire and auto-process the queue
+        } else {
+          const next = messageQueue.dequeue()
+          if (next) handleSendFromQueue(next)
+        }
+      }
+      return
+    }
+
+    // Queue the message if AI is still running
+    if (agent.isLoading) {
+      messageQueue.enqueue({
+        id: `queued-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        prompt,
+        rawInput,
+        selectedFiles: [...selectedFiles],
+        selectedDocs: [...selectedDocs],
+        attachments: currentAttachments || [],
+      })
+      resetInput()
+      setInput('')
+      // Safety net: if onDone fired between reading isLoading state and enqueuing,
+      // the ref is already false but React hasn't re-rendered yet — process the queue.
+      setTimeout(() => {
+        if (!agent.isLoadingRef.current) processQueueRef.current()
+      }, 0)
+      return
+    }
+
     shouldAutoScrollRef.current = true
 
     const usePlanMode = dialogs.mode === 'plan'
@@ -361,9 +470,9 @@ export default function App() {
     }
     dialogs.resetPlan()
 
-    const isDraft = session.activeSessionId?.startsWith('draft-')
+    const isDraftSession = session.activeSessionId?.startsWith('draft-')
     const isInvalidated = session.activeSessionId && invalidatedSessionsRef.current.has(session.activeSessionId)
-    const isNewSession = !session.activeSessionId || isDraft || isInvalidated
+    const isNewSession = !session.activeSessionId || isDraftSession || isInvalidated
 
     if (isInvalidated) {
       invalidatedSessionsRef.current.delete(session.activeSessionId!)
@@ -386,10 +495,6 @@ export default function App() {
     await window.claude.query(prompt || '', Object.keys(opts).length > 0 ? opts : undefined)
   }
 
-  const handleInterrupt = () => {
-    window.claude.interrupt(session.activeSessionId ?? undefined)
-  }
-
   const handleCompact = async () => {
     if (!session.activeSessionId || agent.isLoading) return
     agent.setIsLoading(true)
@@ -398,42 +503,83 @@ export default function App() {
   }
 
   // --- Plan handlers ---
-  const handlePlanApprove = async () => {
+  const handlePlanBuild = async (permissionId: number, userNotes?: string) => {
     const plan = dialogs.planReview
     if (plan) {
       dialogs.markPlanApproved(plan.planContent, plan.planFilePath)
     }
+
+    // Allow ExitPlanMode permission to unblock the SDK
+    dialogs.handlePermissionResponse(permissionId, true)
     dialogs.resetPlan()
     dialogs.setMode('code')
 
+    const notesClause = userNotes ? `\n\nUser notes: ${userNotes}` : ''
     const approvalMessage = plan
-      ? `User has approved your plan. You can now start coding.\n\nYour plan has been saved to: ${plan.planFilePath}\n\n## Approved Plan:\n${plan.planContent}`
-      : 'User has approved your plan. You can now start coding.'
+      ? `User has approved your plan. You can now start coding.\n\nYour plan has been saved to: ${plan.planFilePath}\n\n## Approved Plan:\n${plan.planContent}${notesClause}`
+      : `User has approved your plan. You can now start coding.${notesClause}`
 
+    const displayMessage = userNotes || 'Plan approved. Proceed with implementation.'
     agent.setMessages((prev) => [
       ...prev,
-      { id: agent.nextId(), role: 'user', content: 'Plan approved. Proceed with implementation.', toolCalls: [] },
+      { id: agent.nextId(), role: 'user', content: displayMessage, toolCalls: [] },
     ])
     agent.setIsLoading(true)
     agent.resetStreaming()
 
-    await window.claude.query(approvalMessage, { resumeSessionId: session.activeSessionId! })
+    // Brief delay for permission response to settle before follow-up query
+    await new Promise(resolve => setTimeout(resolve, 100))
+    await window.claude.query(approvalMessage, {
+      resumeSessionId: session.activeSessionId!,
+      ...(selectedModel ? { model: selectedModel } : {}),
+    })
   }
 
-  const handlePlanRequestChanges = async (feedback: string) => {
+  const handlePlanClearContextBuild = async (permissionId: number, userNotes?: string) => {
+    const plan = dialogs.planReview
+    const cwd = session.activeSession?.cwd
+    if (plan) {
+      dialogs.markPlanApproved(plan.planContent, plan.planFilePath)
+    }
+
+    // Allow ExitPlanMode permission (cleanup — don't leave agent hanging)
+    dialogs.handlePermissionResponse(permissionId, true)
+    dialogs.resetPlan()
+    dialogs.setMode('code')
+
+    // Start a fresh session
+    session.handleNewChat(currentProvider, cwd)
+
+    const notesClause = userNotes ? `\n\nAdditional user notes: ${userNotes}` : ''
+    const planPrompt = plan
+      ? `The user has approved the following implementation plan and wants you to implement it.${notesClause}\n\n## Plan\n${plan.planContent}`
+      : `Implement the previously approved plan.${notesClause}`
+
+    const displayMessage = userNotes
+      ? `Implement plan (clean context): ${userNotes}`
+      : 'Implement the approved plan (clean context).'
+    agent.setMessages([
+      { id: agent.nextId(), role: 'user', content: displayMessage, toolCalls: [] },
+    ])
+    agent.setIsLoading(true)
+    agent.resetStreaming()
+    awaitingNewSessionRef.current = true
+
+    await window.claude.query(planPrompt, {
+      ...(cwd ? { cwd } : {}),
+      ...(selectedModel ? { model: selectedModel } : {}),
+    })
+  }
+
+  const handlePlanRequestChanges = async (permissionId: number, feedback: string) => {
+    // Deny the ExitPlanMode permission with the user's feedback
+    dialogs.handlePermissionResponse(permissionId, false, feedback)
     dialogs.resetPlan()
 
     agent.setMessages((prev) => [
       ...prev,
       { id: agent.nextId(), role: 'user', content: feedback, toolCalls: [] },
     ])
-    agent.setIsLoading(true)
-    agent.resetStreaming()
-
-    await window.claude.query(
-      `The user requested changes to the plan:\n\n${feedback}`,
-      { resumeSessionId: session.activeSessionId!, planMode: true },
-    )
   }
 
   const toggleSidebar = () => {
@@ -472,6 +618,7 @@ export default function App() {
         onLoadSession={(id, msgs, usage, model) => {
           session.handleLoadSession(id, msgs, usage)
           sessionLoadHadModelRef.current = !!model
+          userChangedModelRef.current = false
           if (model) setSelectedModel(model)
           setSettingsOpen(false)
           setManageProjectOpen(false)
@@ -488,6 +635,7 @@ export default function App() {
           const resolvedCwd = cwd || session.activeSession?.cwd || allProjects[0]?.path || storedProject
           session.handleNewChat(provider, resolvedCwd)
           setCurrentProvider(p)
+          userChangedModelRef.current = false
           window.claude.getModels?.(p).then(result => { setSelectedModel(result?.selectedModel) })
           setSettingsOpen(false)
           setManageProjectOpen(false)
@@ -498,7 +646,8 @@ export default function App() {
             setCurrentProvider(s.provider)
             // If the session load didn't find a model in the messages (e.g. Codex sessions),
             // use the model from the session index, or fall back to the provider default.
-            if (!sessionLoadHadModelRef.current) {
+            // Skip if the user explicitly changed the model (e.g. via plan review selector).
+            if (!sessionLoadHadModelRef.current && !userChangedModelRef.current) {
               if (s.model) {
                 setSelectedModel(s.model)
               } else {
@@ -615,7 +764,11 @@ export default function App() {
           onPermissionResponse={dialogs.handlePermissionResponse}
           onAlwaysAllow={dialogs.handleAlwaysAllow}
           onQuestionResponse={dialogs.handleQuestionResponse}
-          onPlanApprove={handlePlanApprove}
+          currentProvider={currentProvider}
+          selectedModel={selectedModel}
+          onModelChange={handleModelChange}
+          onPlanBuild={handlePlanBuild}
+          onPlanClearContextBuild={handlePlanClearContextBuild}
           onPlanRequestChanges={handlePlanRequestChanges}
         />
 
@@ -667,6 +820,29 @@ export default function App() {
             onInterrupt={handleInterrupt}
             onCompact={handleCompact}
             docSources={docsAPI.sources}
+            queuedMessages={messageQueue.queue}
+            onRemoveQueued={messageQueue.remove}
+            onSendQueued={(id) => {
+              const msg = messageQueue.queue.find(m => m.id === id)
+              if (!msg) return
+              messageQueue.remove(id)
+              if (agent.isLoading) {
+                pendingSendFromQueueRef.current = msg
+                handleInterrupt()
+              } else {
+                handleSendFromQueue(msg)
+              }
+            }}
+            onEditQueued={(id) => {
+              const msg = messageQueue.queue.find(m => m.id === id)
+              if (!msg) return
+              messageQueue.remove(id)
+              setInput(msg.rawInput)
+              setSelectedFiles(msg.selectedFiles)
+              setSelectedDocs(msg.selectedDocs)
+              setAttachments(msg.attachments)
+              textareaRef.current?.focus()
+            }}
           />
         </div>
       </div>

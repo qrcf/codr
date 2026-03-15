@@ -12,7 +12,7 @@ interface AgentHandle {
   }) => void
   setIsLoading: (v: boolean) => void
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>
-  saveActiveToCache: () => void
+  saveActiveToCache: () => boolean
   restoreFromCache: (sessionId: string | null) => boolean
 }
 
@@ -108,12 +108,13 @@ export function useSessionManager({
 
     // Save active session state to cache so background queries keep accumulating.
     // Do NOT interrupt the previous session — it continues running in the background.
+    let prevWasActive = false
     if (prevId && !isReloadingSameSession) {
-      agent.saveActiveToCache()
+      prevWasActive = agent.saveActiveToCache()
     }
 
-    // Clean up abandoned draft when switching away
-    if (prevId?.startsWith('draft-') && sessionId !== prevId) {
+    // Clean up abandoned draft when switching away — but not if it has an active query
+    if (prevId?.startsWith('draft-') && sessionId !== prevId && !prevWasActive) {
       draftActions.removeDraft(prevId)
     }
 

@@ -119,7 +119,7 @@ function generateChangelog(extraInstruction?: string, previousChangelog?: string
 
   console.log('Generating changelog...\n')
 
-  const result = spawnSync('claude', ['-p', parts.join(' ')], {
+  const result = spawnSync('claude', ['-p', '--no-session-persistence', parts.join(' ')], {
     encoding: 'utf-8',
     timeout: 120_000,
     cwd: root,

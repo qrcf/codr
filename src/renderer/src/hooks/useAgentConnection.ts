@@ -10,6 +10,56 @@ function nextId() {
   return `msg-${++messageIdCounter}`
 }
 
+// --- Session cache: stores accumulated state for background (non-active) sessions ---
+
+interface SessionCache {
+  messages: ChatMessage[]
+  allMessages: ChatMessage[]
+  streamingText: string
+  streamingThinking: string
+  streamingTools: ToolCallInfo[]
+  isLoading: boolean
+  isCompacting: boolean
+  tokenUsage: TokenUsage | null
+}
+
+function createEmptyCache(): SessionCache {
+  return {
+    messages: [],
+    allMessages: [],
+    streamingText: '',
+    streamingThinking: '',
+    streamingTools: [],
+    isLoading: true,
+    isCompacting: false,
+    tokenUsage: null,
+  }
+}
+
+/** Commit pending streaming content into cache messages (mirrors commitCurrentTurn for active session). */
+function commitCacheTurn(cache: SessionCache): void {
+  const text = cache.streamingText
+  const tools = [...cache.streamingTools]
+  const thinking = cache.streamingThinking
+
+  if (text || tools.length > 0 || thinking) {
+    const last = cache.messages[cache.messages.length - 1]
+    if (!text && tools.length > 0 && last?.role === 'assistant') {
+      cache.messages[cache.messages.length - 1] = {
+        ...last,
+        toolCalls: [...last.toolCalls, ...tools],
+        thinking: last.thinking || thinking || undefined,
+      }
+    } else {
+      cache.messages.push({ id: nextId(), role: 'assistant', content: text, toolCalls: tools, thinking: thinking || undefined })
+    }
+  }
+
+  cache.streamingText = ''
+  cache.streamingThinking = ''
+  cache.streamingTools = []
+}
+
 interface DialogCallbacks {
   onPermissionRequest: (key: string, request: PermissionRequest) => void
   onPermissionCleared: (key: string, id: number) => void
@@ -66,6 +116,9 @@ export function useAgentConnection({
   const streamingToolsRef = useRef<ToolCallInfo[]>([])
   const isLoadingRef = useRef(false)
   const errorSessionRef = useRef<string | null>(null)
+
+  // --- Session cache ref ---
+  const sessionCacheRef = useRef<Map<string, SessionCache>>(new Map())
 
   // Keep ref in sync
   useEffect(() => { isLoadingRef.current = isLoading }, [isLoading])
@@ -146,6 +199,58 @@ export function useAgentConnection({
     }
   }, [])
 
+  // --- Save/restore active session to/from cache ---
+
+  const saveActiveToCache = useCallback(() => {
+    const sid = activeSessionIdRef.current
+    if (!sid) return
+    // Only cache sessions that are currently loading (have an active query).
+    // Completed sessions will be reloaded from main process on switch-back.
+    if (!isLoadingRef.current) return
+
+    // Save raw streaming state (not committed) so restore is faithful.
+    // Messages come from allMessagesRef which is the canonical full history.
+    sessionCacheRef.current.set(sid, {
+      messages: [...allMessagesRef.current],
+      allMessages: [...allMessagesRef.current],
+      streamingText: streamingTextRef.current,
+      streamingThinking: streamingThinkingRef.current,
+      streamingTools: [...streamingToolsRef.current],
+      isLoading: true,
+      isCompacting: false,
+      tokenUsage: null,
+    })
+  }, [activeSessionIdRef])
+
+  const restoreFromCache = useCallback((sessionId: string | null): boolean => {
+    if (!sessionId) return false
+    const cache = sessionCacheRef.current.get(sessionId)
+    if (!cache) return false
+    sessionCacheRef.current.delete(sessionId)
+
+    allMessagesRef.current = cache.allMessages
+    const displayed = cache.messages.length > 0 ? cache.messages.slice(-PAGE_SIZE) : cache.allMessages.slice(-PAGE_SIZE)
+    isLoadingHistoryRef.current = displayed.length > 0
+    setMessages(displayed)
+    setHasMoreMessages(cache.allMessages.length > PAGE_SIZE)
+    setIsLoading(cache.isLoading)
+    setIsCompacting(cache.isCompacting)
+    setTokenUsage(cache.tokenUsage)
+
+    streamingTextRef.current = cache.streamingText
+    streamingThinkingRef.current = cache.streamingThinking
+    streamingToolsRef.current = [...cache.streamingTools]
+    setStreamingText(cache.streamingText)
+    setStreamingThinking(cache.streamingThinking)
+    setStreamingTools([...cache.streamingTools])
+
+    if (displayed.length > 0) {
+      requestAnimationFrame(() => { isLoadingHistoryRef.current = false })
+    }
+
+    return true
+  }, [])
+
   // Pagination
   const loadMoreMessages = useCallback(() => {
     if (!hasMoreMessages) return
@@ -165,6 +270,149 @@ export function useAgentConnection({
     setMessages((prev) => [...olderMessages, ...prev])
     setHasMoreMessages(startIdx > 0)
   }, [hasMoreMessages, messages.length])
+
+  // --- Background cache event processing ---
+
+  function getOrCreateBgCache(sessionId: string): SessionCache {
+    let cache = sessionCacheRef.current.get(sessionId)
+    if (!cache) {
+      cache = createEmptyCache()
+      sessionCacheRef.current.set(sessionId, cache)
+    }
+    return cache
+  }
+
+  function processBackgroundMessage(querySessionId: string, raw: unknown): void {
+    const cache = getOrCreateBgCache(querySessionId)
+    cache.isLoading = true
+
+    const msg = raw as AgentMessage
+    const isSubagent = !!(raw as { parent_tool_use_id?: string | null }).parent_tool_use_id
+
+    switch (msg.type) {
+      case 'stream_event': {
+        const evt = msg as StreamEvent
+        if (evt.event.type === 'content_block_delta' && evt.event.delta?.type === 'text_delta' && evt.event.delta.text) {
+          if (cache.streamingTools.length > 0) {
+            commitCacheTurn(cache)
+          }
+          cache.streamingText += evt.event.delta.text
+        } else if (evt.event.type === 'content_block_delta' && evt.event.delta?.type === 'thinking_delta' && evt.event.delta.thinking) {
+          cache.streamingThinking += evt.event.delta.thinking
+        } else if (evt.event.type === 'content_block_start' && evt.event.content_block?.type === 'tool_use') {
+          const block = evt.event.content_block as { id?: string; name?: string }
+          cache.streamingTools.push({
+            id: block.id || `tool-${Date.now()}-${Math.random()}`,
+            name: block.name || 'Unknown',
+            input: {},
+            status: 'running',
+          })
+          if (block.name === 'ExitPlanMode') {
+            dialogsRef.current.onExitPlanMode()
+          }
+        }
+        break
+      }
+      case 'assistant': {
+        const assistantMsg = msg as { message?: { content?: unknown[]; usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } } }
+        const usage = assistantMsg.message?.usage
+        if (usage?.input_tokens) {
+          if (isSubagent) {
+            cache.tokenUsage = cache.tokenUsage ? {
+              ...cache.tokenUsage,
+              subagentInputTokens: (cache.tokenUsage.subagentInputTokens || 0) + usage.input_tokens!,
+              subagentOutputTokens: (cache.tokenUsage.subagentOutputTokens || 0) + (usage.output_tokens || 0),
+            } : cache.tokenUsage
+          } else {
+            cache.tokenUsage = {
+              inputTokens: usage.input_tokens!,
+              outputTokens: usage.output_tokens || 0,
+              cacheReadInputTokens: usage.cache_read_input_tokens || 0,
+              cacheCreationInputTokens: usage.cache_creation_input_tokens || 0,
+              contextWindow: cache.tokenUsage?.contextWindow || 200000,
+              subagentInputTokens: cache.tokenUsage?.subagentInputTokens,
+              subagentOutputTokens: cache.tokenUsage?.subagentOutputTokens,
+            }
+          }
+        }
+        const content = assistantMsg.message?.content
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            const b = block as { type: string; id?: string; name?: string; input?: Record<string, unknown> }
+            if (b.type === 'tool_use' && b.id) {
+              const idx = cache.streamingTools.findIndex((t) => t.id === b.id)
+              if (idx >= 0) {
+                cache.streamingTools[idx] = { ...cache.streamingTools[idx], input: b.input || {} }
+              }
+              if (b.name === 'Write') {
+                const filePath = b.input?.file_path as string
+                if (filePath?.includes('.claude/plans/')) {
+                  dialogsRef.current.onPlanWrite(b.id, filePath, b.input?.content as string)
+                }
+              }
+              if (b.name === 'ExitPlanMode') {
+                dialogsRef.current.onExitPlanMode(
+                  b.input?.allowedPrompts as Array<{ tool: string; prompt: string }> | undefined
+                )
+              }
+            }
+          }
+        }
+        break
+      }
+      case 'user': {
+        const userMsg = msg as { message?: { content?: unknown[] } }
+        const content = userMsg.message?.content
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            const b = block as { type: string; tool_use_id?: string; content?: unknown; is_error?: boolean }
+            if (b.type === 'tool_result' && b.tool_use_id) {
+              const idx = cache.streamingTools.findIndex((t) => t.id === b.tool_use_id)
+              if (idx >= 0) {
+                const resultText = typeof b.content === 'string'
+                  ? b.content
+                  : Array.isArray(b.content)
+                    ? (b.content as Array<{ type: string; text?: string }>)
+                      .filter((c) => c.type === 'text')
+                      .map((c) => c.text || '')
+                      .join('\n')
+                    : ''
+                cache.streamingTools[idx] = {
+                  ...cache.streamingTools[idx],
+                  result: resultText,
+                  isError: b.is_error === true,
+                  status: b.is_error ? 'error' : 'done',
+                }
+              }
+            }
+          }
+        }
+        break
+      }
+      case 'system': {
+        const sysMsg = msg as { subtype?: string; status?: string | null; compact_metadata?: { trigger: string; pre_tokens: number } }
+        if (sysMsg.subtype === 'status') {
+          cache.isCompacting = sysMsg.status === 'compacting'
+        } else if (sysMsg.subtype === 'compact_boundary') {
+          const tokens = sysMsg.compact_metadata?.pre_tokens
+          const label = tokens ? `Context compacted (${Math.round(tokens / 1000)}k tokens summarized)` : 'Context compacted'
+          commitCacheTurn(cache)
+          cache.messages.push({ id: nextId(), role: 'system', content: label, toolCalls: [] })
+        }
+        break
+      }
+      case 'injected_context': {
+        const ic = (msg as { injectedContext?: InjectedContext }).injectedContext
+        if (ic) {
+          const lastUserIdx = cache.messages.findLastIndex((m: ChatMessage) => m.role === 'user')
+          if (lastUserIdx >= 0) {
+            cache.messages[lastUserIdx] = { ...cache.messages[lastUserIdx], injectedContext: ic }
+          }
+        }
+        break
+      }
+    }
+  }
 
   // --- The massive event listener effect ---
   useEffect(() => {
@@ -204,7 +452,12 @@ export function useAgentConnection({
       }
 
       const activeId = activeSessionIdRef.current
-      if (activeId && querySessionId && querySessionId !== activeId) return
+
+      // Route events for non-active sessions into the background cache
+      if (activeId && querySessionId && querySessionId !== activeId) {
+        processBackgroundMessage(querySessionId, raw)
+        return
+      }
       if (!querySessionId && activeId) return
       if (!activeId && querySessionId) return
 
@@ -368,6 +621,13 @@ export function useAgentConnection({
         if (activeSessionIdRef.current === oldKey) {
           activeSessionIdRef.current = newKey
           setActiveSessionId(newKey)
+        } else {
+          // Re-key background cache entry if a background session's ID changed
+          const cache = sessionCacheRef.current.get(oldKey)
+          if (cache) {
+            sessionCacheRef.current.delete(oldKey)
+            sessionCacheRef.current.set(newKey, cache)
+          }
         }
       }))
     }
@@ -388,8 +648,22 @@ export function useAgentConnection({
           return next
         })
       }
+
       const activeId = activeSessionIdRef.current
-      if (activeId && querySessionId && querySessionId !== activeId) return
+
+      // Handle errors for background sessions: update cache
+      if (activeId && querySessionId && querySessionId !== activeId) {
+        const cache = sessionCacheRef.current.get(querySessionId)
+        if (cache) {
+          commitCacheTurn(cache)
+          cache.messages.push({ id: nextId(), role: 'assistant', content: error, toolCalls: [] })
+          cache.isLoading = false
+        }
+        if (error.includes('can no longer be resumed')) {
+          invalidatedSessionsRef.current.add(querySessionId)
+        }
+        return
+      }
       if (!querySessionId && activeId) return
       if (!activeId && querySessionId) return
 
@@ -419,8 +693,29 @@ export function useAgentConnection({
           return next
         })
       }
+
       const activeId = activeSessionIdRef.current
-      if (activeId && querySessionId && querySessionId !== activeId) return
+
+      // Handle done for background sessions: finalize cache
+      if (activeId && querySessionId && querySessionId !== activeId) {
+        const cache = sessionCacheRef.current.get(querySessionId)
+        if (cache) {
+          commitCacheTurn(cache)
+          cache.isLoading = false
+          // Async reconciliation: fetch final messages from main process
+          window.claude.getSessionMessages(querySessionId).then((raw) => {
+            const existingCache = sessionCacheRef.current.get(querySessionId)
+            if (existingCache && activeSessionIdRef.current !== querySessionId) {
+              const parsed = reconcileParsedMessages(existingCache.allMessages, parseSessionMessages(raw))
+              existingCache.allMessages = parsed
+              existingCache.messages = parsed.slice(-PAGE_SIZE)
+              const usage = extractTokenUsageFromRaw(raw)
+              if (usage) existingCache.tokenUsage = usage
+            }
+          }).catch(() => {})
+        }
+        return
+      }
       if (!querySessionId && activeId) return
       if (!activeId && querySessionId) return
 
@@ -429,12 +724,12 @@ export function useAgentConnection({
 
       dialogsRef.current.onDoneWithPlanExit()
 
-      const sessionId = activeSessionIdRef.current
-      const hadError = errorSessionRef.current === sessionId
+      const doneSessionId = activeSessionIdRef.current
+      const hadError = errorSessionRef.current === doneSessionId
       errorSessionRef.current = null
-      if (sessionId && !hadError) {
-        window.claude.getSessionMessages(sessionId).then((raw) => {
-          if (activeSessionIdRef.current !== sessionId) return
+      if (doneSessionId && !hadError) {
+        window.claude.getSessionMessages(doneSessionId).then((raw) => {
+          if (activeSessionIdRef.current !== doneSessionId) return
           const parsed = reconcileParsedMessages(allMessagesRef.current, parseSessionMessages(raw))
           allMessagesRef.current = parsed
           const initial = parsed.slice(-PAGE_SIZE)
@@ -487,6 +782,19 @@ export function useAgentConnection({
             const usage = extractTokenUsageFromRaw(raw)
             if (usage) setTokenUsage(usage)
           }).catch(() => {})
+        } else {
+          // Update background cache if it exists
+          const cache = sessionCacheRef.current.get(sessionId)
+          if (cache && !cache.isLoading) {
+            window.claude.getSessionMessages(sessionId).then((raw) => {
+              const existingCache = sessionCacheRef.current.get(sessionId)
+              if (existingCache && !existingCache.isLoading) {
+                const parsed = parseSessionMessages(raw)
+                existingCache.allMessages = parsed
+                existingCache.messages = parsed.slice(-PAGE_SIZE)
+              }
+            }).catch(() => {})
+          }
         }
       }))
     }
@@ -507,6 +815,22 @@ export function useAgentConnection({
             setStreamingThinking(activeState.streamingThinking || '')
             setStreamingTools(activeState.streamingTools)
             if (activeState.tokenUsage) setTokenUsage(activeState.tokenUsage)
+          }
+
+          // Populate cache for non-active sessions
+          for (const [sid, s] of Object.entries(state.activeStates)) {
+            if (sid !== activeId) {
+              sessionCacheRef.current.set(sid, {
+                messages: s.messages || [],
+                allMessages: s.messages || [],
+                streamingText: s.streamingText || '',
+                streamingThinking: s.streamingThinking || '',
+                streamingTools: s.streamingTools || [],
+                isLoading: s.isLoading,
+                isCompacting: s.isCompacting ?? false,
+                tokenUsage: s.tokenUsage || null,
+              })
+            }
           }
 
           const perms: Record<string, PermissionRequest> = {}
@@ -541,6 +865,20 @@ export function useAgentConnection({
     // Wake recovery: if we're still loading after sleep/wake, force-reset
     if (window.claude.onWakeRecovery) {
       unsubs.push(window.claude.onWakeRecovery(() => {
+        // Clean up all background caches that were loading
+        for (const [, cache] of sessionCacheRef.current.entries()) {
+          if (cache.isLoading) {
+            commitCacheTurn(cache)
+            cache.messages.push({
+              id: nextId(), role: 'system',
+              content: 'Session interrupted — you can send a new message to continue.',
+              toolCalls: [],
+            })
+            cache.isLoading = false
+          }
+        }
+        setBackgroundQuerySessionIds(new Set())
+
         if (isLoadingRef.current) {
           commitCurrentTurn()
           setMessages((prev) => [
@@ -579,6 +917,8 @@ export function useAgentConnection({
     applyStreamingState,
     loadMessages,
     loadMoreMessages,
+    saveActiveToCache,
+    restoreFromCache,
     nextId,
   }
 }

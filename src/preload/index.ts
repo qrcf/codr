@@ -238,6 +238,18 @@ const agentApi = {
     return () => { ipcRenderer.removeListener('indexer:setup-progress', listener) }
   },
 
+  // Files config
+  getGlobalFilesConfig: () =>
+    ipcRenderer.invoke('files-config:get-global') as Promise<{ ignoreDirs: string[]; extraIgnoreFiles: string[] }>,
+  setGlobalFilesConfig: (cfg: { ignoreDirs?: string[]; extraIgnoreFiles?: string[] }) =>
+    ipcRenderer.invoke('files-config:set-global', cfg) as Promise<{ ok: boolean }>,
+  getProjectFilesConfig: (projectDir: string) =>
+    ipcRenderer.invoke('files-config:get-project', projectDir) as Promise<{ extraIgnoreDirs?: string[]; extraPatterns?: string[] }>,
+  setProjectFilesConfig: (projectDir: string, cfg: { extraIgnoreDirs?: string[]; extraPatterns?: string[] }) =>
+    ipcRenderer.invoke('files-config:set-project', projectDir, cfg) as Promise<{ ok: boolean }>,
+  getComputedIgnores: (projectDir: string) =>
+    ipcRenderer.invoke('files-config:get-computed', projectDir) as Promise<{ pattern: string; source: string }[]>,
+
   // Wake recovery (sleep/wake cleanup)
   onWakeRecovery: (callback: () => void) => {
     const listener = () => callback()

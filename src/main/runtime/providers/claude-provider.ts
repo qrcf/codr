@@ -149,7 +149,7 @@ export class ClaudeProvider implements AgentProvider {
       })
     }
 
-    const { prompt: cleanedPrompt, contextChunks, contextString } = await preprocessPromptForDocs(this.ctx, finalPrompt, req.cwd)
+    const { prompt: cleanedPrompt, contextChunks, contextString } = await preprocessPromptForDocs(this.ctx, finalPrompt, req.cwd, { includeCodebaseContext: isNewSession })
     finalPrompt = cleanedPrompt
 
     // Create codebase search MCP server if indexer is available

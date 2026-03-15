@@ -69,21 +69,31 @@ let cachedAccountInfo: AccountInfo | null = null
 export function setCachedAccountInfo(info: AccountInfo | null) {
   if (info) cachedAccountInfo = info
 }
-const IGNORED_DIRS = new Set([
-  'node_modules', '.git', 'dist', 'build', '.next', '.cache',
-  '__pycache__', '.venv', 'venv', '.tox', 'coverage', '.nyc_output',
-])
+import { IGNORED_DIRS, IGNORE_FILES } from './runtime/files-config'
+export { IGNORED_DIRS, IGNORE_FILES }
 
-const IGNORE_FILES = ['.gitignore', '.codrignore', '.cursorignore', '.copilotignore', '.aiderignore']
-
-async function loadIgnoreRules(rootDir: string) {
+async function loadIgnoreRules(rootDir: string, config?: import('./runtime/files-config').ResolvedFilesConfig) {
   const ig = ignore()
-  ig.add(Array.from(IGNORED_DIRS).map(d => d + '/'))
+  const dirsToIgnore = config?.ignoreDirs ?? Array.from(IGNORED_DIRS)
+  ig.add(dirsToIgnore.map(d => d + '/'))
   for (const file of IGNORE_FILES) {
     try {
       const content = await readFile(join(rootDir, file), 'utf-8')
       ig.add(content)
     } catch { /* file doesn't exist */ }
+  }
+  if (config?.extraIgnoreFiles.length) {
+    const standardNames = new Set(IGNORE_FILES)
+    for (const file of config.extraIgnoreFiles) {
+      if (standardNames.has(file)) continue
+      try {
+        const content = await readFile(join(rootDir, file), 'utf-8')
+        ig.add(content)
+      } catch { /* file doesn't exist */ }
+    }
+  }
+  if (config?.extraPatterns.length) {
+    ig.add(config.extraPatterns)
   }
   return ig
 }
@@ -429,11 +439,13 @@ export async function checkCliStatus(): Promise<CliStatus> {
   }
 }
 
-export async function listFilesData(dir?: string, maxFiles = 500) {
+export async function listFilesData(dir?: string, maxFiles?: number) {
   const root = dir || process.cwd()
+  const { resolveFilesConfig } = await import('./runtime/files-config')
+  const config = await resolveFilesConfig(root)
   const results: string[] = []
-  const MAX_FILES = maxFiles
-  const ig = await loadIgnoreRules(root)
+  const MAX_FILES = maxFiles ?? 10_000
+  const ig = await loadIgnoreRules(root, config)
 
   async function walk(current: string) {
     if (results.length >= MAX_FILES) return
@@ -445,7 +457,6 @@ export async function listFilesData(dir?: string, maxFiles = 500) {
     }
     for (const entry of entries) {
       if (results.length >= MAX_FILES) break
-      if (entry.name.startsWith('.') && entry.isDirectory()) continue
       const rel = relative(root, join(current, entry.name))
       if (entry.isDirectory()) {
         if (ig.ignores(rel + '/')) continue
@@ -677,6 +688,33 @@ export function registerSessionHandlers(relayClient?: RelayClient, broadcaster?:
 
   ipcMain.handle('sessions:list-files', async (_event, dir?: string) => {
     return listFilesData(dir)
+  })
+
+  ipcMain.handle('files-config:get-global', async () => {
+    const { getGlobalFilesConfig } = await import('./runtime/files-config')
+    return getGlobalFilesConfig()
+  })
+
+  ipcMain.handle('files-config:set-global', async (_event, cfg: import('./runtime/files-config').GlobalFilesConfigFile) => {
+    const { setGlobalFilesConfig } = await import('./runtime/files-config')
+    await setGlobalFilesConfig(cfg)
+    return { ok: true }
+  })
+
+  ipcMain.handle('files-config:get-project', async (_event, projectDir: string) => {
+    const { getProjectFilesConfig } = await import('./runtime/files-config')
+    return getProjectFilesConfig(projectDir)
+  })
+
+  ipcMain.handle('files-config:set-project', async (_event, projectDir: string, cfg: import('./runtime/files-config').ProjectFilesConfigFile) => {
+    const { setProjectFilesConfig } = await import('./runtime/files-config')
+    await setProjectFilesConfig(projectDir, cfg)
+    return { ok: true }
+  })
+
+  ipcMain.handle('files-config:get-computed', async (_event, projectDir: string) => {
+    const { computeTaggedIgnoreEntries } = await import('./runtime/files-config')
+    return computeTaggedIgnoreEntries(projectDir)
   })
 
   ipcMain.handle('sessions:regen-title', async (_event, sessionId: string, firstPrompt: string) => {

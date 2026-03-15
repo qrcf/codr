@@ -128,6 +128,8 @@ export default function App() {
       applyStreamingState: agent.applyStreamingState,
       setIsLoading: agent.setIsLoading,
       setMessages: agent.setMessages,
+      saveActiveToCache: agent.saveActiveToCache,
+      restoreFromCache: agent.restoreFromCache,
     },
     resetInput: () => resetInputRef.current(),
     resetPlan: dialogs.resetPlan,

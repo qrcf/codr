@@ -52,7 +52,7 @@ export const MessageBubble = memo(function MessageBubble({ message, approvedPlan
 
   if (message.role === 'system') {
     return (
-      <div className="message-system flex items-center justify-center gap-[10px] px-4 py-2 my-3 text-[#777] text-[0.8em]">
+      <div className="message-system flex items-center justify-center gap-2.5 px-4 py-2 my-3 text-[#777] text-[0.8em]">
         <span className="whitespace-nowrap">{message.content}</span>
       </div>
     )
@@ -62,14 +62,14 @@ export const MessageBubble = memo(function MessageBubble({ message, approvedPlan
 
   return (
     <div className={isUser ? 'self-end max-w-[80%] flex flex-col items-end' : 'max-w-full'}>
-    <div className={`max-w-full ${isUser ? 'bg-[#2a2a3d] px-[14px] py-2 rounded-[16px_16px_4px_16px] mt-2' : 'py-1'}`}>
+    <div className={`max-w-full ${isUser ? 'bg-[#2a2a3d] px-3.5 py-2 rounded-[16px_16px_4px_16px] mt-2' : 'py-1'}`}>
       {message.thinking && (
         <div className="mb-1">
           <div
-            className="flex items-center gap-[6px] px-2 py-1 cursor-pointer select-none text-[#999] text-[0.85em] rounded hover:bg-[#2a2a3a] hover:text-[#ccc]"
+            className="flex items-center gap-1.5 px-2 py-1 cursor-pointer select-none text-text-muted text-[0.85em] rounded hover:bg-border-subtle hover:text-[#ccc]"
             onClick={() => setThinkingExpanded(!thinkingExpanded)}
           >
-            <span className="text-[0.8em] text-[#666] flex-shrink-0">{thinkingExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
+            <span className="text-[0.8em] text-text-dim shrink-0">{thinkingExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
             <span className="font-['SF_Mono','Fira_Code',monospace]">Reasoning</span>
           </div>
           {thinkingExpanded && (
@@ -86,7 +86,7 @@ export const MessageBubble = memo(function MessageBubble({ message, approvedPlan
           >
             <MarkdownContent tags={formatted!.tags}>{formatted!.text}</MarkdownContent>
             {isLong && !expanded && (
-              <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-[#2a2a3d] to-transparent pointer-events-none" />
+              <div className="absolute bottom-0 left-0 right-0 h-8 bg-linear-to-t from-[#2a2a3d] to-transparent pointer-events-none" />
             )}
           </div>
           {isLong && expanded && (
@@ -110,12 +110,12 @@ export const MessageBubble = memo(function MessageBubble({ message, approvedPlan
       ))}
       {otherTools.length > 0 && (
         <div className="mt-2">
-          <div className="flex items-center gap-[6px] px-2 py-1 cursor-pointer select-none text-[#999] text-[0.85em] rounded hover:bg-[#2a2a3a] hover:text-[#ccc]" onClick={() => setGroupExpanded(!groupExpanded)}>
-            <span className="text-[0.8em] text-[#666] flex-shrink-0">{groupExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
+          <div className="flex items-center gap-1.5 px-2 py-1 cursor-pointer select-none text-text-muted text-[0.85em] rounded hover:bg-border-subtle hover:text-[#ccc]" onClick={() => setGroupExpanded(!groupExpanded)}>
+            <span className="text-[0.8em] text-text-dim shrink-0">{groupExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
             <span className="font-['SF_Mono','Fira_Code',monospace]">{buildToolSummary(otherTools)}</span>
           </div>
           {groupExpanded && (
-            <div className="flex flex-col gap-[1px] mt-1">
+            <div className="flex flex-col gap-px mt-1">
               {otherTools.map((tool) => (
                 <ToolCallBlock key={tool.id} tool={tool} />
               ))}
@@ -125,6 +125,9 @@ export const MessageBubble = memo(function MessageBubble({ message, approvedPlan
       )}
     </div>
     {message.injectedContext && (
+      message.injectedContext.mode || message.injectedContext.systemPrompt || message.injectedContext.developerInstructions ||
+      message.injectedContext.context?.codebase?.length || message.injectedContext.context?.documentation?.length || message.injectedContext.context?.files?.length
+    ) && (
       <ContextChunksRenderer context={message.injectedContext} />
     )}
     </div>

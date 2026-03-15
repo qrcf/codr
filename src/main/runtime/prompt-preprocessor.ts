@@ -187,6 +187,7 @@ export async function preprocessPromptForDocs(
   ctx: AgentProviderContext,
   prompt: string,
   cwd?: string,
+  opts?: { includeCodebaseContext?: boolean },
 ): Promise<PreprocessedPrompt> {
   const { cleanedPrompt, docNames } = parseDocRefs(prompt)
   const searchPrompt = docNames.length > 0 ? cleanedPrompt : prompt
@@ -194,8 +195,10 @@ export async function preprocessPromptForDocs(
 
   const allChunks: ContextChunk[] = []
 
-  const codebaseChunks = await getCodebaseContextChunks(ctx, searchPrompt, cwd)
-  allChunks.push(...codebaseChunks)
+  if (opts?.includeCodebaseContext !== false) {
+    const codebaseChunks = await getCodebaseContextChunks(ctx, searchPrompt, cwd)
+    allChunks.push(...codebaseChunks)
+  }
 
   if (docNames.length > 0) {
     const docChunks = await retrieveDocsContext(ctx, searchPrompt, docNames)
@@ -217,14 +220,17 @@ export async function preprocessPromptFull(
   ctx: AgentProviderContext,
   prompt: string,
   cwd?: string,
+  opts?: { includeCodebaseContext?: boolean },
 ): Promise<PreprocessedPrompt> {
   const { cleanedPrompt: afterDocs, docNames } = parseDocRefs(prompt)
   const { cleanedPrompt: afterFiles, filePaths } = parseFileRefs(afterDocs)
 
   const allChunks: ContextChunk[] = []
 
-  const codebaseChunks = await getCodebaseContextChunks(ctx, afterFiles, cwd)
-  allChunks.push(...codebaseChunks)
+  if (opts?.includeCodebaseContext !== false) {
+    const codebaseChunks = await getCodebaseContextChunks(ctx, afterFiles, cwd)
+    allChunks.push(...codebaseChunks)
+  }
 
   if (docNames.length > 0) {
     const docChunks = await retrieveDocsContext(ctx, afterFiles, docNames)

@@ -81,6 +81,30 @@ interface RawSessionMessage {
 
 type AttachmentMeta = import('../../shared/attachments').AttachmentMeta
 
+interface GlobalFilesConfigFile {
+  ignoreDirs?: string[]
+  extraIgnoreFiles?: string[]
+}
+
+interface ProjectFilesConfigFile {
+  extraIgnoreDirs?: string[]
+  extraPatterns?: string[]
+}
+
+type IgnoreSource =
+  | 'global'
+  | 'gitignore'
+  | 'codrignore'
+  | 'cursorignore'
+  | 'copilotignore'
+  | 'aiderignore'
+  | 'project'
+
+interface TaggedIgnoreEntry {
+  pattern: string
+  source: IgnoreSource
+}
+
 interface ClaudeAPI {
   getPathForFile?: (file: File) => string
   readClipboardFilePaths?: () => Promise<string[]>
@@ -186,6 +210,13 @@ interface ClaudeAPI {
   updateIndex?: (projectDir: string) => Promise<{ok: boolean}>
   reinstallIndexer?: () => Promise<{ok: boolean}>
   onIndexerSetupProgress?: (cb: (progress: {step: string, detail?: string, projectDir?: string, progress?: {current: number, total: number}}) => void) => () => void
+
+  // Files config (desktop only)
+  getGlobalFilesConfig?: () => Promise<Required<GlobalFilesConfigFile>>
+  setGlobalFilesConfig?: (cfg: Partial<GlobalFilesConfigFile>) => Promise<{ ok: boolean }>
+  getProjectFilesConfig?: (projectDir: string) => Promise<ProjectFilesConfigFile>
+  setProjectFilesConfig?: (projectDir: string, cfg: Partial<ProjectFilesConfigFile>) => Promise<{ ok: boolean }>
+  getComputedIgnores?: (projectDir: string) => Promise<TaggedIgnoreEntry[]>
 
   // Wake recovery (desktop only)
   onWakeRecovery?: (callback: () => void) => () => void

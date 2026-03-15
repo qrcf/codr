@@ -12,6 +12,8 @@ interface AgentHandle {
   }) => void
   setIsLoading: (v: boolean) => void
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>
+  saveActiveToCache: () => void
+  restoreFromCache: (sessionId: string | null) => boolean
 }
 
 interface DraftActions {
@@ -102,10 +104,12 @@ export function useSessionManager({
   const loadSession = useCallback((sessionId: string | null, sessionMessages: ChatMessage[], initialTokenUsage?: TokenUsage | null) => {
     const isReloadingSameSession = sessionId !== null && sessionId === activeSessionIdRef.current
 
-    // Interrupt any in-flight query for the previous session
     const prevId = activeSessionIdRef.current
+
+    // Save active session state to cache so background queries keep accumulating.
+    // Do NOT interrupt the previous session — it continues running in the background.
     if (prevId && !isReloadingSameSession) {
-      window.claude.interrupt(prevId)
+      agent.saveActiveToCache()
     }
 
     // Clean up abandoned draft when switching away
@@ -117,9 +121,13 @@ export function useSessionManager({
     awaitingNewSessionRef.current = false
 
     if (!isReloadingSameSession) {
-      agent.loadMessages(sessionMessages, initialTokenUsage)
-      agent.resetStreaming()
-      agent.setIsLoading(false)
+      // Try to restore from cache first (session was running in background)
+      const restored = agent.restoreFromCache(sessionId)
+      if (!restored) {
+        agent.loadMessages(sessionMessages, initialTokenUsage)
+        agent.resetStreaming()
+        agent.setIsLoading(false)
+      }
     }
     activeSessionIdRef.current = sessionId
     setActiveSessionId(sessionId)

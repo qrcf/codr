@@ -8,7 +8,7 @@ interface ManageProjectPanelProps {
   onClose: () => void
 }
 
-type Tab = 'general' | 'index'
+type Tab = 'general' | 'files'
 type UpdateState = 'idle' | 'updating' | 'reviewing'
 
 const PRESET_PROMPTS: { label: string; prompt: string }[] = [
@@ -176,20 +176,20 @@ IMPORTANT: Output ONLY the complete updated CLAUDE.md content. Do not include an
   const tabBtnClass = (isActive: boolean) =>
     `bg-transparent border-0 border-b-2 px-5 py-3.5 text-[14px] cursor-pointer transition-colors duration-150 ${
       isActive
-        ? 'text-[#e0e0e0] border-b-[#8142c7]'
-        : 'text-[#888] border-b-transparent hover:text-[#ccc]'
+        ? 'text-[#e0e0e0] border-b-accent'
+        : 'text-text-faint border-b-transparent hover:text-[#ccc]'
     }`
 
   return (
-    <div className="flex flex-col flex-1 h-screen min-w-0 bg-[#121218]">
+    <div className="flex flex-col flex-1 h-screen min-w-0 bg-bg-primary">
       {/* Header */}
       <div className="flex items-center justify-between px-4 pt-4 pb-3 shrink-0">
         <div className="min-w-0">
           <div className="text-[18px] font-semibold text-[#e0e0e0] overflow-hidden text-ellipsis whitespace-nowrap">{folderName}</div>
-          <div className="text-[12px] text-[#666] mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap">{folderPath}</div>
+          <div className="text-[12px] text-text-dim mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap">{folderPath}</div>
         </div>
         <button
-          className="bg-transparent border border-[#333] text-[#888] w-8 h-8 rounded-md cursor-pointer flex items-center justify-center text-[16px] transition-colors duration-150 shrink-0 hover:bg-[#2a2a3a] hover:text-[#ccc]"
+          className="bg-transparent border border-border text-text-faint w-8 h-8 rounded-md cursor-pointer flex items-center justify-center text-[16px] transition-colors duration-150 shrink-0 hover:bg-border-subtle hover:text-[#ccc]"
           onClick={onClose}
           title="Close"
         >
@@ -198,13 +198,13 @@ IMPORTANT: Output ONLY the complete updated CLAUDE.md content. Do not include an
       </div>
 
       {/* Topbar / Tabs */}
-      <div className="flex items-center px-4 border-b border-[#2a2a3a] shrink-0">
+      <div className="flex items-center px-4 border-b border-border-subtle shrink-0">
         <div className="flex gap-0">
           <button className={tabBtnClass(activeTab === 'general')} onClick={() => setActiveTab('general')}>
             General
           </button>
-          <button className={tabBtnClass(activeTab === 'index')} onClick={() => setActiveTab('index')}>
-            Index
+          <button className={tabBtnClass(activeTab === 'files')} onClick={() => setActiveTab('files')}>
+            Files
           </button>
         </div>
       </div>
@@ -215,16 +215,16 @@ IMPORTANT: Output ONLY the complete updated CLAUDE.md content. Do not include an
           <div>
             {/* CLAUDE.md content */}
             <section className="mb-8">
-              <h3 className="m-0 mb-3 text-[13px] font-semibold text-[#888] uppercase tracking-[0.05em]">CLAUDE.md</h3>
+              <h3 className="m-0 mb-3 text-[13px] font-semibold text-text-faint uppercase tracking-[0.05em]">CLAUDE.md</h3>
               {claudeMdLoading ? (
-                <div className="text-[#666] italic">Loading CLAUDE.md...</div>
+                <div className="text-text-dim italic">Loading CLAUDE.md...</div>
               ) : claudeMdContent ? (
-                <div className="mp-claudemd-card bg-[#1a1a2a] border border-[#2a2a3a] rounded-lg px-6 py-5 max-h-[50vh] overflow-y-auto">
+                <div className="mp-claudemd-card bg-bg-tertiary border border-border-subtle rounded-lg px-6 py-5 max-h-[50vh] overflow-y-auto">
                   <Markdown remarkPlugins={[remarkGfm]}>{claudeMdContent}</Markdown>
                 </div>
               ) : (
-                <div className="mp-claudemd-card bg-[#1a1a2a] border border-[#2a2a3a] rounded-lg px-6 py-5 max-h-[50vh] overflow-y-auto">
-                  <div className="text-[#666] italic px-6 py-6 text-center">
+                <div className="mp-claudemd-card bg-bg-tertiary border border-border-subtle rounded-lg px-6 py-5 max-h-[50vh] overflow-y-auto">
+                  <div className="text-text-dim italic px-6 py-6 text-center">
                     No CLAUDE.md found in this project. Use the actions below to generate one.
                   </div>
                 </div>
@@ -234,13 +234,13 @@ IMPORTANT: Output ONLY the complete updated CLAUDE.md content. Do not include an
             {/* Update actions */}
             {updateState === 'idle' && (
               <section className="mb-8">
-                <h3 className="m-0 mb-3 text-[13px] font-semibold text-[#888] uppercase tracking-[0.05em]">Update CLAUDE.md</h3>
+                <h3 className="m-0 mb-3 text-[13px] font-semibold text-text-faint uppercase tracking-[0.05em]">Update CLAUDE.md</h3>
                 <div className="mt-4">
                   <div className="flex flex-wrap gap-2 mb-3">
                     {PRESET_PROMPTS.map((preset) => (
                       <button
                         key={preset.label}
-                        className="bg-[#2a2a3d] border border-[#3a3a5a] text-[#ccc] px-3.5 py-[7px] rounded-md cursor-pointer text-[13px] transition-colors duration-150 hover:bg-[#3a3a5a] hover:text-[#e0e0e0] hover:border-[#8142c7] disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="bg-[#2a2a3d] border border-[#3a3a5a] text-[#ccc] px-3.5 py-1.75 rounded-md cursor-pointer text-[13px] transition-colors duration-150 hover:bg-[#3a3a5a] hover:text-[#e0e0e0] hover:border-accent disabled:opacity-50 disabled:cursor-not-allowed"
                         onClick={() => triggerUpdate(preset.prompt, preset.label)}
                       >
                         {preset.label}
@@ -249,7 +249,7 @@ IMPORTANT: Output ONLY the complete updated CLAUDE.md content. Do not include an
                   </div>
                   <div className="flex gap-2">
                     <input
-                      className="flex-1 bg-[#1a1a2a] border border-[#2a2a3a] text-[#e0e0e0] px-3 py-2 rounded-md text-[13px] outline-none transition-colors duration-150 focus:border-[#8142c7] placeholder:text-[#555]"
+                      className="flex-1 bg-bg-tertiary border border-border-subtle text-[#e0e0e0] px-3 py-2 rounded-md text-[13px] outline-none transition-colors duration-150 focus:border-accent placeholder:text-[#555]"
                       type="text"
                       placeholder="Describe what to update (e.g., 'Add info about our API auth pattern')"
                       value={freeTextInput}
@@ -262,7 +262,7 @@ IMPORTANT: Output ONLY the complete updated CLAUDE.md content. Do not include an
                       }}
                     />
                     <button
-                      className="bg-[#8142c7] border-none text-white px-[18px] py-2 rounded-md cursor-pointer text-[13px] font-medium transition-colors duration-150 whitespace-nowrap hover:bg-[#9656d8] disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="bg-accent border-none text-white px-4.5 py-2 rounded-md cursor-pointer text-[13px] font-medium transition-colors duration-150 whitespace-nowrap hover:bg-[#9656d8] disabled:opacity-50 disabled:cursor-not-allowed"
                       onClick={handleFreeTextSubmit}
                       disabled={!freeTextInput.trim()}
                     >
@@ -276,8 +276,8 @@ IMPORTANT: Output ONLY the complete updated CLAUDE.md content. Do not include an
             {/* Updating spinner */}
             {updateState === 'updating' && (
               <section className="mb-8">
-                <div className="flex items-center gap-2.5 text-[#888] italic py-4">
-                  <div className="w-4 h-4 border-2 border-[#333] border-t-[#8142c7] rounded-full animate-[spin_0.8s_linear_infinite]" />
+                <div className="flex items-center gap-2.5 text-text-faint italic py-4">
+                  <div className="w-4 h-4 border-2 border-border border-t-accent rounded-full animate-[spin_0.8s_linear_infinite]" />
                   <span>Claude is working on: {updateLabel}...</span>
                 </div>
               </section>
@@ -297,14 +297,14 @@ IMPORTANT: Output ONLY the complete updated CLAUDE.md content. Do not include an
                         Accept
                       </button>
                       <button
-                        className="bg-[#1a1a2a] border border-[#333] text-[#888] px-4 py-1.5 rounded-md cursor-pointer text-[13px] transition-colors duration-150 hover:bg-[#2a2a3a] hover:text-[#ccc]"
+                        className="bg-bg-tertiary border border-border text-text-faint px-4 py-1.5 rounded-md cursor-pointer text-[13px] transition-colors duration-150 hover:bg-border-subtle hover:text-[#ccc]"
                         onClick={handleReject}
                       >
                         Reject
                       </button>
                     </div>
                   </div>
-                  <div className="bg-[#0e0e16] border border-[#2a2a3a] rounded-lg p-3 max-h-[50vh] overflow-y-auto">
+                  <div className="bg-[#0e0e16] border border-border-subtle rounded-lg p-3 max-h-[50vh] overflow-y-auto">
                     <DiffView
                       oldString={claudeMdContent || ''}
                       newString={proposedContent}
@@ -320,11 +320,232 @@ IMPORTANT: Output ONLY the complete updated CLAUDE.md content. Do not include an
           </div>
         )}
 
-        {activeTab === 'index' && (
-          <ProjectIndexTab folderPath={folderPath} />
+        {activeTab === 'files' && (
+          <div>
+            <ProjectFilesConfigSection folderPath={folderPath} />
+            <ComputedIgnoresSection folderPath={folderPath} />
+            <ProjectIndexTab folderPath={folderPath} />
+          </div>
         )}
       </div>
     </div>
+  )
+}
+
+// -- Chip list helper (shared) --
+
+function ChipList({
+  items,
+  onRemove,
+  placeholder,
+  onAdd,
+}: {
+  items: string[]
+  onRemove: (item: string) => void
+  placeholder: string
+  onAdd: (item: string) => void
+}) {
+  const [input, setInput] = useState('')
+
+  function commit() {
+    const val = input.trim().replace(/\/$/, '')
+    if (!val || items.includes(val)) { setInput(''); return }
+    onAdd(val)
+    setInput('')
+  }
+
+  return (
+    <div>
+      <div className="flex flex-wrap gap-1.5 mb-2 min-h-7">
+        {items.map((item) => (
+          <span
+            key={item}
+            className="flex items-center gap-1 px-2 py-0.5 bg-bg-tertiary border border-border-subtle rounded text-[12px] text-[#ccc] font-mono"
+          >
+            {item}
+            <button
+              className="bg-transparent border-0 text-[#555] cursor-pointer p-0 ml-0.5 leading-none hover:text-[#e06060]"
+              onClick={() => onRemove(item)}
+              title={`Remove ${item}`}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        {items.length === 0 && <span className="text-[12px] text-[#555] italic">None</span>}
+      </div>
+      <div className="flex gap-2">
+        <input
+          className="flex-1 bg-bg-tertiary border border-border-subtle text-[#e0e0e0] px-2.5 py-1.5 rounded text-[12px] outline-none focus:border-accent placeholder:text-[#555] font-mono"
+          type="text"
+          placeholder={placeholder}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit() } }}
+        />
+        <button
+          className="bg-[#2a2a3d] border border-[#3a3a5a] text-[#ccc] px-3 py-1.5 rounded text-[12px] cursor-pointer transition-colors hover:bg-[#3a3a5a] disabled:opacity-40 disabled:cursor-not-allowed"
+          onClick={commit}
+          disabled={!input.trim()}
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// -- Project files config section --
+
+function ProjectFilesConfigSection({ folderPath }: { folderPath: string }) {
+  const [projectConfig, setProjectConfig] = useState<ProjectFilesConfigFile>({})
+
+  useEffect(() => {
+    window.claude.getProjectFilesConfig?.(folderPath)
+      .then((p) => { if (p) setProjectConfig(p) })
+      .catch(() => {})
+  }, [folderPath])
+
+  async function save(updates: Partial<ProjectFilesConfigFile>) {
+    const merged = { ...projectConfig, ...updates }
+    setProjectConfig(merged)
+    await window.claude.setProjectFilesConfig?.(folderPath, merged).catch(() => {})
+  }
+
+  return (
+    <section className="mb-6">
+      <h3 className="m-0 mb-3 text-[13px] font-semibold text-text-faint uppercase tracking-[0.05em]">File Discovery Overrides</h3>
+      <div className="bg-bg-tertiary border border-border-subtle rounded-lg p-4 space-y-5">
+
+        {/* Extra ignore dirs */}
+        <div>
+          <div className="text-[13px] text-[#ccc] font-medium mb-1.5">Extra ignore directories</div>
+          <div className="text-[12px] text-[#555] mb-2">Project-specific directory names to exclude (in addition to global settings)</div>
+          <ChipList
+            items={projectConfig.extraIgnoreDirs ?? []}
+            placeholder="e.g. e2e, fixtures"
+            onAdd={(dir) => save({ extraIgnoreDirs: [...(projectConfig.extraIgnoreDirs ?? []), dir] })}
+            onRemove={(dir) => save({ extraIgnoreDirs: (projectConfig.extraIgnoreDirs ?? []).filter((d) => d !== dir) })}
+          />
+        </div>
+
+        {/* Extra patterns */}
+        <div>
+          <div className="text-[13px] text-[#ccc] font-medium mb-1.5">Extra ignore patterns</div>
+          <div className="text-[12px] text-[#555] mb-2">gitignore-style patterns applied only to this project (e.g. <span className="font-mono">src/generated/**</span>)</div>
+          <ChipList
+            items={projectConfig.extraPatterns ?? []}
+            placeholder="e.g. src/generated/**, *.snap"
+            onAdd={(p) => save({ extraPatterns: [...(projectConfig.extraPatterns ?? []), p] })}
+            onRemove={(p) => save({ extraPatterns: (projectConfig.extraPatterns ?? []).filter((x) => x !== p) })}
+          />
+        </div>
+      </div>
+    </section>
+  )
+}
+
+// -- Computed ignores section --
+
+const SOURCE_BADGE: Record<IgnoreSource, { label: string; className: string }> = {
+  'global':       { label: 'global',       className: 'bg-[#1a2035] text-[#6b8dd6]' },
+  'gitignore':    { label: '.gitignore',   className: 'bg-[#1a2e1a] text-[#50c878]' },
+  'codrignore':   { label: '.codrignore',  className: 'bg-[#2d1f3d] text-[#b89de0]' },
+  'cursorignore': { label: '.cursorignore',className: 'bg-[#2a2820] text-[#c8a84b]' },
+  'copilotignore':{ label: '.copilotignore',className: 'bg-[#2a2820] text-[#c8a84b]' },
+  'aiderignore':  { label: '.aiderignore', className: 'bg-[#2a2820] text-[#c8a84b]' },
+  'project':      { label: 'project',      className: 'bg-[#2e1e14] text-[#d4845a]' },
+}
+
+function ComputedIgnoresSection({ folderPath }: { folderPath: string }) {
+  const [entries, setEntries] = useState<TaggedIgnoreEntry[]>([])
+  const [expanded, setExpanded] = useState(false)
+  const [filter, setFilter] = useState('')
+  const [loading, setLoading] = useState(false)
+  const loaded = useRef(false)
+
+  useEffect(() => {
+    if (!expanded || loaded.current) return
+    loaded.current = true
+    setLoading(true)
+    window.claude.getComputedIgnores?.(folderPath)
+      .then((e) => setEntries(e ?? []))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [expanded, folderPath])
+
+  // Reload when expanded is toggled open (allows refresh after config changes)
+  const handleToggle = () => {
+    if (!expanded) loaded.current = false
+    setExpanded(!expanded)
+  }
+
+  const filtered = filter
+    ? entries.filter((e) => e.pattern.toLowerCase().includes(filter.toLowerCase()) || e.source.includes(filter.toLowerCase()))
+    : entries
+
+  return (
+    <section className="mb-6">
+      <button
+        className="flex items-center gap-2 bg-transparent border-0 p-0 cursor-pointer mb-3 group"
+        onClick={handleToggle}
+      >
+        <span className="text-[13px] font-semibold text-text-faint uppercase tracking-[0.05em] group-hover:text-[#bbb] transition-colors">
+          Computed Ignores
+        </span>
+        <span className="text-text-dim text-[11px] transition-transform" style={{ transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
+          ▶
+        </span>
+        {entries.length > 0 && <span className="text-[11px] text-[#555]">({entries.length})</span>}
+      </button>
+
+      {expanded && (
+        <div className="bg-bg-tertiary border border-border-subtle rounded-lg overflow-hidden">
+          {loading ? (
+            <div className="text-[12px] text-text-dim italic px-4 py-3">Loading...</div>
+          ) : (
+            <>
+              <div className="px-3 py-2 border-b border-border-subtle">
+                <input
+                  className="w-full bg-[#141420] border border-border-subtle text-[#e0e0e0] px-2.5 py-1.5 rounded text-[12px] outline-none focus:border-accent placeholder:text-[#555] font-mono"
+                  type="text"
+                  placeholder="Filter patterns or sources..."
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                />
+              </div>
+              <div className="max-h-100 overflow-y-auto">
+                {filtered.length === 0 ? (
+                  <div className="text-[12px] text-[#555] italic px-4 py-3">No entries match filter</div>
+                ) : (
+                  filtered.map((entry, i) => {
+                    const badge = SOURCE_BADGE[entry.source] ?? SOURCE_BADGE['global']
+                    return (
+                      <div
+                        key={i}
+                        className="flex items-center gap-2 px-3 py-1.5 border-b border-bg-card last:border-b-0 hover:bg-[#222238] transition-colors duration-100"
+                      >
+                        <span className="text-[12px] text-[#ccc] font-mono flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+                          {entry.pattern}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] shrink-0 ${badge.className}`}>
+                          {badge.label}
+                        </span>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+              {filtered.length > 0 && filtered.length < entries.length && (
+                <div className="text-[11px] text-[#555] px-3 py-2 border-t border-border-subtle">
+                  Showing {filtered.length} of {entries.length} patterns
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -429,7 +650,7 @@ function ProjectIndexTab({ folderPath }: { folderPath: string }) {
   const isIndexing = projectStatus.status === 'indexing' || rebuilding
 
   const statusDot = (() => {
-    if (isIndexing) return <div className="w-4 h-4 border-2 border-[#333] border-t-[#6b8dd6] rounded-full animate-[spin_0.8s_linear_infinite]" />
+    if (isIndexing) return <div className="w-4 h-4 border-2 border-border border-t-[#6b8dd6] rounded-full animate-[spin_0.8s_linear_infinite]" />
     if (isIndexed) return <span className="w-2.5 h-2.5 rounded-full bg-[#50c878] shrink-0" />
     if (globalStatus.status === 'setting-up') return <span className="w-2.5 h-2.5 rounded-full bg-[#d4a845] animate-pulse shrink-0" />
     if (projectStatus.status === 'error') return <span className="w-2.5 h-2.5 rounded-full bg-[#e06060] shrink-0" />
@@ -458,8 +679,8 @@ function ProjectIndexTab({ folderPath }: { folderPath: string }) {
     <div>
       {/* Status card */}
       <section className="mb-6">
-        <h3 className="m-0 mb-3 text-[13px] font-semibold text-[#888] uppercase tracking-[0.05em]">Project Index</h3>
-        <div className="bg-[#1a1a2a] border border-[#2a2a3a] rounded-lg p-4">
+        <h3 className="m-0 mb-3 text-[13px] font-semibold text-text-faint uppercase tracking-[0.05em]">Project Index</h3>
+        <div className="bg-bg-tertiary border border-border-subtle rounded-lg p-4">
           <div className="flex items-center justify-between gap-3">
             <div className="flex-1 min-w-0">
               <div className="text-[14px] text-[#e0e0e0] font-medium mb-1">
@@ -474,12 +695,12 @@ function ProjectIndexTab({ folderPath }: { folderPath: string }) {
                         : 'Not indexed'}
               </div>
               {isIndexing && indexingDetail && (
-                <div className="text-[12px] text-[#888] font-mono overflow-hidden text-ellipsis whitespace-nowrap">{indexingDetail}</div>
+                <div className="text-[12px] text-text-faint font-mono overflow-hidden text-ellipsis whitespace-nowrap">{indexingDetail}</div>
               )}
               {!isIndexing && projectStatus.detail && (
-                <div className="text-[12px] text-[#888]">{projectStatus.detail}</div>
+                <div className="text-[12px] text-text-faint">{projectStatus.detail}</div>
               )}
-              <div className="text-[11px] text-[#555] mt-1 font-mono overflow-hidden text-ellipsis whitespace-nowrap max-w-[400px]">
+              <div className="text-[11px] text-[#555] mt-1 font-mono overflow-hidden text-ellipsis whitespace-nowrap max-w-100">
                 {folderPath}
               </div>
             </div>
@@ -492,10 +713,10 @@ function ProjectIndexTab({ folderPath }: { folderPath: string }) {
           {isIndexing && progressPct !== null && (
             <div className="mt-3">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-[11px] text-[#888]">
+                <span className="text-[11px] text-text-faint">
                   {indexingProgress!.current} / {indexingProgress!.total} files
                 </span>
-                <span className="text-[11px] text-[#888]">{progressPct}%</span>
+                <span className="text-[11px] text-text-faint">{progressPct}%</span>
               </div>
               <div className="h-1.5 bg-[#222] rounded-full overflow-hidden">
                 <div
@@ -506,7 +727,7 @@ function ProjectIndexTab({ folderPath }: { folderPath: string }) {
             </div>
           )}
 
-          <div className="flex gap-2 mt-4 pt-3 border-t border-[#2a2a3a]">
+          <div className="flex gap-2 mt-4 pt-3 border-t border-border-subtle">
             {isIndexed && (
               <button
                 className="bg-[#2a2a3d] border border-[#3a3a5a] text-[#ccc] py-1.5 px-3.5 rounded-md text-[12px] cursor-pointer transition-colors duration-150 hover:bg-[#3a3a5a] hover:text-[#e0e0e0] disabled:opacity-50 disabled:cursor-not-allowed"
@@ -530,19 +751,19 @@ function ProjectIndexTab({ folderPath }: { folderPath: string }) {
       {/* Stats summary — only when indexed */}
       {isIndexed && files.length > 0 && (
         <section className="mb-6">
-          <h3 className="m-0 mb-3 text-[13px] font-semibold text-[#888] uppercase tracking-[0.05em]">Summary</h3>
+          <h3 className="m-0 mb-3 text-[13px] font-semibold text-text-faint uppercase tracking-[0.05em]">Summary</h3>
           <div className="grid grid-cols-3 gap-3">
-            <div className="bg-[#1a1a2a] border border-[#2a2a3a] rounded-lg px-4 py-3 text-center">
+            <div className="bg-bg-tertiary border border-border-subtle rounded-lg px-4 py-3 text-center">
               <div className="text-[18px] font-semibold text-[#e0e0e0]">{files.length}</div>
-              <div className="text-[11px] text-[#666] mt-0.5">Files</div>
+              <div className="text-[11px] text-text-dim mt-0.5">Files</div>
             </div>
-            <div className="bg-[#1a1a2a] border border-[#2a2a3a] rounded-lg px-4 py-3 text-center">
+            <div className="bg-bg-tertiary border border-border-subtle rounded-lg px-4 py-3 text-center">
               <div className="text-[18px] font-semibold text-[#e0e0e0]">{totalChunks}</div>
-              <div className="text-[11px] text-[#666] mt-0.5">Chunks</div>
+              <div className="text-[11px] text-text-dim mt-0.5">Chunks</div>
             </div>
-            <div className="bg-[#1a1a2a] border border-[#2a2a3a] rounded-lg px-4 py-3 text-center">
+            <div className="bg-bg-tertiary border border-border-subtle rounded-lg px-4 py-3 text-center">
               <div className="text-[18px] font-semibold text-[#e0e0e0]">{Object.keys(langStats).length}</div>
-              <div className="text-[11px] text-[#666] mt-0.5">Languages</div>
+              <div className="text-[11px] text-text-dim mt-0.5">Languages</div>
             </div>
           </div>
           {/* Language breakdown */}
@@ -552,9 +773,9 @@ function ProjectIndexTab({ folderPath }: { folderPath: string }) {
               .map(([lang, count]) => {
                 const info = LANG_LABELS[lang] || LANG_LABELS.unknown
                 return (
-                  <span key={lang} className="flex items-center gap-1.5 px-2 py-1 bg-[#1a1a2a] border border-[#2a2a3a] rounded text-[11px] text-[#bbb]">
+                  <span key={lang} className="flex items-center gap-1.5 px-2 py-1 bg-bg-tertiary border border-border-subtle rounded text-[11px] text-[#bbb]">
                     <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: info.color }} />
-                    {info.label} <span className="text-[#666]">{count}</span>
+                    {info.label} <span className="text-text-dim">{count}</span>
                   </span>
                 )
               })}
@@ -569,21 +790,21 @@ function ProjectIndexTab({ folderPath }: { folderPath: string }) {
             className="flex items-center gap-2 bg-transparent border-0 p-0 cursor-pointer mb-3 group"
             onClick={() => setFilesExpanded(!filesExpanded)}
           >
-            <span className="text-[13px] font-semibold text-[#888] uppercase tracking-[0.05em] group-hover:text-[#bbb] transition-colors">
+            <span className="text-[13px] font-semibold text-text-faint uppercase tracking-[0.05em] group-hover:text-[#bbb] transition-colors">
               Indexed Files
             </span>
-            <span className="text-[#666] text-[11px] transition-transform" style={{ transform: filesExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
+            <span className="text-text-dim text-[11px] transition-transform" style={{ transform: filesExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
               ▶
             </span>
             <span className="text-[11px] text-[#555]">({files.length})</span>
           </button>
 
           {filesExpanded && (
-            <div className="bg-[#1a1a2a] border border-[#2a2a3a] rounded-lg overflow-hidden">
+            <div className="bg-bg-tertiary border border-border-subtle rounded-lg overflow-hidden">
               {/* Search filter */}
-              <div className="px-3 py-2 border-b border-[#2a2a3a]">
+              <div className="px-3 py-2 border-b border-border-subtle">
                 <input
-                  className="w-full bg-[#141420] border border-[#2a2a3a] text-[#e0e0e0] px-2.5 py-1.5 rounded text-[12px] outline-none focus:border-[#8142c7] placeholder:text-[#555] font-mono"
+                  className="w-full bg-[#141420] border border-border-subtle text-[#e0e0e0] px-2.5 py-1.5 rounded text-[12px] outline-none focus:border-accent placeholder:text-[#555] font-mono"
                   type="text"
                   placeholder="Filter files..."
                   value={fileFilter}
@@ -592,7 +813,7 @@ function ProjectIndexTab({ folderPath }: { folderPath: string }) {
               </div>
 
               {/* File list */}
-              <div className="max-h-[400px] overflow-y-auto relative">
+              <div className="max-h-100 overflow-y-auto relative">
                 {filteredFiles.length === 0 ? (
                   <div className="text-[12px] text-[#555] italic px-4 py-3">No files match filter</div>
                 ) : (
@@ -601,7 +822,7 @@ function ProjectIndexTab({ folderPath }: { folderPath: string }) {
                     return (
                       <div
                         key={file.path}
-                        className="flex items-center gap-2 px-3 py-1.5 border-b border-[#1e1e2e] last:border-b-0 hover:bg-[#222238] cursor-default transition-colors duration-100 group/row"
+                        className="flex items-center gap-2 px-3 py-1.5 border-b border-bg-card last:border-b-0 hover:bg-[#222238] cursor-default transition-colors duration-100 group/row"
                         onMouseEnter={(e) => {
                           setHoveredFile(file)
                           const rect = e.currentTarget.getBoundingClientRect()
@@ -625,7 +846,7 @@ function ProjectIndexTab({ folderPath }: { folderPath: string }) {
               </div>
 
               {filteredFiles.length > 0 && filteredFiles.length < files.length && (
-                <div className="text-[11px] text-[#555] px-3 py-2 border-t border-[#2a2a3a]">
+                <div className="text-[11px] text-[#555] px-3 py-2 border-t border-border-subtle">
                   Showing {filteredFiles.length} of {files.length} files
                 </div>
               )}
@@ -635,24 +856,24 @@ function ProjectIndexTab({ folderPath }: { folderPath: string }) {
           {/* Hover tooltip */}
           {hoveredFile && filesExpanded && (
             <div
-              className="fixed z-[100] bg-[#1e1e2e] border border-[#3a3a5a] rounded-lg p-3 shadow-xl pointer-events-none"
+              className="fixed z-100 bg-bg-card border border-[#3a3a5a] rounded-lg p-3 shadow-xl pointer-events-none"
               style={{ top: hoverPos.y, left: hoverPos.x, width: 250, transform: 'translateY(-100%)' }}
             >
               <div className="text-[12px] text-[#e0e0e0] font-mono mb-2 break-all leading-snug">{hoveredFile.path}</div>
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-[#888]">Language</span>
+                  <span className="text-text-faint">Language</span>
                   <span className="flex items-center gap-1.5 text-[#ccc]">
                     <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: (LANG_LABELS[hoveredFile.language] || LANG_LABELS.unknown).color }} />
                     {(LANG_LABELS[hoveredFile.language] || LANG_LABELS.unknown).label}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-[#888]">Chunks</span>
+                  <span className="text-text-faint">Chunks</span>
                   <span className="text-[#ccc]">{hoveredFile.chunkCount}</span>
                 </div>
                 <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-[#888]">Size</span>
+                  <span className="text-text-faint">Size</span>
                   <span className="text-[#ccc]">{formatFileSize(hoveredFile.size)}</span>
                 </div>
               </div>
@@ -663,10 +884,10 @@ function ProjectIndexTab({ folderPath }: { folderPath: string }) {
 
       {/* About section */}
       <section>
-        <h3 className="m-0 mb-3 text-[13px] font-semibold text-[#888] uppercase tracking-[0.05em]">About</h3>
-        <div className="text-[12px] text-[#666] leading-relaxed space-y-3">
+        <h3 className="m-0 mb-3 text-[13px] font-semibold text-text-faint uppercase tracking-[0.05em]">About</h3>
+        <div className="text-[12px] text-text-dim leading-relaxed space-y-3">
           <div>
-            <h4 className="m-0 mb-1 text-[12px] font-medium text-[#888]">How it works</h4>
+            <h4 className="m-0 mb-1 text-[12px] font-medium text-text-faint">How it works</h4>
             <p className="m-0">
               The project index uses LEANN to perform AST-aware chunking of your source files
               and builds a semantic embedding index with graph-based storage. This powers features like the
@@ -675,11 +896,11 @@ function ProjectIndexTab({ folderPath }: { folderPath: string }) {
             </p>
           </div>
           <div>
-            <h4 className="m-0 mb-1 text-[12px] font-medium text-[#888]">Supported languages</h4>
+            <h4 className="m-0 mb-1 text-[12px] font-medium text-text-faint">Supported languages</h4>
             <p className="m-0">TypeScript, JavaScript, Python, Java, C# (AST chunking); all other languages (text chunking)</p>
           </div>
           <div>
-            <h4 className="m-0 mb-1 text-[12px] font-medium text-[#888]">Respected ignore files</h4>
+            <h4 className="m-0 mb-1 text-[12px] font-medium text-text-faint">Respected ignore files</h4>
             <p className="m-0">
               <span className="font-mono text-[11px]">.gitignore</span>,{' '}
               <span className="font-mono text-[11px]">.codrignore</span>,{' '}

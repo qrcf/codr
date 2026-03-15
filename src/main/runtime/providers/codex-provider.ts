@@ -88,7 +88,7 @@ export class CodexProvider implements AgentProvider {
         : ''
 
     // Resolve @docs: and @file references into structured context
-    const { prompt: cleanedPrompt, contextChunks, contextString } = await preprocessPromptFull(this.ctx, prompt, req.cwd)
+    const { prompt: cleanedPrompt, contextChunks, contextString } = await preprocessPromptFull(this.ctx, prompt, req.cwd, { includeCodebaseContext: !req.resumeSessionId })
     prompt = cleanedPrompt
 
     const codexConfig: Record<string, unknown> = {}

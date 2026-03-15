@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import { Sidebar, type ProjectInfo } from './components/Sidebar'
-import { SettingsPanel } from './components/SettingsPanel'
-import { ManageProjectPanel } from './components/ManageProjectPanel'
 import { ChatHeader } from './components/ChatHeader'
+
+const SettingsPanel = lazy(() => import('./components/SettingsPanel').then(m => ({ default: m.SettingsPanel })))
+const ManageProjectPanel = lazy(() => import('./components/ManageProjectPanel').then(m => ({ default: m.ManageProjectPanel })))
 import { MessageList } from './components/MessageList'
 import { DialogsPanel } from './components/DialogsPanel'
 import { InputArea } from './components/InputArea'
@@ -76,7 +77,7 @@ export default function App() {
   const awaitingNewSessionRef = useRef(false)
   const setActiveSessionIdRef = useRef<(id: string | null) => void>(() => {})
   const onSessionCapturedRef = useRef<(sessionId: string, messages: import('./types').ChatMessage[], initialTokenUsage?: TokenUsage | null) => void>(() => {})
-  const onDraftPromotedRef = useRef<(draftId: string) => void>(() => {})
+  const onDraftPromotedRef = useRef<(draftId: string, realSessionId?: string) => void>(() => {})
   const resetInputRef = useRef<() => void>(() => {})
   const invalidatedSessionsRef = useRef<Set<string>>(new Set())
 
@@ -107,7 +108,7 @@ export default function App() {
       applyStateSync: dialogs.applyStateSync,
     },
     onSessionCaptured: (sid, msgs, usage) => onSessionCapturedRef.current(sid, msgs, usage),
-    onDraftPromoted: (draftId) => onDraftPromotedRef.current(draftId),
+    onDraftPromoted: (draftId, realSessionId) => onDraftPromotedRef.current(draftId, realSessionId),
   })
 
   // --- Hook: Session Manager ---
@@ -245,8 +246,8 @@ export default function App() {
     }
     activeSessionIdRef.current = session.activeSessionId
     resetInputRef.current = resetInput
-    onDraftPromotedRef.current = (draftId) => {
-      draftSessions.promoteDraft(draftId)
+    onDraftPromotedRef.current = (draftId, realSessionId) => {
+      draftSessions.promoteDraft(draftId, realSessionId)
     }
   })
 
@@ -509,31 +510,35 @@ export default function App() {
       {sidebarOpen && <div className="hidden max-[768px]:block fixed inset-0 bg-black/50 z-40" onClick={() => setSidebarOpen(false)} />}
 
       {settingsOpen ? (
-        <SettingsPanel
-          onClose={() => setSettingsOpen(false)}
-          docsAPI={docsAPI}
-          userProfile={userProfile}
-          onAddDocSource={async (url, name, crawlDepth, prefix) => {
-            if (window.claude.addDocSource) {
-              const result = await window.claude.addDocSource({ url, name, crawlDepth, prefix })
-              if ('error' in result) throw new Error(result.error)
-            }
-          }}
-          onRecrawlDocSource={async (sourceId, url, crawlDepth, prefix) => {
-            if (window.claude.recrawlDocSource) {
-              const result = await window.claude.recrawlDocSource(sourceId, url, crawlDepth, prefix)
-              if (result?.error) throw new Error(result.error)
-            }
-          }}
-        />
+        <Suspense fallback={null}>
+          <SettingsPanel
+            onClose={() => setSettingsOpen(false)}
+            docsAPI={docsAPI}
+            userProfile={userProfile}
+            onAddDocSource={async (url, name, crawlDepth, prefix) => {
+              if (window.claude.addDocSource) {
+                const result = await window.claude.addDocSource({ url, name, crawlDepth, prefix })
+                if ('error' in result) throw new Error(result.error)
+              }
+            }}
+            onRecrawlDocSource={async (sourceId, url, crawlDepth, prefix) => {
+              if (window.claude.recrawlDocSource) {
+                const result = await window.claude.recrawlDocSource(sourceId, url, crawlDepth, prefix)
+                if (result?.error) throw new Error(result.error)
+              }
+            }}
+          />
+        </Suspense>
       ) : (
       <div className="flex flex-col h-screen flex-1 min-w-0 overflow-clip font-[system-ui,-apple-system,sans-serif] text-[14px] relative">
         {manageProjectOpen && manageProjectFolder && (
           <div className="absolute inset-0 z-50">
-            <ManageProjectPanel
-              folderPath={manageProjectFolder}
-              onClose={() => setManageProjectOpen(false)}
-            />
+            <Suspense fallback={null}>
+              <ManageProjectPanel
+                folderPath={manageProjectFolder}
+                onClose={() => setManageProjectOpen(false)}
+              />
+            </Suspense>
           </div>
         )}
         <ChatHeader

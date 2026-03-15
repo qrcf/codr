@@ -193,46 +193,50 @@ function stripPromptContext(prompt: string): string {
     .trim()
 }
 
-async function generateAndStoreTitle(sessionId: string, firstPrompt: string): Promise<void> {
-  if (!moduleRelayClient || !moduleBroadcaster) return
-  const cleanPrompt = stripPromptContext(firstPrompt)
-  if (!cleanPrompt) return
-  let title = ''
-  try {
-    const cliPath = getCliPath()
-    const titleQuery = query({
-      prompt: `Respond with ONLY a 3-6 word title in proper case summarizing this message. No quotes, no punctuation at end, no extra text.\n\nMessage: ${cleanPrompt.slice(0, 200)}`,
-      options: {
-        model: 'claude-haiku-4-5-20251001',
-        maxTurns: 1,
-        persistSession: false,
-        includePartialMessages: true,
-        ...(cliPath ? { pathToClaudeCodeExecutable: cliPath } : {}),
-      },
-    })
-    let streamTitle = ''
+/** Generate title text only — no storage. Can be started before session ID is known. */
+export function beginTitleGeneration(prompt: string): Promise<string> {
+  const cleanPrompt = stripPromptContext(prompt.trim())
+  if (!cleanPrompt) return Promise.resolve('')
+  return (async () => {
     try {
-      for await (const message of titleQuery) {
-        const msg = message as Record<string, unknown>
-        if (msg.type === 'stream_event') {
-          const evt = msg as { event?: { type?: string; delta?: { type?: string; text?: string } } }
-          if (evt.event?.type === 'content_block_delta' && evt.event.delta?.type === 'text_delta' && evt.event.delta.text) {
-            streamTitle += evt.event.delta.text
-          }
-        } else if (msg.type === 'assistant') {
-          const content = (msg as { message?: { content?: Array<{ type: string; text?: string }> } }).message?.content
-          if (Array.isArray(content)) {
-            for (const block of content) {
-              if (block.type === 'text' && block.text) streamTitle += block.text
+      const cliPath = getCliPath()
+      const titleQuery = query({
+        prompt: `Respond with ONLY a 3-6 word title in proper case summarizing this message. No quotes, no punctuation at end, no extra text.\n\nMessage: ${cleanPrompt.slice(0, 200)}`,
+        options: {
+          model: 'claude-haiku-4-5-20251001',
+          maxTurns: 1,
+          persistSession: false,
+          includePartialMessages: true,
+          ...(cliPath ? { pathToClaudeCodeExecutable: cliPath } : {}),
+        },
+      })
+      let streamTitle = ''
+      try {
+        for await (const message of titleQuery) {
+          const msg = message as Record<string, unknown>
+          if (msg.type === 'stream_event') {
+            const evt = msg as { event?: { type?: string; delta?: { type?: string; text?: string } } }
+            if (evt.event?.type === 'content_block_delta' && evt.event.delta?.type === 'text_delta' && evt.event.delta.text) {
+              streamTitle += evt.event.delta.text
+            }
+          } else if (msg.type === 'assistant') {
+            const content = (msg as { message?: { content?: Array<{ type: string; text?: string }> } }).message?.content
+            if (Array.isArray(content)) {
+              for (const block of content) {
+                if (block.type === 'text' && block.text) streamTitle += block.text
+              }
             }
           }
         }
-      }
-    } finally { titleQuery.close() }
-    title = streamTitle.trim()
-  } catch { /* generation failed */ }
+      } finally { titleQuery.close() }
+      return streamTitle.trim()
+    } catch { return '' }
+  })()
+}
 
-  if (!title) return
+/** Store a title for a session (index + relay DB) and broadcast refresh. */
+async function storeTitleForSession(sessionId: string, title: string): Promise<void> {
+  if (!title || !moduleRelayClient || !moduleBroadcaster) return
 
   await upsertIndexedSession(sessionId, { provider: 'claude', title })
 
@@ -252,10 +256,18 @@ async function generateAndStoreTitle(sessionId: string, firstPrompt: string): Pr
   moduleBroadcaster.send('sessions:refresh-hint')
 }
 
+/** Attach an already-started title generation to a session ID. Called when session ID is captured. */
+export function completeTitleGeneration(sessionId: string, titlePromise: Promise<string>): void {
+  if (titleGenerationBySession.has(sessionId)) return
+  const wrapped = titlePromise.then(title => storeTitleForSession(sessionId, title))
+  titleGenerationBySession.set(sessionId, wrapped)
+}
+
+/** Generate + store title for a session (backfill path). */
 export function storeSessionTitle(sessionId: string, firstPrompt: string): void {
   const trimmed = firstPrompt.trim()
   if (!trimmed || titleGenerationBySession.has(sessionId)) return
-  const generation = generateAndStoreTitle(sessionId, trimmed)
+  const generation = beginTitleGeneration(trimmed).then(title => storeTitleForSession(sessionId, title))
   titleGenerationBySession.set(sessionId, generation)
 }
 
@@ -676,7 +688,8 @@ export function registerSessionHandlers(relayClient?: RelayClient, broadcaster?:
     if (!firstPrompt?.trim()) return
     await upsertIndexedSession(sessionId, { provider: 'claude', title: null })
     titleGenerationBySession.delete(sessionId)
-    await generateAndStoreTitle(sessionId, firstPrompt.trim())
+    const title = await beginTitleGeneration(firstPrompt.trim())
+    await storeTitleForSession(sessionId, title)
   })
 
   ipcMain.handle('sessions:get-repo-name', async (_event, folderPath: string) => {

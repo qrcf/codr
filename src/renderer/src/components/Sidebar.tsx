@@ -310,15 +310,19 @@ export function Sidebar({
     }
   }, [activeSessionId, sessions, drafts])
 
-  // Convert drafts to SessionInfo shape
-  const draftAsSessionInfo: SessionInfo[] = (drafts || []).map(d => ({
-    sessionId: d.draftId,
-    summary: '',
-    lastModified: d.createdAt,
-    fileSize: 0,
-    customTitle: 'New Chat',
-    cwd: d.cwd,
-  } as SessionInfo))
+  // Convert drafts to SessionInfo shape, filtering out promoted drafts
+  // whose real session already appears in the fetched sessions list
+  const realSessionIds = new Set(sessions.map(s => s.sessionId))
+  const draftAsSessionInfo: SessionInfo[] = (drafts || [])
+    .filter(d => !realSessionIds.has(d.draftId))
+    .map(d => ({
+      sessionId: d.draftId,
+      summary: '',
+      lastModified: d.createdAt,
+      fileSize: 0,
+      customTitle: 'New Chat',
+      cwd: d.cwd,
+    } as SessionInfo))
 
   const allSessions = [...draftAsSessionInfo, ...sessions]
 
@@ -626,14 +630,14 @@ export function Sidebar({
         ].join(' ')}
       >
         {/* Header */}
-        <div className="p-3 flex gap-2 max-[768px]:p-4">
+        <div className="p-3 max-[768px]:p-4">
           <div
-            className="flex flex-1 relative"
+            className="flex relative"
             ref={providerDropdownRef}
             onKeyDown={(e) => { if (e.key === 'Escape') setProviderDropdownOpen(false) }}
           >
             <button
-              className={`flex-1 flex items-center justify-center gap-1.5 text-white border-none rounded-l-md py-2 text-[0.9em] font-medium cursor-pointer transition-colors duration-150 max-[768px]:min-h-11 max-[768px]:text-[1em] ${
+              className={`flex-1 flex items-center justify-center gap-1.5 text-white border-none rounded-l-md py-2.5 text-[0.92em] font-semibold cursor-pointer transition-colors duration-150 max-[768px]:min-h-11 max-[768px]:text-[1em] ${
                 defaultProvider === 'codex'
                   ? 'bg-[#1a4a72] hover:bg-[#14406b]'
                   : 'bg-accent hover:bg-accent-hover'
@@ -680,13 +684,6 @@ export function Sidebar({
               </div>
             )}
           </div>
-          <button
-          className="bg-border-subtle text-[#aaa] border border-[#444] rounded-md w-9 text-[1.1em] cursor-pointer flex items-center justify-center shrink-0 transition-colors duration-150 hover:bg-[#3a3a4a] hover:text-[#ddd] max-[768px]:min-h-11 max-[768px]:w-11"
-            onClick={fetchSessions}
-            title="Refresh sessions"
-          >
-            <RefreshCw size={14} />
-          </button>
         </div>
 
         {/* Search bar */}
@@ -719,7 +716,7 @@ export function Sidebar({
         </div>
 
         {/* Archive toggle */}
-        <div className="px-3 py-1">
+        <div className="px-3 py-1 flex items-center justify-between">
           <button
             className={`bg-transparent border-none text-[0.78em] cursor-pointer flex items-center gap-1 px-1.5 py-1 rounded transition-colors duration-150 hover:text-[#aaa] hover:bg-bg-card ${showArchived ? 'text-accent' : 'text-text-dim'}`}
             onClick={onToggleShowArchived}
@@ -727,6 +724,13 @@ export function Sidebar({
           >
             <Archive size={13} />
             <span>{showArchived ? 'Showing archived' : 'Show archived'}</span>
+          </button>
+          <button
+            className="bg-transparent border-none text-text-dim rounded w-7 h-7 cursor-pointer flex items-center justify-center transition-colors duration-150 hover:text-[#aaa] hover:bg-bg-card"
+            onClick={fetchSessions}
+            title="Refresh sessions"
+          >
+            <RefreshCw size={13} />
           </button>
         </div>
 

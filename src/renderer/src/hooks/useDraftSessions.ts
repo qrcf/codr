@@ -59,9 +59,18 @@ export function useDraftSessions() {
     })
   }, [])
 
-  const promoteDraft = useCallback((draftId: string) => {
-    // Same as remove — the real session takes over via normal SDK flow
-    removeDraft(draftId)
+  const promoteDraft = useCallback((draftId: string, realSessionId?: string) => {
+    if (realSessionId) {
+      // Replace draft ID with real session ID — keeps the row visible in sidebar
+      // until the real session appears from fetchSessions
+      setDrafts(prev => {
+        const next = prev.map(d => d.draftId === draftId ? { ...d, draftId: realSessionId } : d)
+        writeDrafts(next)
+        return next
+      })
+    } else {
+      removeDraft(draftId)
+    }
   }, [removeDraft])
 
   return { drafts, createDraft, removeDraft, updateDraftCwd, promoteDraft }

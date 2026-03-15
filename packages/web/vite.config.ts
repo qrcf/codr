@@ -26,6 +26,9 @@ export default defineConfig({
       output: {
         manualChunks: {
           motion: ['motion', 'motion/react'],
+          clerk: ['@clerk/clerk-react'],
+          markdown: ['react-markdown', 'remark-gfm'],
+          'syntax-highlight': ['react-syntax-highlighter'],
         },
       },
     },

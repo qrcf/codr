@@ -1,8 +1,9 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, lazy, Suspense } from 'react'
 import { Plus, Square, ChevronDown, Minimize2, CircleCheck, Circle, CircleX, Lightbulb, Code2, MessageCircle } from 'lucide-react'
 import { FileMentionDropdown } from './FileMentionDropdown'
-import { ReferenceFinderDialog } from './ReferenceFinderDialog'
 import { ModelSelector } from './ModelSelector'
+
+const ReferenceFinderDialog = lazy(() => import('./ReferenceFinderDialog').then(m => ({ default: m.ReferenceFinderDialog })))
 import { ReasoningSelector, type ReasoningLevel } from './ReasoningSelector'
 import { ContextUsageBar } from './ContextUsageBar'
 import { InputAttachmentChips } from './AttachmentChips'
@@ -163,15 +164,17 @@ export function InputArea({
           projectIndexStatus={projectIndexStatus}
         />
       )}
-      <ReferenceFinderDialog
-        key={`${projectFolder ?? 'no-project'}:${refFinderOpen ? 'open' : 'closed'}`}
-        isOpen={refFinderOpen}
-        onClose={() => setRefFinderOpen(false)}
-        onApprove={handleRefFinderApprove}
-        projectFolder={projectFolder}
-        currentSelectedFiles={selectedFiles}
-        indexerStatus={indexerStatus}
-      />
+      <Suspense fallback={null}>
+        <ReferenceFinderDialog
+          key={`${projectFolder ?? 'no-project'}:${refFinderOpen ? 'open' : 'closed'}`}
+          isOpen={refFinderOpen}
+          onClose={() => setRefFinderOpen(false)}
+          onApprove={handleRefFinderApprove}
+          projectFolder={projectFolder}
+          currentSelectedFiles={selectedFiles}
+          indexerStatus={indexerStatus}
+        />
+      </Suspense>
       <div
         className={`flex flex-col rounded-xl border transition-[border-color,background] duration-150 ${isDragOver ? 'border-accent bg-[rgba(129,66,199,0.06)]' : 'border-border bg-bg-tertiary'}`}
         onDragOver={handleDragOver}

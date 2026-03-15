@@ -34,7 +34,7 @@ interface UseAgentConnectionParams {
   invalidatedSessionsRef: React.MutableRefObject<Set<string>>
   dialogs: DialogCallbacks
   onSessionCaptured: (sessionId: string, messages: ChatMessage[], initialTokenUsage?: TokenUsage | null) => void
-  onDraftPromoted: (draftId: string) => void
+  onDraftPromoted: (draftId: string, realSessionId?: string) => void
 }
 
 export function useAgentConnection({
@@ -186,9 +186,9 @@ export function useAgentConnection({
         activeSessionIdRef.current = sessionId
         setActiveSessionId(sessionId)
 
-        // Promote draft to real session
+        // Promote draft to real session (pass real ID so draft row persists)
         if (prevDraftId?.startsWith('draft-')) {
-          onDraftPromotedRef.current(prevDraftId)
+          onDraftPromotedRef.current(prevDraftId, sessionId)
         }
 
         window.claude.getSessionMessages(sessionId).then((rawMessages) => {

@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from 'react'
 import type { PlanReviewState } from '../types'
+import { useCodr } from './useCodr'
 
 interface UseDialogsParams {
   activeSessionIdRef: React.MutableRefObject<string | null>
@@ -13,6 +14,7 @@ function omitKey<T>(obj: Record<string, T>, key: string): Record<string, T> {
 }
 
 export function useDialogs({ activeSessionIdRef }: UseDialogsParams) {
+  const codr = useCodr()
   const [permissionRequests, setPermissionRequests] = useState<Record<string, PermissionRequest>>({})
   const [questionRequests, setQuestionRequests] = useState<Record<string, QuestionRequest>>({})
   const permissionRequestsRef = useRef<Record<string, PermissionRequest>>({})
@@ -165,7 +167,7 @@ export function useDialogs({ activeSessionIdRef }: UseDialogsParams) {
   // --- User-facing handlers ---
 
   const handlePermissionResponse = (id: number, allowed: boolean, message?: string) => {
-    window.claude.respondPermission(id, allowed, message ? { message } : undefined)
+    codr.respondPermission(id, allowed, message ? { message } : undefined)
     const key = activeSessionIdRef.current || '_unknown'
     setPermissionRequests(prev => omitKey(prev, key))
     permissionRequestsRef.current = omitKey(permissionRequestsRef.current, key)
@@ -173,19 +175,19 @@ export function useDialogs({ activeSessionIdRef }: UseDialogsParams) {
 
   const handleAlwaysAllow = (id: number, toolName: string) => {
     autoAllowedToolsRef.current.add(toolName)
-    window.claude.respondPermission(id, true)
+    codr.respondPermission(id, true)
     const key = activeSessionIdRef.current || '_unknown'
     setPermissionRequests(prev => omitKey(prev, key))
     permissionRequestsRef.current = omitKey(permissionRequestsRef.current, key)
 
     if (toolName === 'Edit' || toolName === 'Write') {
       setAutoApproveEdits(true)
-      window.claude.updateSettings({ autoApproveEdits: true })
+      codr.updateSettings({ autoApproveEdits: true })
     }
   }
 
   const handleQuestionResponse = (id: number, answers: Record<string, string>) => {
-    window.claude.respondQuestion?.(id, answers)
+    codr.respondQuestion?.(id, answers)
     const key = activeSessionIdRef.current || '_unknown'
     setQuestionRequests(prev => omitKey(prev, key))
     questionRequestsRef.current = omitKey(questionRequestsRef.current, key)
@@ -194,7 +196,7 @@ export function useDialogs({ activeSessionIdRef }: UseDialogsParams) {
   const handleToggleAutoEdits = () => {
     const next = !autoApproveEdits
     setAutoApproveEdits(next)
-    window.claude.updateSettings({ autoApproveEdits: next })
+    codr.updateSettings({ autoApproveEdits: next })
     if (!next) {
       autoAllowedToolsRef.current.delete('Edit')
       autoAllowedToolsRef.current.delete('Write')

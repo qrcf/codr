@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import type { ChatMessage, ToolCallInfo, AgentMessage, StreamEvent, PlanReviewState, InjectedContext } from '../types'
 import { parseSessionMessages, extractTokenUsageFromRaw } from '../utils/sessionParser'
 import { reconcileParsedMessages } from '../utils/message-reconciler'
+import { useCodr } from './useCodr'
 
 const PAGE_SIZE = 50
 
@@ -101,6 +102,7 @@ export function useAgentConnection({
   onDraftTitleGenerated,
   onQueueProcess,
 }: UseAgentConnectionParams) {
+  const codr = useCodr()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isCompacting, setIsCompacting] = useState(false)
@@ -433,7 +435,7 @@ export function useAgentConnection({
   useEffect(() => {
     const unsubs: Array<() => void> = []
 
-    unsubs.push(window.claude.onMessage((raw, querySessionId) => {
+    unsubs.push(codr.onMessage((raw, querySessionId) => {
       if (querySessionId) {
         setBackgroundQuerySessionIds(prev => {
           if (prev.has(querySessionId)) return prev
@@ -459,7 +461,7 @@ export function useAgentConnection({
           onDraftPromotedRef.current(prevDraftId, sessionId)
         }
 
-        window.claude.getSessionMessages(sessionId).then((rawMessages) => {
+        codr.getSessionMessages(sessionId).then((rawMessages) => {
           if (activeSessionIdRef.current !== sessionId) return
           const parsed = parseSessionMessages(rawMessages)
           onSessionCapturedRef.current(sessionId, parsed, extractTokenUsageFromRaw(rawMessages))
@@ -631,8 +633,8 @@ export function useAgentConnection({
       }
     }))
 
-    if (window.claude.onSessionIdentified) {
-      unsubs.push(window.claude.onSessionIdentified(({ oldKey, newKey }) => {
+    if (codr.onSessionIdentified) {
+      unsubs.push(codr.onSessionIdentified(({ oldKey, newKey }) => {
         if (activeSessionIdRef.current === oldKey) {
           activeSessionIdRef.current = newKey
           setActiveSessionId(newKey)
@@ -647,14 +649,14 @@ export function useAgentConnection({
       }))
     }
 
-    if (window.claude.onDraftTitleGenerated) {
-      unsubs.push(window.claude.onDraftTitleGenerated((data, querySessionId) => {
+    if (codr.onDraftTitleGenerated) {
+      unsubs.push(codr.onDraftTitleGenerated((data, querySessionId) => {
         if (!data?.title || !querySessionId) return
         onDraftTitleGeneratedRef.current(querySessionId, data.title)
       }))
     }
 
-    unsubs.push(window.claude.onError((error, querySessionId) => {
+    unsubs.push(codr.onError((error, querySessionId) => {
       if (querySessionId) {
         setBackgroundQuerySessionIds(prev => {
           if (!prev.has(querySessionId)) return prev
@@ -701,7 +703,7 @@ export function useAgentConnection({
       setTimeout(() => onQueueProcessRef.current(), 0)
     }))
 
-    unsubs.push(window.claude.onDone((querySessionId) => {
+    unsubs.push(codr.onDone((querySessionId) => {
       if (querySessionId) {
         setBackgroundQuerySessionIds(prev => {
           if (!prev.has(querySessionId)) return prev
@@ -720,7 +722,7 @@ export function useAgentConnection({
           commitCacheTurn(cache)
           cache.isLoading = false
           // Async reconciliation: fetch final messages from main process
-          window.claude.getSessionMessages(querySessionId).then((raw) => {
+          codr.getSessionMessages(querySessionId).then((raw) => {
             const existingCache = sessionCacheRef.current.get(querySessionId)
             if (existingCache && activeSessionIdRef.current !== querySessionId) {
               const parsed = reconcileParsedMessages(existingCache.allMessages, parseSessionMessages(raw))
@@ -746,7 +748,7 @@ export function useAgentConnection({
       const hadError = errorSessionRef.current === doneSessionId
       errorSessionRef.current = null
       if (doneSessionId && !hadError) {
-        window.claude.getSessionMessages(doneSessionId).then((raw) => {
+        codr.getSessionMessages(doneSessionId).then((raw) => {
           if (activeSessionIdRef.current !== doneSessionId) return
           // Skip stale reconciliation if a new query has already started (e.g. from queue)
           if (isLoadingRef.current) return
@@ -763,40 +765,40 @@ export function useAgentConnection({
       setTimeout(() => onQueueProcessRef.current(), 0)
     }))
 
-    unsubs.push(window.claude.onPermissionRequest((request, querySessionId) => {
+    unsubs.push(codr.onPermissionRequest((request, querySessionId) => {
       if (autoAllowedToolsRef.current.has(request.tool)) {
-        window.claude.respondPermission(request.id, true)
+        codr.respondPermission(request.id, true)
         return
       }
       const key = querySessionId || '_unknown'
       dialogsRef.current.onPermissionRequest(key, request)
     }))
 
-    if (window.claude.onPermissionCleared) {
-      unsubs.push(window.claude.onPermissionCleared((data, querySessionId) => {
+    if (codr.onPermissionCleared) {
+      unsubs.push(codr.onPermissionCleared((data, querySessionId) => {
         const key = querySessionId || '_unknown'
         dialogsRef.current.onPermissionCleared(key, data.id)
       }))
     }
 
-    if (window.claude.onQuestionRequest) {
-      unsubs.push(window.claude.onQuestionRequest((request, querySessionId) => {
+    if (codr.onQuestionRequest) {
+      unsubs.push(codr.onQuestionRequest((request, querySessionId) => {
         const key = querySessionId || '_unknown'
         dialogsRef.current.onQuestionRequest(key, request)
       }))
     }
 
-    if (window.claude.onQuestionCleared) {
-      unsubs.push(window.claude.onQuestionCleared((data, querySessionId) => {
+    if (codr.onQuestionCleared) {
+      unsubs.push(codr.onQuestionCleared((data, querySessionId) => {
         const key = querySessionId || '_unknown'
         dialogsRef.current.onQuestionCleared(key, data.id)
       }))
     }
 
-    if (window.claude.onSessionUpdated) {
-      unsubs.push(window.claude.onSessionUpdated(({ sessionId }) => {
+    if (codr.onSessionUpdated) {
+      unsubs.push(codr.onSessionUpdated(({ sessionId }) => {
         if (sessionId === activeSessionIdRef.current && !isLoadingRef.current) {
-          window.claude.getSessionMessages(sessionId).then((raw) => {
+          codr.getSessionMessages(sessionId).then((raw) => {
             const parsed = reconcileParsedMessages(allMessagesRef.current, parseSessionMessages(raw))
             allMessagesRef.current = parsed
             setMessages(parsed.slice(-PAGE_SIZE))
@@ -808,7 +810,7 @@ export function useAgentConnection({
           // Update background cache if it exists
           const cache = sessionCacheRef.current.get(sessionId)
           if (cache && !cache.isLoading) {
-            window.claude.getSessionMessages(sessionId).then((raw) => {
+            codr.getSessionMessages(sessionId).then((raw) => {
               const existingCache = sessionCacheRef.current.get(sessionId)
               if (existingCache && !existingCache.isLoading) {
                 const parsed = parseSessionMessages(raw)
@@ -821,8 +823,8 @@ export function useAgentConnection({
       }))
     }
 
-    if (window.claude.onStateSync) {
-      unsubs.push(window.claude.onStateSync((state) => {
+    if (codr.onStateSync) {
+      unsubs.push(codr.onStateSync((state) => {
         if (state.activeStates) {
           const activeIds = new Set(Object.keys(state.activeStates))
           setBackgroundQuerySessionIds(activeIds)
@@ -885,8 +887,8 @@ export function useAgentConnection({
     }
 
     // Wake recovery: if we're still loading after sleep/wake, force-reset
-    if (window.claude.onWakeRecovery) {
-      unsubs.push(window.claude.onWakeRecovery(() => {
+    if (codr.onWakeRecovery) {
+      unsubs.push(codr.onWakeRecovery(() => {
         // Clean up all background caches that were loading
         for (const [, cache] of sessionCacheRef.current.entries()) {
           if (cache.isLoading) {

@@ -52,8 +52,10 @@ export const MessageBubble = memo(function MessageBubble({ message, approvedPlan
 
   if (message.role === 'system') {
     return (
-      <div className="message-system flex items-center justify-center gap-2.5 px-4 py-2 my-3 text-[#777] text-[0.8em]">
-        <span className="whitespace-nowrap">{message.content}</span>
+      <div className="message-system flex items-center gap-3 px-4 py-1.5 my-3">
+        <div className="flex-1 h-px bg-border-subtle" />
+        <span className="text-[#555] text-[0.72em] tracking-wide whitespace-nowrap shrink-0">{message.content}</span>
+        <div className="flex-1 h-px bg-border-subtle" />
       </div>
     )
   }

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { getMentionItemCount, resolveMentionIndex } from '../utils/mentionUtils'
 import type { useDocsAPI } from './useDocsAPI'
+import { useCodr } from './useCodr'
 
 // Extensions that should always become binary attachments (not @file text refs)
 const ATTACHMENT_EXTENSIONS = new Set([
@@ -15,8 +16,7 @@ function shouldStoreAsAttachment(filePath: string, projectFolder: string | null)
   const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase()
   if (ATTACHMENT_EXTENSIONS.has(ext)) return true
   // Files outside the project folder are always attachments
-  if (projectFolder && !filePath.startsWith(projectFolder + '/')) return true
-  return false
+  return !!(projectFolder && !filePath.startsWith(projectFolder + '/'))
 }
 
 interface UseInputComposerParams {
@@ -30,6 +30,7 @@ export function useInputComposer({
   docsAPI,
   projectFolderRef,
 }: UseInputComposerParams) {
+  const codr = useCodr()
   const [input, setInput] = useState('')
   const [mentionActive, setMentionActive] = useState(false)
   const [mentionQuery, setMentionQuery] = useState('')
@@ -99,7 +100,7 @@ export function useInputComposer({
         setMentionQuery('')
         setMentionIndex(0)
         // Always re-fetch so the cache stays current when switching projects
-        window.claude.listFiles(projectFolderRef.current || undefined).then(setFileCache).catch(() => {})
+        codr.listFiles(projectFolderRef.current || undefined).then(setFileCache).catch(() => {})
         docsAPI.refresh()
       }
     }
@@ -117,9 +118,9 @@ export function useInputComposer({
   }, [])
 
   const resolveFilePath = useCallback((file: File): string => {
-    if (window.claude.getPathForFile) return window.claude.getPathForFile(file)
+    if (codr.getPathForFile) return codr.getPathForFile(file)
     return (file as File & { path?: string }).path || ''
-  }, [])
+  }, [codr])
 
   const addFilePaths = useCallback((filePaths: string[]) => {
     const folder = projectFolderRef.current
@@ -143,9 +144,9 @@ export function useInputComposer({
 
   // Store files as persistent attachments (images, PDFs, binary files, files outside project)
   const addAttachments = useCallback(async (filePaths: string[]) => {
-    if (!window.claude.storeAttachments || !filePaths.length) return
+    if (!codr.storeAttachments || !filePaths.length) return
     try {
-      const stored = await window.claude.storeAttachments(filePaths)
+      const stored = await codr.storeAttachments(filePaths)
       if (stored.length) {
         setAttachments(prev => {
           const existingIds = new Set(prev.map(a => a.id))
@@ -156,18 +157,18 @@ export function useInputComposer({
     } catch {
       // Storage failed — silently ignore
     }
-  }, [])
+  }, [codr])
 
   // Store a raw buffer as attachment (for clipboard screenshot paste)
   const addAttachmentBuffer = useCallback(async (buffer: ArrayBuffer, filename: string) => {
-    if (!window.claude.storeAttachmentBuffer) return
+    if (!codr.storeAttachmentBuffer) return
     try {
-      const stored = await window.claude.storeAttachmentBuffer(new Uint8Array(buffer), filename)
+      const stored = await codr.storeAttachmentBuffer(new Uint8Array(buffer), filename)
       setAttachments(prev => [...prev, stored])
     } catch {
       // Storage failed — silently ignore
     }
-  }, [])
+  }, [codr])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -213,9 +214,9 @@ export function useInputComposer({
     setMentionStart(atPos)
     setMentionQuery(query)
     setMentionIndex(0)
-    window.claude.listFiles(projectFolderRef.current || undefined).then(setFileCache).catch(() => {})
+    codr.listFiles(projectFolderRef.current || undefined).then(setFileCache).catch(() => {})
     docsAPI.refresh()
-  }, [projectFolderRef, docsAPI])
+  }, [codr, projectFolderRef, docsAPI])
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     const pastedText = e.clipboardData.getData('text')
@@ -244,8 +245,8 @@ export function useInputComposer({
     }
 
     // No File objects — try native pasteboard for Finder-copied files
-    if (window.claude.readClipboardFilePaths) {
-      window.claude.readClipboardFilePaths().then(nativePaths => {
+    if (codr.readClipboardFilePaths) {
+      codr.readClipboardFilePaths().then(nativePaths => {
         if (nativePaths.length) {
           const attachmentPaths: string[] = []
           const textPaths: string[] = []
@@ -266,7 +267,7 @@ export function useInputComposer({
     } else if (pastedText?.includes('@')) {
       requestAnimationFrame(activateMentionFromCursor)
     }
-  }, [resolveFilePath, addFilePaths, addAttachments, addAttachmentBuffer, activateMentionFromCursor, projectFolderRef])
+  }, [codr, resolveFilePath, addFilePaths, addAttachments, addAttachmentBuffer, activateMentionFromCursor, projectFolderRef])
 
   const handlePlusClick = useCallback(() => {
     const ta = textareaRef.current
@@ -278,13 +279,13 @@ export function useInputComposer({
     setMentionStart(atPos)
     setMentionQuery('')
     setMentionIndex(0)
-    window.claude.listFiles(projectFolderRef.current || undefined).then(setFileCache).catch(() => {})
+    codr.listFiles(projectFolderRef.current || undefined).then(setFileCache).catch(() => {})
     docsAPI.refresh()
     setTimeout(() => {
       ta.focus()
       ta.setSelectionRange(newInput.length, newInput.length)
     }, 0)
-  }, [input, projectFolderRef, docsAPI])
+  }, [codr, input, projectFolderRef, docsAPI])
 
   const handleFindReferencesSelect = useCallback(() => {
     // Remove the @ from input

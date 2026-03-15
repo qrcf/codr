@@ -1,30 +1,32 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
+import { useCodr } from '../hooks/useCodr'
 
 interface CliGateProps {
   children: ReactNode
 }
 
 export function CliGate({ children }: CliGateProps) {
+  const codr = useCodr()
   const [cliStatus, setCliStatus] = useState<CliStatus>({ status: 'checking' })
   const [retrying, setRetrying] = useState(false)
 
   const checkStatus = useCallback(async () => {
     // Web client doesn't have checkCliStatus — skip the gate
-    if (!window.claude.checkCliStatus) {
+    if (!codr.checkCliStatus) {
       setCliStatus({ status: 'ready', accountInfo: {} })
       return
     }
     setRetrying(true)
     try {
-      const result = await window.claude.checkCliStatus()
+      const result = await codr.checkCliStatus()
       setCliStatus(result)
     } catch {
       setCliStatus({ status: 'error', message: 'Failed to check CLI status' })
     } finally {
       setRetrying(false)
     }
-  }, [])
+  }, [codr])
 
   useEffect(() => {
     checkStatus()

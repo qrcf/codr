@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import type { ReactNode } from 'react'
+import { useCodr } from '../hooks/useCodr'
 
 const WEB_URL = import.meta.env.VITE_WEB_URL as string | undefined
 
@@ -8,23 +9,24 @@ interface AuthGateProps {
 }
 
 export function AuthGate({ children }: AuthGateProps) {
+  const codr = useCodr()
   const [authenticated, setAuthenticated] = useState<boolean | null>(null) // null = checking
   const [waitingForBrowser, setWaitingForBrowser] = useState(false)
 
   useEffect(() => {
     // Check for existing stored token
-    window.claude?.getAuthToken?.().then((token) => {
+    codr?.getAuthToken?.().then((token) => {
       setAuthenticated(!!token)
     })
 
     // Listen for token stored via deep link
-    const cleanup = window.claude?.onTokenStored?.(() => {
+    const cleanup = codr?.onTokenStored?.(() => {
       setAuthenticated(true)
       setWaitingForBrowser(false)
     })
 
     // Listen for token invalidation (401 from relay or API)
-    const cleanupUnauthorized = window.claude?.onAuthUnauthorized?.(() => {
+    const cleanupUnauthorized = codr?.onAuthUnauthorized?.(() => {
       setAuthenticated(false)
       setWaitingForBrowser(false)
     })
@@ -33,7 +35,7 @@ export function AuthGate({ children }: AuthGateProps) {
       cleanup?.()
       cleanupUnauthorized?.()
     }
-  }, [])
+  }, [codr])
 
   if (authenticated === null) {
     return (
@@ -50,7 +52,7 @@ export function AuthGate({ children }: AuthGateProps) {
         return
       }
       setWaitingForBrowser(true)
-      window.claude.openAuthInBrowser?.(`${WEB_URL}?mode=electron-auth`)
+      codr.openAuthInBrowser?.(`${WEB_URL}?mode=electron-auth`)
     }
 
     return (

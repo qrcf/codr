@@ -252,7 +252,7 @@ export function createWebSocketAgentAPI(relayUrl: string, getToken: () => Promis
   // Initialize connection
   connect()
 
-  // Build the ClaudeAPI-compatible object
+  // Build the CodrAPI-compatible object
   return {
     getProvider: async () => {
       const res = await request('get_provider') as { provider?: 'claude' | 'codex' }
@@ -351,4 +351,4 @@ export function createWebSocketAgentAPI(relayUrl: string, getToken: () => Promis
   }
 }
 
-export const createWebSocketClaudeAPI = createWebSocketAgentAPI
+export const createWebSocketCodrAPI = createWebSocketAgentAPI

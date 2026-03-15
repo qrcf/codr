@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { X, Search, Check, RefreshCw } from 'lucide-react'
+import { useCodr } from '../hooks/useCodr'
 
 interface ReferenceFinderDialogProps {
   isOpen: boolean
@@ -49,6 +50,7 @@ function filterResults(results: SearchResult[], filter: FilterType): SearchResul
 }
 
 export function ReferenceFinderDialog({ isOpen, onClose, onApprove, projectFolder, currentSelectedFiles, indexerStatus }: ReferenceFinderDialogProps) {
+  const codr = useCodr()
   const [phase, setPhase] = useState<Phase>('input')
   const [prompt, setPrompt] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
@@ -73,13 +75,13 @@ export function ReferenceFinderDialog({ isOpen, onClose, onApprove, projectFolde
     if (!isOpen || !projectFolder) return
     let cancelled = false
 
-    window.claude.getIndexerProjectStatus?.(projectFolder).then((s) => {
+    codr.getIndexerProjectStatus?.(projectFolder).then((s) => {
       if (cancelled) return
       setProjectIndexStatus((s?.status as ProjectIndexStatus | undefined) || 'not-indexed')
     }).catch(() => {})
 
     // Listen for project-specific progress
-    const unsub = window.claude.onIndexerSetupProgress?.((p: { step: string; projectDir?: string }) => {
+    const unsub = codr.onIndexerSetupProgress?.((p: { step: string; projectDir?: string }) => {
       if (cancelled) return
       if (p.projectDir !== projectFolder) return
       if (p.step === 'indexed') {
@@ -97,7 +99,7 @@ export function ReferenceFinderDialog({ isOpen, onClose, onApprove, projectFolde
       cancelled = true
       unsub?.()
     }
-  }, [isOpen, projectFolder])
+  }, [isOpen, projectFolder, codr])
 
   // Focus input on open
   useEffect(() => {
@@ -123,11 +125,11 @@ export function ReferenceFinderDialog({ isOpen, onClose, onApprove, projectFolde
     if (!projectFolder || indexerStatus !== 'ready') return
     setBuildingIndex(true)
     try {
-      await window.claude.rebuildIndex?.(projectFolder)
+      await codr.rebuildIndex?.(projectFolder)
     } catch {
       setBuildingIndex(false)
     }
-  }, [projectFolder, indexerStatus])
+  }, [projectFolder, indexerStatus, codr])
 
   const runSearch = useCallback(async (q: string, skipCache = false) => {
     if (!q || !projectFolder) return
@@ -148,7 +150,7 @@ export function ReferenceFinderDialog({ isOpen, onClose, onApprove, projectFolde
     }
 
     try {
-      const raw = await window.claude.indexerSearch?.(q, projectFolder)
+      const raw = await codr.indexerSearch?.(q, projectFolder)
       if (!raw || raw.length === 0) {
         setError('No matching files found. Try a different description.')
         setPhase('input')
@@ -178,7 +180,7 @@ export function ReferenceFinderDialog({ isOpen, onClose, onApprove, projectFolde
       setError(err instanceof Error ? err.message : String(err))
       setPhase('input')
     }
-  }, [projectFolder, currentSelectedFiles])
+  }, [projectFolder, currentSelectedFiles, codr])
 
   const handleSearch = useCallback(() => {
     const q = prompt.trim()

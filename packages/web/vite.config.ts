@@ -21,6 +21,7 @@ export default defineConfig({
       '@/types': path.resolve(__dirname, '../../src/renderer/src/types'),
       '@app': path.resolve(__dirname, '../../src/renderer/src/App'),
       '@styles': path.resolve(__dirname, '../../src/renderer/src'),
+      '@codr-context': path.resolve(__dirname, '../../src/renderer/src/CodrContext'),
     },
   },
   build: {

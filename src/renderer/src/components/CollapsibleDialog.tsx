@@ -12,7 +12,7 @@ interface CollapsibleDialogProps {
 const variantStyles = {
   permission: { border: 'border-2 border-[#8142c7]', bg: 'bg-[#1e1e2a]', toggleColor: 'text-[#a0b0ff]' },
   plan: { border: 'border-2 border-[#8142c7]', bg: 'bg-[#1e1e2e]', toggleColor: 'text-[#a0b0ff]' },
-  question: { border: 'border-2 border-[#8142c7]', bg: 'bg-[#1a1a2a]', toggleColor: 'text-[#8142c7]' },
+  question: { border: 'border border-accent/30', bg: 'bg-bg-tertiary', toggleColor: 'text-accent' },
   'plan-review': { border: 'border border-[#4a4a3a]', bg: 'bg-[#1e1e1a]', toggleColor: 'text-[#c0a878]' },
 }
 

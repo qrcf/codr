@@ -1,24 +1,26 @@
 import { useState, useEffect } from 'react'
+import { useCodr } from '../hooks/useCodr'
 
 export function RemotePanel() {
+  const codr = useCodr()
   const [status, setStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected')
   const [webClients, setWebClients] = useState(0)
 
   // Listen for status changes (relay auto-connects from main process)
   useEffect(() => {
-    window.claude.getRemoteStatus?.().then((s) => {
+    codr.getRemoteStatus?.().then((s) => {
       if (s) {
         setStatus(s.status)
         setWebClients(s.webClients)
       }
     })
 
-    const unsub = window.claude.onRemoteStatusChange?.((s) => {
+    const unsub = codr.onRemoteStatusChange?.((s) => {
       setStatus(s.status as 'disconnected' | 'connecting' | 'connected')
       setWebClients(s.webClients)
     })
     return () => unsub?.()
-  }, [])
+  }, [codr])
 
   const dotColor =
     status === 'connected'

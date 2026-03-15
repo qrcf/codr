@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { ChevronDown, Check } from 'lucide-react'
+import { useCodr } from '../hooks/useCodr'
 
 interface ModelOption {
   value: string
@@ -15,6 +16,7 @@ interface ModelSelectorProps {
 }
 
 export function ModelSelector({ provider, selectedModel, onModelChange, disabled }: ModelSelectorProps) {
+  const codr = useCodr()
   const [open, setOpen] = useState(false)
   const [models, setModels] = useState<ModelOption[]>([])
   const [loading, setLoading] = useState(false)
@@ -23,7 +25,7 @@ export function ModelSelector({ provider, selectedModel, onModelChange, disabled
   const fetchModels = useCallback(async (p: 'claude' | 'codex') => {
     setLoading(true)
     try {
-      const result = await window.claude.getModels?.(p)
+      const result = await codr.getModels?.(p)
       if (result?.models) {
         setModels(result.models)
       }
@@ -32,7 +34,7 @@ export function ModelSelector({ provider, selectedModel, onModelChange, disabled
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [codr])
 
   // Fetch models when provider changes
   useEffect(() => {

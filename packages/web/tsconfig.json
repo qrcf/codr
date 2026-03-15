@@ -18,7 +18,8 @@
       "@components/*": ["../../src/renderer/src/components/*"],
       "@utils/*": ["../../src/renderer/src/utils/*"],
       "@/types": ["../../src/renderer/src/types"],
-      "@app": ["../../src/renderer/src/App"]
+      "@app": ["../../src/renderer/src/App"],
+      "@codr-context": ["../../src/renderer/src/CodrContext"]
     }
   },
   "include": [

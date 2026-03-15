@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 export function QuestionDialog({ request, onRespond }: {
   request: { id: number; questions: QuestionItem[] }
@@ -6,8 +6,8 @@ export function QuestionDialog({ request, onRespond }: {
 }) {
   const [selections, setSelections] = useState<Record<string, Set<string>>>({})
   const [otherTexts, setOtherTexts] = useState<Record<string, string>>({})
-  const [showOther, setShowOther] = useState<Record<string, boolean>>({})
   const [currentStep, setCurrentStep] = useState(0)
+  const otherInputRef = useRef<HTMLInputElement>(null)
 
   const totalSteps = request.questions.length
   const isFirstStep = currentStep === 0
@@ -15,11 +15,12 @@ export function QuestionDialog({ request, onRespond }: {
   const isSingleQuestion = totalSteps === 1
   const currentQuestion = request.questions[currentStep]
 
+  const hasDescriptions = currentQuestion.options.every((o) => o.description?.trim())
+
   const toggleOption = (question: string, label: string, multiSelect: boolean) => {
     setSelections((prev) => {
       const current = prev[question] || new Set<string>()
       const next = new Set(current)
-
       if (multiSelect) {
         if (next.has(label)) next.delete(label)
         else next.add(label)
@@ -27,25 +28,23 @@ export function QuestionDialog({ request, onRespond }: {
         next.clear()
         next.add(label)
       }
-
-      // Clear "Other" if selecting a regular option in single-select
-      if (!multiSelect && label !== '__other__') {
-        setShowOther((p) => ({ ...p, [question]: false }))
-      }
-
       return { ...prev, [question]: next }
     })
   }
 
-  const toggleOther = (question: string, multiSelect: boolean) => {
-    if (!multiSelect) {
-      setSelections((prev) => {
-        const next = new Set<string>()
+  const handleOtherInput = (question: string, value: string, multiSelect: boolean) => {
+    setOtherTexts((prev) => ({ ...prev, [question]: value }))
+    setSelections((prev) => {
+      const current = prev[question] || new Set<string>()
+      const next = new Set(current)
+      if (value.trim()) {
+        if (!multiSelect) next.clear()
         next.add('__other__')
-        return { ...prev, [question]: next }
-      })
-    }
-    setShowOther((prev) => ({ ...prev, [question]: !prev[question] }))
+      } else {
+        next.delete('__other__')
+      }
+      return { ...prev, [question]: next }
+    })
   }
 
   const handleSubmit = () => {
@@ -53,7 +52,6 @@ export function QuestionDialog({ request, onRespond }: {
     for (const q of request.questions) {
       const sel = selections[q.question]
       if (!sel || sel.size === 0) continue
-
       const labels: string[] = []
       for (const s of sel) {
         if (s === '__other__') {
@@ -68,117 +66,129 @@ export function QuestionDialog({ request, onRespond }: {
     onRespond(request.id, answers)
   }
 
-  const handleNext = () => {
-    if (currentStep < totalSteps - 1) setCurrentStep(currentStep + 1)
-  }
-
-  const handleBack = () => {
-    if (currentStep > 0) setCurrentStep(currentStep - 1)
-  }
+  const currentStepAnswered = (() => {
+    const sel = selections[currentQuestion.question]
+    return !!(sel && sel.size > 0 && (!sel.has('__other__') || otherTexts[currentQuestion.question]?.trim()))
+  })()
 
   const allAnswered = request.questions.every((q) => {
     const sel = selections[q.question]
     return !!(sel && sel.size > 0 && (!sel.has('__other__') || otherTexts[q.question]?.trim()))
   })
 
-  const currentStepAnswered = (() => {
-    const sel = selections[currentQuestion.question]
-    return !!(sel && sel.size > 0 && (!sel.has('__other__') || otherTexts[currentQuestion.question]?.trim()))
-  })()
-
   return (
-    <div className="max-[768px]:text-[0.9em]">
-      <div className="question-header flex items-center gap-2 px-3.5 py-2.5 bg-border-subtle font-semibold text-accent max-[768px]:px-3 max-[768px]:py-2">
-        <span className="inline-flex items-center justify-center w-5.5 h-5.5 rounded-full bg-accent text-white text-[0.85em] font-bold shrink-0">?</span>
-        Question
-        {!isSingleQuestion && (
-          <span className="ml-auto text-[0.8em] font-normal text-text-muted">
-            {currentStep + 1} of {totalSteps}
-          </span>
-        )}
-      </div>
+    <div className="flex flex-col">
+      {/* Step dots */}
       {!isSingleQuestion && (
-        <div className="question-stepper flex justify-center gap-2 px-3.5 pt-2.5 pb-1">
+        <div className="flex justify-center gap-1.5 pt-3 pb-1">
           {request.questions.map((_, idx) => (
             <div
               key={idx}
-              className={`w-2 h-2 rounded-full transition-[background,transform] duration-200 ${
+              className={`rounded-full transition-all duration-200 ${
                 idx === currentStep
-                  ? 'bg-accent scale-[1.35]'
+                  ? 'w-4 h-1.5 bg-accent'
                   : idx < currentStep
-                    ? 'bg-accent'
-                    : 'bg-border'
+                    ? 'w-1.5 h-1.5 bg-accent/50'
+                    : 'w-1.5 h-1.5 bg-border'
               }`}
             />
           ))}
         </div>
       )}
-      <div key={currentQuestion.question} className="question-item px-3.5 py-3">
-        <div className="inline-block bg-border text-[#aaa] text-[0.75em] px-2 py-0.5 rounded mb-1.5">{currentQuestion.header}</div>
-        <div className="text-[0.95em] mb-2.5 text-[#ddd]">{currentQuestion.question}</div>
-        <div className="flex flex-col gap-1.5">
+
+      {/* Question body */}
+      <div key={currentQuestion.question} className="px-4 pt-3 pb-2">
+        {currentQuestion.header && (
+          <div className="text-[0.7em] font-medium tracking-wider uppercase text-text-muted mb-1.5">
+            {currentQuestion.header}
+          </div>
+        )}
+        <div className="text-[0.92em] text-text-primary mb-3 leading-snug">{currentQuestion.question}</div>
+
+        {/* Options */}
+        <div className={`flex ${hasDescriptions ? 'flex-col gap-1.5' : 'flex-wrap gap-2'}`}>
           {currentQuestion.options.map((opt) => {
-            const selected = selections[currentQuestion.question]?.has(opt.label)
+            const selected = !!selections[currentQuestion.question]?.has(opt.label)
             return (
               <button
                 key={opt.label}
-                className={`flex flex-col items-start gap-0.5 px-3 py-2 rounded-md border text-left cursor-pointer transition-[border-color,background] duration-150 w-full ${
-                  selected
-                    ? 'border-accent bg-[#2a2a4a] text-[#ccc]'
-                    : 'border-border bg-[#222] text-[#ccc] hover:border-accent hover:bg-border-subtle'
-                }`}
                 onClick={() => toggleOption(currentQuestion.question, opt.label, currentQuestion.multiSelect)}
+                className={`text-left transition-all duration-150 cursor-pointer border-none rounded-lg
+                  ${hasDescriptions
+                    ? 'w-full px-3 py-2.5'
+                    : 'px-3 py-1.5'
+                  }
+                  ${selected
+                    ? 'bg-accent text-white shadow-sm'
+                    : 'bg-border-subtle text-text-primary hover:bg-border'
+                  }`}
               >
-                <span className="font-semibold text-[0.9em] text-[#eee]">{opt.label}</span>
-                <span className="text-[0.8em] text-text-muted">{opt.description}</span>
+                <div className={`font-medium text-[0.88em] ${selected ? 'text-white' : 'text-text-primary'}`}>
+                  {opt.label}
+                </div>
+                {hasDescriptions && opt.description && (
+                  <div className={`text-[0.78em] mt-0.5 ${selected ? 'text-white/70' : 'text-text-muted'}`}>
+                    {opt.description}
+                  </div>
+                )}
               </button>
             )
           })}
-          <button
-            className={`flex flex-col items-start gap-0.5 px-3 py-2 rounded-md border border-dashed text-left cursor-pointer transition-[border-color,background] duration-150 w-full ${
-              showOther[currentQuestion.question]
-                ? 'border-accent bg-[#2a2a4a] text-[#ccc]'
-                : 'border-border bg-[#222] text-[#ccc] hover:border-accent hover:bg-border-subtle'
-            }`}
-            onClick={() => toggleOther(currentQuestion.question, currentQuestion.multiSelect)}
-          >
-            <span className="font-semibold text-[0.9em] text-[#eee]">Other</span>
-            <span className="text-[0.8em] text-text-muted">Provide a custom answer</span>
-          </button>
         </div>
-        {showOther[currentQuestion.question] && (
-          <textarea
-            className="w-full mt-2 px-2 py-2 bg-[#1a1a1a] border border-[#444] rounded-md text-[#ddd] font-[inherit] text-[0.9em] resize-y focus:outline-none focus:border-accent"
-            placeholder="Type your answer..."
+
+        {/* Other — inline text input, type-to-select */}
+        <div className={`mt-2.5 flex items-center gap-2 px-3 py-2 rounded-lg border transition-all duration-150 ${
+          selections[currentQuestion.question]?.has('__other__')
+            ? 'border-accent/50 bg-accent/8'
+            : 'border-border bg-border-subtle'
+        }`}>
+          <input
+            ref={otherInputRef}
+            type="text"
             value={otherTexts[currentQuestion.question] || ''}
-            onChange={(e) => setOtherTexts((prev) => ({ ...prev, [currentQuestion.question]: e.target.value }))}
-            rows={2}
+            onChange={(e) => handleOtherInput(currentQuestion.question, e.target.value, currentQuestion.multiSelect)}
+            placeholder="Or type your own…"
+            className="flex-1 bg-transparent border-none outline-none text-[0.88em] text-text-primary placeholder:text-text-dim font-[inherit]"
           />
-        )}
+        </div>
       </div>
-      <div className="flex gap-2 px-3.5 py-2.5 justify-end border-t border-border-subtle max-[768px]:flex-wrap max-[768px]:gap-1.5 max-[768px]:px-3 max-[768px]:py-2">
-        {!isFirstStep && (
-          <button className="border-none rounded-md px-4 py-2 text-[0.9em] font-medium cursor-pointer transition-[background] duration-150 bg-[#555] text-white hover:bg-text-dim disabled:opacity-40 disabled:cursor-not-allowed max-[768px]:min-h-10" onClick={handleBack}>
-            Back
-          </button>
-        )}
-        {isLastStep ? (
-          <button
-            className="border-none rounded-md px-4 py-2 text-[0.9em] font-medium cursor-pointer transition-[background] duration-150 bg-success text-white hover:bg-[#43a047] disabled:opacity-40 disabled:cursor-not-allowed max-[768px]:min-h-10"
-            onClick={handleSubmit}
-            disabled={!allAnswered}
-          >
-            Submit
-          </button>
-        ) : (
-          <button
-            className="border-none rounded-md px-4 py-2 text-[0.9em] font-medium cursor-pointer transition-[background] duration-150 bg-success text-white hover:bg-[#43a047] disabled:opacity-40 disabled:cursor-not-allowed max-[768px]:min-h-10"
-            onClick={handleNext}
-            disabled={!currentStepAnswered}
-          >
-            Next
-          </button>
-        )}
+
+      {/* Footer */}
+      <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-t border-border-subtle mt-1">
+        <div>
+          {!isSingleQuestion && (
+            <span className="text-[0.75em] text-text-dim tabular-nums">
+              {currentStep + 1} / {totalSteps}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {!isFirstStep && (
+            <button
+              className="px-3 py-1.5 text-[0.82em] font-medium text-text-muted hover:text-text-primary transition-colors cursor-pointer border-none bg-transparent"
+              onClick={() => setCurrentStep(currentStep - 1)}
+            >
+              Back
+            </button>
+          )}
+          {isLastStep ? (
+            <button
+              className="px-4 py-1.5 text-[0.82em] font-medium rounded-full cursor-pointer border-none transition-all duration-150 bg-accent text-white hover:bg-accent-hover disabled:opacity-35 disabled:cursor-not-allowed"
+              onClick={handleSubmit}
+              disabled={!allAnswered}
+            >
+              Submit
+            </button>
+          ) : (
+            <button
+              className="px-4 py-1.5 text-[0.82em] font-medium rounded-full cursor-pointer border-none transition-all duration-150 bg-accent text-white hover:bg-accent-hover disabled:opacity-35 disabled:cursor-not-allowed"
+              onClick={() => setCurrentStep(currentStep + 1)}
+              disabled={!currentStepAnswered}
+            >
+              Next
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )

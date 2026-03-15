@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
+import { useCodr } from './hooks/useCodr'
 import { Sidebar, type ProjectInfo } from './components/Sidebar'
 import { ChatHeader } from './components/ChatHeader'
 
@@ -21,9 +22,10 @@ import { useMessageQueue, type QueuedMessage } from './hooks/useMessageQueue'
 import { hasStableSessionTitle } from './utils/session-title'
 
 export default function App() {
+  const codr = useCodr()
   const stableGetToken = useCallback(async () => {
-    return window.claude.getAuthToken?.() ?? null
-  }, [])
+    return codr.getAuthToken?.() ?? null
+  }, [codr])
   const docsAPI = useDocsAPI(stableGetToken)
 
   // User profile (from Clerk via API, cached at app level)
@@ -33,17 +35,17 @@ export default function App() {
     imageUrl: string | null
   } | null>(null)
   useEffect(() => {
-    window.claude.getUserProfile?.().then((p) => {
+    codr.getUserProfile?.().then((p) => {
       if (p) setUserProfile(p)
     }).catch(() => {})
-  }, [])
+  }, [codr])
 
   // Auto-updater
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
   const [updateDismissed, setUpdateDismissed] = useState(false)
 
   useEffect(() => {
-    return window.claude.onUpdateStatus?.((status) => {
+    return codr.onUpdateStatus?.((status) => {
       setUpdateStatus(status)
       // Reset dismissed state when a new version arrives
       const dismissed = localStorage.getItem('codr:dismissed-update')
@@ -51,7 +53,7 @@ export default function App() {
         setUpdateDismissed(false)
       }
     })
-  }, [])
+  }, [codr])
 
   const showUpdateOverlay = updateStatus != null && !updateDismissed && (
     (updateStatus.manual && ['checking', 'available', 'downloading', 'downloaded', 'error'].includes(updateStatus.status)) ||
@@ -156,17 +158,17 @@ export default function App() {
   // --- Indexer status (global only — is LEANN installed?) ---
   const [indexerStatus, setIndexerStatus] = useState<string>('not-ready')
   useEffect(() => {
-    window.claude.getIndexerStatus?.().then(s => {
+    codr.getIndexerStatus?.().then(s => {
       if (s?.status) setIndexerStatus(s.status)
     }).catch(() => {})
-    const unsub = window.claude.onIndexerSetupProgress?.((p: { step: string; detail?: string; projectDir?: string }) => {
+    const unsub = codr.onIndexerSetupProgress?.((p: { step: string; detail?: string; projectDir?: string }) => {
       if (p.projectDir) return // ignore project-specific events
       if (p.step === 'ready' || p.step === 'error' || p.step === 'setting-up') {
         setIndexerStatus(p.step)
       }
     })
     return () => { unsub?.() }
-  }, [])
+  }, [codr])
 
   // --- Per-project index status ---
   const [projectIndexStatus, setProjectIndexStatus] = useState<string>('not-indexed')
@@ -177,19 +179,19 @@ export default function App() {
       setProjectIndexStatus('not-indexed')
       return
     }
-    window.claude.getIndexerProjectStatus?.(projectFolder).then(s => {
+    codr.getIndexerProjectStatus?.(projectFolder).then(s => {
       setProjectIndexStatus(s?.status || 'not-indexed')
     }).catch(() => {})
     // Proactively refresh index in the background when switching projects
-    window.claude.backgroundRefreshIndex?.(projectFolder)
-    const unsub = window.claude.onIndexerSetupProgress?.((p: { step: string; detail?: string; projectDir?: string }) => {
+    codr.backgroundRefreshIndex?.(projectFolder)
+    const unsub = codr.onIndexerSetupProgress?.((p: { step: string; detail?: string; projectDir?: string }) => {
       if (!p.projectDir || p.projectDir !== projectFolder) return
       if (p.step === 'indexed') setProjectIndexStatus('indexed')
       else if (p.step === 'indexing') setProjectIndexStatus('indexing')
       else if (p.step === 'error') setProjectIndexStatus('error')
     })
     return () => { unsub?.() }
-  }, [projectFolder])
+  }, [codr, projectFolder])
 
   // --- Hook: Input Composer ---
   // Destructured to avoid false-positive react-hooks/refs lint warnings in JSX
@@ -234,14 +236,14 @@ export default function App() {
 
   // Initialize provider + model + default reasoning on mount
   useEffect(() => {
-    window.claude.getProvider?.().then(p => {
+    codr.getProvider?.().then(p => {
       setCurrentProvider(p)
-      window.claude.getModels?.(p).then(result => {
+      codr.getModels?.(p).then(result => {
         if (result?.selectedModel) setSelectedModel(result.selectedModel)
       })
     })
     // Read default reasoning from ~/.claude/settings.json effortLevel
-    window.claude.getDefaults?.().then(defaults => {
+    codr.getDefaults?.().then(defaults => {
       if (defaults?.effortLevel) {
         const level = defaults.effortLevel as ReasoningLevel
         setDefaultReasoning(level)
@@ -251,12 +253,12 @@ export default function App() {
         }
       }
     })
-  }, [])
+  }, [codr])
 
   const handleModelChange = async (model: string | undefined) => {
     userChangedModelRef.current = true
     setSelectedModel(model)
-    await window.claude.setModel?.(currentProviderRef.current, model)
+    await codr.setModel?.(currentProviderRef.current, model)
   }
 
   // --- Send from queue (pulls data from a QueuedMessage instead of input state) ---
@@ -304,7 +306,7 @@ export default function App() {
       awaitingNewSessionRef.current = true
     }
 
-    await window.claude.query(msg.prompt || '', Object.keys(opts).length > 0 ? opts : undefined)
+    await codr.query(msg.prompt || '', Object.keys(opts).length > 0 ? opts : undefined)
   }
 
   // Wire the bridge refs now that all hooks exist.
@@ -400,7 +402,7 @@ export default function App() {
   }, [hasMoreMessages, loadMoreMessages, isLoadingHistoryRef])
 
   const handleInterrupt = () => {
-    window.claude.interrupt(session.activeSessionId ?? undefined)
+    codr.interrupt(session.activeSessionId ?? undefined)
   }
 
   // --- Send handler (orchestrates all hooks) ---
@@ -492,14 +494,14 @@ export default function App() {
       awaitingNewSessionRef.current = true
     }
 
-    await window.claude.query(prompt || '', Object.keys(opts).length > 0 ? opts : undefined)
+    await codr.query(prompt || '', Object.keys(opts).length > 0 ? opts : undefined)
   }
 
   const handleCompact = async () => {
     if (!session.activeSessionId || agent.isLoading) return
     agent.setIsLoading(true)
     agent.resetStreaming()
-    await window.claude.query('/compact', { resumeSessionId: session.activeSessionId })
+    await codr.query('/compact', { resumeSessionId: session.activeSessionId })
   }
 
   // --- Plan handlers ---
@@ -529,7 +531,7 @@ export default function App() {
 
     // Brief delay for permission response to settle before follow-up query
     await new Promise(resolve => setTimeout(resolve, 100))
-    await window.claude.query(approvalMessage, {
+    await codr.query(approvalMessage, {
       resumeSessionId: session.activeSessionId!,
       ...(selectedModel ? { model: selectedModel } : {}),
     })
@@ -565,7 +567,7 @@ export default function App() {
     agent.resetStreaming()
     awaitingNewSessionRef.current = true
 
-    await window.claude.query(planPrompt, {
+    await codr.query(planPrompt, {
       ...(cwd ? { cwd } : {}),
       ...(selectedModel ? { model: selectedModel } : {}),
     })
@@ -602,7 +604,7 @@ export default function App() {
       {showUpdateOverlay && (
         <UpdateOverlay
           status={updateStatus!}
-          onRestart={() => window.claude.installUpdate?.()}
+          onRestart={() => codr.installUpdate?.()}
           onDismiss={() => {
             if (updateStatus?.status === 'downloaded' && updateStatus.version) {
               localStorage.setItem('codr:dismissed-update', updateStatus.version)
@@ -636,7 +638,7 @@ export default function App() {
           session.handleNewChat(provider, resolvedCwd)
           setCurrentProvider(p)
           userChangedModelRef.current = false
-          window.claude.getModels?.(p).then(result => { setSelectedModel(result?.selectedModel) })
+          codr.getModels?.(p).then(result => { setSelectedModel(result?.selectedModel) })
           setSettingsOpen(false)
           setManageProjectOpen(false)
         }}
@@ -651,7 +653,7 @@ export default function App() {
               if (s.model) {
                 setSelectedModel(s.model)
               } else {
-                window.claude.getModels?.(s.provider).then(result => {
+                codr.getModels?.(s.provider).then(result => {
                   if (result?.selectedModel) setSelectedModel(result.selectedModel)
                 })
               }
@@ -693,14 +695,14 @@ export default function App() {
             docsAPI={docsAPI}
             userProfile={userProfile}
             onAddDocSource={async (url, name, crawlDepth, prefix) => {
-              if (window.claude.addDocSource) {
-                const result = await window.claude.addDocSource({ url, name, crawlDepth, prefix })
+              if (codr.addDocSource) {
+                const result = await codr.addDocSource({ url, name, crawlDepth, prefix })
                 if ('error' in result) throw new Error(result.error)
               }
             }}
             onRecrawlDocSource={async (sourceId, url, crawlDepth, prefix) => {
-              if (window.claude.recrawlDocSource) {
-                const result = await window.claude.recrawlDocSource(sourceId, url, crawlDepth, prefix)
+              if (codr.recrawlDocSource) {
+                const result = await codr.recrawlDocSource(sourceId, url, crawlDepth, prefix)
                 if (result?.error) throw new Error(result.error)
               }
             }}
@@ -730,7 +732,7 @@ export default function App() {
           approvedPlan={dialogs.approvedPlan}
           onShowPlan={() => setShowPlanOverlay(true)}
           onOpenManageProject={(folder) => { setManageProjectFolder(folder); setManageProjectOpen(true); setSettingsOpen(false) }}
-          onRegenTitle={window.claude.regenTitle ? (sessionId, firstPrompt) => window.claude.regenTitle!(sessionId, firstPrompt) : undefined}
+          onRegenTitle={codr.regenTitle ? (sessionId, firstPrompt) => codr.regenTitle!(sessionId, firstPrompt) : undefined}
         />
 
         <div className="flex-1 min-h-0 relative overflow-hidden">

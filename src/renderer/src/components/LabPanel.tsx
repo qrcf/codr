@@ -1,6 +1,8 @@
 import { useState } from 'react'
+import { useCodr } from '../hooks/useCodr'
 
 export function LabPanel() {
+  const codr = useCodr()
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [sessionsLoading, setSessionsLoading] = useState(false)
   const [selectedSession, setSelectedSession] = useState<string | null>(null)
@@ -10,7 +12,7 @@ export function LabPanel() {
   const handleListSessions = async () => {
     setSessionsLoading(true)
     try {
-      const result = await window.claude.listSessions()
+      const result = await codr.listSessions()
       setSessions(result.sessions)
     } catch {
       setSessions([])
@@ -29,7 +31,7 @@ export function LabPanel() {
     setSessionDetail(null)
     setDetailLoading(true)
     try {
-      const messages = await window.claude.getSessionMessages(sessionId)
+      const messages = await codr.getSessionMessages(sessionId)
       setSessionDetail(JSON.stringify(messages, null, 2))
     } catch (err) {
       setSessionDetail(JSON.stringify({ error: String(err) }, null, 2))

@@ -7,6 +7,7 @@ import type { ChatMessage } from '../types'
 import type { DraftSession } from '../hooks/useDraftSessions'
 import { hasStableSessionTitle } from '../utils/session-title'
 import { stripPromptContext } from '../utils/strip-prompt-context'
+import { useCodr } from '../hooks/useCodr'
 
 export type SessionStatusType = 'question' | 'plan-review' | 'permission'
 
@@ -62,6 +63,7 @@ export function Sidebar({
   onProjectsUpdate,
   onCleanupPromotedDraft,
 }: SidebarProps) {
+  const codr = useCodr()
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [sessionsLoaded, setSessionsLoaded] = useState(false)
   const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(null)
@@ -122,7 +124,7 @@ export function Sidebar({
     Promise.all(
       unresolvedFolders.map(async (folder) => {
         try {
-          const name = await window.claude.getRepoName?.(folder)
+          const name = await codr.getRepoName?.(folder)
           return [folder, name] as const
         } catch {
           return [folder, undefined] as const
@@ -156,7 +158,7 @@ export function Sidebar({
 
   const fetchSessions = useCallback(async () => {
     try {
-      const result = await window.claude.listSessions()
+      const result = await codr.listSessions()
       const list = result.sessions as SessionInfo[]
       setSessions(prev => {
         const prevMap = new Map<string, SessionInfo>()
@@ -175,19 +177,19 @@ export function Sidebar({
     } catch {
       setSessionsLoaded(true)
     }
-  }, [])
+  }, [codr])
 
   useEffect(() => {
     fetchSessions()
-    return window.claude.onSessionRefreshHint(() => {
+    return codr.onSessionRefreshHint(() => {
       fetchSessions()
     })
-  }, [fetchSessions])
+  }, [fetchSessions, codr])
 
   // Check codex availability once on mount
   useEffect(() => {
-    window.claude.getProviderStatus?.().then(s => setCodexAvailable(s.codex.installed)).catch(() => setCodexAvailable(false))
-  }, [])
+    codr.getProviderStatus?.().then(s => setCodexAvailable(s.codex.installed)).catch(() => setCodexAvailable(false))
+  }, [codr])
 
   // Fetch account info with retry
   useEffect(() => {
@@ -197,7 +199,7 @@ export function Sidebar({
     const MAX_ATTEMPTS = 6
 
     const fetchAccountInfo = () => {
-      window.claude.getAccountInfo().then((result) => {
+      codr.getAccountInfo().then((result) => {
         if (cancelled) return
         if (result && typeof result === 'object' && 'error' in result) {
           const errMsg = (result as { error: string }).error
@@ -228,7 +230,7 @@ export function Sidebar({
 
     fetchAccountInfo()
 
-    const unsubAccountInfo = window.claude.onAccountInfoUpdate?.((info: AccountInfo) => {
+    const unsubAccountInfo = codr.onAccountInfoUpdate?.((info: AccountInfo) => {
       if (info) setAccountInfo(info)
     })
 
@@ -237,7 +239,7 @@ export function Sidebar({
       if (retryTimer) clearTimeout(retryTimer)
       unsubAccountInfo?.()
     }
-  }, [])
+  }, [codr])
 
   const realSessionIds = useMemo(() => new Set(sessions.map(s => s.sessionId)), [sessions])
   const draftById = useMemo(
@@ -440,7 +442,7 @@ export function Sidebar({
 
     setLoadingSession(sessionId)
     try {
-      const raw = await window.claude.getSessionMessages(sessionId)
+      const raw = await codr.getSessionMessages(sessionId)
       const parsed = parseSessionMessages(raw)
       onLoadSession(sessionId, parsed, extractTokenUsageFromRaw(raw), extractModelFromRaw(raw))
 
@@ -456,7 +458,7 @@ export function Sidebar({
   }
 
   const handleBrowseFolder = async () => {
-    const folder = await window.claude.selectFolder()
+    const folder = await codr.selectFolder()
     if (!folder) return
     addProject(folder)
     setExpandedProjects(prev => {

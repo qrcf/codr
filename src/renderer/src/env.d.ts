@@ -105,7 +105,7 @@ interface TaggedIgnoreEntry {
   source: IgnoreSource
 }
 
-interface ClaudeAPI {
+interface CodrAPI {
   getPathForFile?: (file: File) => string
   readClipboardFilePaths?: () => Promise<string[]>
   storeAttachments?: (filePaths: string[]) => Promise<AttachmentMeta[]>
@@ -249,6 +249,5 @@ type CliStatus =
   | { status: 'checking' }
 
 interface Window {
-  claude: ClaudeAPI
-  agent?: ClaudeAPI
+  codr: CodrAPI
 }

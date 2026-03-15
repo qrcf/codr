@@ -3,6 +3,7 @@ import { Sparkles, Terminal, Database } from 'lucide-react'
 import { DocsPanel } from './DocsPanel'
 import type { DocsAPI } from './DocsPanel'
 import { LabPanel } from './LabPanel'
+import { useCodr } from '../hooks/useCodr'
 
 interface SettingsPanelProps {
   onClose: () => void
@@ -15,21 +16,22 @@ interface SettingsPanelProps {
 type Tab = 'general' | 'docs' | 'files' | 'lab'
 
 function IndexerStatusSection() {
+  const codr = useCodr()
   const [status, setStatus] = useState<{ status: string; detail?: string }>({ status: 'not-ready' })
   const [progress, setProgress] = useState<{ step: string; detail?: string } | null>(null)
   const [reinstalling, setReinstalling] = useState(false)
 
   useEffect(() => {
-    window.claude.getIndexerStatus?.().then(setStatus).catch(() => {})
-    const unsub = window.claude.onIndexerSetupProgress?.((p: { step: string; detail?: string; projectDir?: string }) => {
+    codr.getIndexerStatus?.().then(setStatus).catch(() => {})
+    const unsub = codr.onIndexerSetupProgress?.((p: { step: string; detail?: string; projectDir?: string }) => {
       if (p.projectDir) return // ignore project-specific events
       setProgress(p)
       if (p.step === 'ready' || p.step === 'error') {
-        window.claude.getIndexerStatus?.().then(setStatus).catch(() => {})
+        codr.getIndexerStatus?.().then(setStatus).catch(() => {})
       }
     })
     return () => { unsub?.() }
-  }, [])
+  }, [codr])
 
   const statusBadge = (() => {
     switch (status.status) {
@@ -74,8 +76,8 @@ function IndexerStatusSection() {
               className="bg-transparent border border-border text-text-faint py-1.5 px-3 rounded-md text-[12px] cursor-pointer transition-colors duration-150 hover:bg-border-subtle hover:text-[#ccc] disabled:opacity-50 disabled:cursor-not-allowed"
               onClick={() => {
                 setReinstalling(true)
-                window.claude.reinstallIndexer?.()
-                  .then(() => window.claude.getIndexerStatus?.().then(setStatus).catch(() => {}))
+                codr.reinstallIndexer?.()
+                  .then(() => codr.getIndexerStatus?.().then(setStatus).catch(() => {}))
                   .finally(() => setReinstalling(false))
               }}
               disabled={reinstalling || (status.status as string) === 'setting-up'}
@@ -90,6 +92,7 @@ function IndexerStatusSection() {
 }
 
 export function SettingsPanel({ onClose, docsAPI, userProfile, onAddDocSource, onRecrawlDocSource }: SettingsPanelProps) {
+  const codr = useCodr()
   const [activeTab, setActiveTab] = useState<Tab>('general')
   const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(null)
   const [providerStatus, setProviderStatus] = useState<{
@@ -104,7 +107,7 @@ export function SettingsPanel({ onClose, docsAPI, userProfile, onAddDocSource, o
     const MAX_ATTEMPTS = 6
 
     const fetchAccountInfo = () => {
-      window.claude.getAccountInfo().then((result) => {
+      codr.getAccountInfo().then((result) => {
         if (cancelled) return
         if (result && typeof result === 'object' && 'error' in result) {
           console.error('[account-info]', (result as { error: string }).error)
@@ -132,7 +135,7 @@ export function SettingsPanel({ onClose, docsAPI, userProfile, onAddDocSource, o
 
     fetchAccountInfo()
 
-    const unsubAccountInfo = window.claude.onAccountInfoUpdate?.((info: AccountInfo) => {
+    const unsubAccountInfo = codr.onAccountInfoUpdate?.((info: AccountInfo) => {
       if (info) setAccountInfo(info)
     })
 
@@ -141,14 +144,14 @@ export function SettingsPanel({ onClose, docsAPI, userProfile, onAddDocSource, o
       if (retryTimer) clearTimeout(retryTimer)
       unsubAccountInfo?.()
     }
-  }, [])
+  }, [codr])
 
   // Fetch independent provider status for both Claude and Codex
   useEffect(() => {
-    window.claude.getProviderStatus?.().then((status) => {
+    codr.getProviderStatus?.().then((status) => {
       if (status) setProviderStatus(status)
     }).catch(() => {})
-  }, [])
+  }, [codr])
 
   const tabBtnClass = (isActive: boolean) =>
     `bg-transparent border-0 border-b-2 px-5 py-3.5 text-[14px] cursor-pointer transition-colors duration-150 ${
@@ -234,7 +237,7 @@ export function SettingsPanel({ onClose, docsAPI, userProfile, onAddDocSource, o
                 </div>
                 <button
                   className="bg-transparent border border-border text-text-faint py-2 px-4 rounded-md text-[13px] cursor-pointer transition-colors duration-150 shrink-0 hover:bg-border-subtle hover:text-[#ccc]"
-                  onClick={() => { window.claude.disconnectRemote?.(); window.claude.signOut?.().then(() => window.location.reload()) }}
+                  onClick={() => { codr.disconnectRemote?.(); codr.signOut?.().then(() => window.location.reload()) }}
                 >
                   Sign out
                 </button>
@@ -373,22 +376,23 @@ function ChipList({
 // --- Global files config panel ---
 
 function GlobalFilesConfigPanel() {
+  const codr = useCodr()
   const [config, setConfig] = useState<Required<GlobalFilesConfigFile>>({
     ignoreDirs: [],
     extraIgnoreFiles: [],
   })
 
   useEffect(() => {
-    window.claude.getGlobalFilesConfig?.().then((cfg) => {
+    codr.getGlobalFilesConfig?.().then((cfg) => {
       if (!cfg) return
       setConfig(cfg)
     }).catch(() => {})
-  }, [])
+  }, [codr])
 
   async function save(updates: Partial<GlobalFilesConfigFile>) {
     const updated = { ...config, ...updates }
     setConfig(updated as Required<GlobalFilesConfigFile>)
-    await window.claude.setGlobalFilesConfig?.(updates).catch(() => {})
+    await codr.setGlobalFilesConfig?.(updates).catch(() => {})
   }
 
   const sectionTitleClass = 'm-0 mb-3 text-[13px] font-semibold text-text-faint uppercase tracking-[0.05em]'

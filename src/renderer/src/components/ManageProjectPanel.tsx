@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { DiffView } from './DiffView'
+import { useCodr } from '../hooks/useCodr'
 
 interface ManageProjectPanelProps {
   folderPath: string
@@ -31,6 +32,7 @@ const PRESET_PROMPTS: { label: string; prompt: string }[] = [
 ]
 
 export function ManageProjectPanel({ folderPath, onClose }: ManageProjectPanelProps) {
+  const codr = useCodr()
   const [activeTab, setActiveTab] = useState<Tab>('general')
   const [claudeMdContent, setClaudeMdContent] = useState<string | null>(null)
   const [claudeMdLoading, setClaudeMdLoading] = useState(true)
@@ -52,7 +54,7 @@ export function ManageProjectPanel({ folderPath, onClose }: ManageProjectPanelPr
     setClaudeMdLoading(true)
     setError(null)
     try {
-      const result = await window.claude.readClaudeMd?.(folderPath)
+      const result = await codr.readClaudeMd?.(folderPath)
       if (result?.error) {
         setError(result.error)
         setClaudeMdContent(null)
@@ -84,7 +86,7 @@ Task: ${prompt}
 IMPORTANT: Output ONLY the complete updated CLAUDE.md content. Do not include any explanation, preamble, or markdown code fences around the entire output. Just output the raw markdown content that should be written to CLAUDE.md.`
 
     // Listen for messages to collect the response
-    const unsubMessage = window.claude.onMessage((message: unknown) => {
+    const unsubMessage = codr.onMessage((message: unknown) => {
       const msg = message as { type?: string; message?: { content?: Array<{ type?: string; text?: string }> } }
       if (msg?.type === 'assistant' && msg?.message?.content) {
         for (const block of msg.message.content) {
@@ -95,7 +97,7 @@ IMPORTANT: Output ONLY the complete updated CLAUDE.md content. Do not include an
       }
     })
 
-    const unsubDone = window.claude.onDone(() => {
+    const unsubDone = codr.onDone(() => {
       cleanup()
       const response = collectedResponseRef.current.trim()
       if (response) {
@@ -112,7 +114,7 @@ IMPORTANT: Output ONLY the complete updated CLAUDE.md content. Do not include an
       }
     })
 
-    const unsubError = window.claude.onError((err: string) => {
+    const unsubError = codr.onError((err: string) => {
       cleanup()
       setError(err)
       setUpdateState('idle')
@@ -128,7 +130,7 @@ IMPORTANT: Output ONLY the complete updated CLAUDE.md content. Do not include an
     cleanupRef.current = cleanup
 
     // Fire the query
-    window.claude.query(fullPrompt, { cwd: folderPath }).catch((err) => {
+    codr.query(fullPrompt, { cwd: folderPath }).catch((err) => {
       cleanup()
       setError(String(err))
       setUpdateState('idle')
@@ -139,7 +141,7 @@ IMPORTANT: Output ONLY the complete updated CLAUDE.md content. Do not include an
     if (!proposedContent) return
     setError(null)
     try {
-      const result = await window.claude.writeClaudeMd?.(folderPath, proposedContent)
+      const result = await codr.writeClaudeMd?.(folderPath, proposedContent)
       if (result?.error) {
         setError(result.error)
         return
@@ -398,18 +400,19 @@ function ChipList({
 // -- Project files config section --
 
 function ProjectFilesConfigSection({ folderPath }: { folderPath: string }) {
+  const codr = useCodr()
   const [projectConfig, setProjectConfig] = useState<ProjectFilesConfigFile>({})
 
   useEffect(() => {
-    window.claude.getProjectFilesConfig?.(folderPath)
+    codr.getProjectFilesConfig?.(folderPath)
       .then((p) => { if (p) setProjectConfig(p) })
       .catch(() => {})
-  }, [folderPath])
+  }, [folderPath, codr])
 
   async function save(updates: Partial<ProjectFilesConfigFile>) {
     const merged = { ...projectConfig, ...updates }
     setProjectConfig(merged)
-    await window.claude.setProjectFilesConfig?.(folderPath, merged).catch(() => {})
+    await codr.setProjectFilesConfig?.(folderPath, merged).catch(() => {})
   }
 
   return (
@@ -458,6 +461,7 @@ const SOURCE_BADGE: Record<IgnoreSource, { label: string; className: string }> =
 }
 
 function ComputedIgnoresSection({ folderPath }: { folderPath: string }) {
+  const codr = useCodr()
   const [entries, setEntries] = useState<TaggedIgnoreEntry[]>([])
   const [expanded, setExpanded] = useState(false)
   const [filter, setFilter] = useState('')
@@ -470,7 +474,7 @@ function ComputedIgnoresSection({ folderPath }: { folderPath: string }) {
     void (async () => {
       setLoading(true)
       try {
-        const e = await window.claude.getComputedIgnores?.(folderPath)
+        const e = await codr.getComputedIgnores?.(folderPath)
         setEntries(e ?? [])
       } catch {
         // ignore
@@ -478,7 +482,7 @@ function ComputedIgnoresSection({ folderPath }: { folderPath: string }) {
         setLoading(false)
       }
     })()
-  }, [expanded, folderPath])
+  }, [expanded, folderPath, codr])
 
   // Reload when expanded is toggled open (allows refresh after config changes)
   const handleToggle = () => {
@@ -579,6 +583,7 @@ interface IndexedFile {
 }
 
 function ProjectIndexTab({ folderPath }: { folderPath: string }) {
+  const codr = useCodr()
   const [globalStatus, setGlobalStatus] = useState<{ status: string; detail?: string }>({ status: 'not-ready' })
   const [projectStatus, setProjectStatus] = useState<{ status: string; fileCount?: number; detail?: string }>({ status: 'not-indexed' })
   const [rebuilding, setRebuilding] = useState(false)
@@ -591,17 +596,17 @@ function ProjectIndexTab({ folderPath }: { folderPath: string }) {
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
 
   const loadFiles = useCallback(() => {
-    window.claude.getIndexerProjectFiles?.(folderPath).then(f => setFiles(f || [])).catch(() => {})
-  }, [folderPath])
+    codr.getIndexerProjectFiles?.(folderPath).then(f => setFiles(f || [])).catch(() => {})
+  }, [folderPath, codr])
 
   useEffect(() => {
-    window.claude.getIndexerStatus?.().then(setGlobalStatus).catch(() => {})
-    window.claude.getIndexerProjectStatus?.(folderPath).then((s) => {
+    codr.getIndexerStatus?.().then(setGlobalStatus).catch(() => {})
+    codr.getIndexerProjectStatus?.(folderPath).then((s) => {
       setProjectStatus(s)
       if (s.status === 'indexed') loadFiles()
     }).catch(() => {})
 
-    const unsub = window.claude.onIndexerSetupProgress?.((p: { step: string; detail?: string; projectDir?: string; progress?: { current: number; total: number } }) => {
+    const unsub = codr.onIndexerSetupProgress?.((p: { step: string; detail?: string; projectDir?: string; progress?: { current: number; total: number } }) => {
       if (p.projectDir && p.projectDir !== folderPath) return
 
       if (p.projectDir === folderPath) {
@@ -613,25 +618,25 @@ function ProjectIndexTab({ folderPath }: { folderPath: string }) {
           setRebuilding(false)
           setIndexingDetail(null)
           setIndexingProgress(null)
-          window.claude.getIndexerProjectStatus?.(folderPath).then(setProjectStatus).catch(() => {})
+          codr.getIndexerProjectStatus?.(folderPath).then(setProjectStatus).catch(() => {})
           if (p.step === 'indexed') loadFiles()
         }
       } else {
         if (p.step === 'ready' || p.step === 'error') {
-          window.claude.getIndexerStatus?.().then(setGlobalStatus).catch(() => {})
+          codr.getIndexerStatus?.().then(setGlobalStatus).catch(() => {})
         }
       }
     })
     return () => { unsub?.() }
-  }, [folderPath, loadFiles])
+  }, [folderPath, loadFiles, codr])
 
   const handleRebuild = () => {
     setRebuilding(true)
     setIndexingDetail(null)
     setIndexingProgress(null)
-    window.claude.rebuildIndex?.(folderPath)
+    codr.rebuildIndex?.(folderPath)
       .then(() => {
-        window.claude.getIndexerProjectStatus?.(folderPath).then(setProjectStatus).catch(() => {})
+        codr.getIndexerProjectStatus?.(folderPath).then(setProjectStatus).catch(() => {})
         loadFiles()
       })
       .catch(() => {})
@@ -642,9 +647,9 @@ function ProjectIndexTab({ folderPath }: { folderPath: string }) {
     setRebuilding(true)
     setIndexingDetail(null)
     setIndexingProgress(null)
-    window.claude.updateIndex?.(folderPath)
+    codr.updateIndex?.(folderPath)
       .then(() => {
-        window.claude.getIndexerProjectStatus?.(folderPath).then(setProjectStatus).catch(() => {})
+        codr.getIndexerProjectStatus?.(folderPath).then(setProjectStatus).catch(() => {})
         loadFiles()
       })
       .catch(() => {})

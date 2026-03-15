@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import type { ChatMessage, PlanReviewState } from '../types'
 import { parseSessionMessages, extractTokenUsageFromRaw } from '../utils/sessionParser'
+import { useCodr } from './useCodr'
 
 interface AgentHandle {
   loadMessages: (sessionMessages: ChatMessage[], initialTokenUsage?: TokenUsage | null) => void
@@ -55,6 +56,7 @@ export function useSessionManager({
   clearApprovedPlan,
   draftActions,
 }: UseSessionManagerParams) {
+  const codr = useCodr()
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [activeSession, setActiveSession] = useState<SessionInfo | null>(null)
   // resolvedRepoName is only set by the async getRepoName call
@@ -76,7 +78,7 @@ export function useSessionManager({
   useEffect(() => {
     if (!projectFolder) return
     let cancelled = false
-    window.claude.getRepoName?.(projectFolder)
+    codr.getRepoName?.(projectFolder)
       .then((name) => {
         if (!cancelled && projectFolderRef.current === projectFolder) {
           setResolvedRepoName({ folder: projectFolder, name })
@@ -84,7 +86,7 @@ export function useSessionManager({
       })
       .catch(() => {})
     return () => { cancelled = true }
-  }, [projectFolder])
+  }, [codr, projectFolder])
 
   // Persist active session ID to localStorage (skip initial render)
   const isInitialRender = useRef(true)
@@ -154,9 +156,9 @@ export function useSessionManager({
     }
 
     // Restore live agent state if we have a session
-    if (sessionId && !isReloadingSameSession && window.claude.getAgentState) {
+    if (sessionId && !isReloadingSameSession && codr.getAgentState) {
       const capturedSessionId = sessionId
-      window.claude.getAgentState(sessionId).then((state) => {
+      codr.getAgentState(sessionId).then((state) => {
         if (activeSessionIdRef.current !== capturedSessionId) return
         if (state.isLoading) {
           agent.setIsLoading(true)
@@ -196,7 +198,7 @@ export function useSessionManager({
         setPlanReady(true)
       }
     }
-  }, [activeSessionIdRef, awaitingNewSessionRef, setActiveSessionId, agent, resetPlan, restoreDialogState, setPlanReview, setPlanReady, restoreApprovedPlan, clearApprovedPlan, draftActions])
+  }, [codr, activeSessionIdRef, awaitingNewSessionRef, setActiveSessionId, agent, resetPlan, restoreDialogState, setPlanReview, setPlanReady, restoreApprovedPlan, clearApprovedPlan, draftActions])
 
   // Restore saved session on mount
   useEffect(() => {
@@ -205,11 +207,11 @@ export function useSessionManager({
       // Restore draft as empty session (use microtask to match async pattern)
       Promise.resolve().then(() => loadSession(savedId, []))
     } else if (savedId) {
-      window.claude.getSessionMessages(savedId)
+      codr.getSessionMessages(savedId)
         .then((raw) => loadSession(savedId, parseSessionMessages(raw), extractTokenUsageFromRaw(raw)))
         .catch(() => localStorage.removeItem('active-session-id'))
-    } else if (window.claude.getAgentState) {
-      window.claude.getAgentState().then((state) => {
+    } else if (codr.getAgentState) {
+      codr.getAgentState().then((state) => {
         if (state.isLoading) {
           agent.setIsLoading(true)
         }
@@ -226,8 +228,8 @@ export function useSessionManager({
     loadSession(draft.draftId, [])
     resetInput()
     setMode('code')
-    await window.claude.setProvider?.(provider || 'claude')
-  }, [loadSession, resetInput, setMode, draftActions, activeSession])
+    await codr.setProvider?.(provider || 'claude')
+  }, [codr, loadSession, resetInput, setMode, draftActions, activeSession])
 
   const handleChangeProject = useCallback((cwd: string) => {
     const currentId = activeSessionIdRef.current

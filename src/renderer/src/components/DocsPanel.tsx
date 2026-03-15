@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, type FormEvent } from 'react'
 import { RefreshCw, Trash2, Loader2, BookOpen, Plus, ExternalLink, Square, ChevronDown, ChevronRight, RotateCcw, Settings, CheckCircle2, Circle } from 'lucide-react'
+import { useCodr } from '../hooks/useCodr'
 
 export interface DocSourceInfo {
   id: number
@@ -49,6 +50,7 @@ function derivePrefix(url: string): string {
 }
 
 export function DocsPanel({ docsAPI, onAddDocSource, onRecrawlDocSource }: DocsPanelProps) {
+  const codr = useCodr()
   const [docUrl, setDocUrl] = useState('')
   const [docName, setDocName] = useState('')
   const [docCrawlDepth, setDocCrawlDepth] = useState(3)
@@ -73,7 +75,7 @@ export function DocsPanel({ docsAPI, onAddDocSource, onRecrawlDocSource }: DocsP
   // Listen for crawl progress updates
   useEffect(() => {
     if (!docsAPI) return
-    return window.claude.onDocsCrawlProgress?.((progress) => {
+    return codr.onDocsCrawlProgress?.((progress) => {
       if (progress.status === 'crawling') {
         setCrawlProgress(prev => ({
           ...prev,
@@ -88,18 +90,18 @@ export function DocsPanel({ docsAPI, onAddDocSource, onRecrawlDocSource }: DocsP
         docsAPI.refresh()
       }
     })
-  }, [docsAPI])
+  }, [docsAPI, codr])
 
   // Listen for setup progress updates (Python runtime installation)
   useEffect(() => {
-    return window.claude.onDocsSetupProgress?.((progress: { step: string; detail?: string; stepIndex: number; totalSteps: number }) => {
+    return codr.onDocsSetupProgress?.((progress: { step: string; detail?: string; stepIndex: number; totalSteps: number }) => {
       if (progress.step === 'ready') {
         setTimeout(() => setSetupProgress(null), 800)
       } else {
         setSetupProgress(progress)
       }
     })
-  }, [])
+  }, [codr])
 
   // Poll for doc source updates while panel is mounted (only shown when docs tab is active)
   useEffect(() => {
@@ -140,7 +142,7 @@ export function DocsPanel({ docsAPI, onAddDocSource, onRecrawlDocSource }: DocsP
 
   const handleCancelCrawl = async (sourceId: number) => {
     try {
-      await window.claude.cancelDocCrawl?.(sourceId)
+      await codr.cancelDocCrawl?.(sourceId)
     } catch (err) {
       setDocError(err instanceof Error ? err.message : 'Failed to cancel')
     }
@@ -179,7 +181,7 @@ export function DocsPanel({ docsAPI, onAddDocSource, onRecrawlDocSource }: DocsP
     setIsReinstalling(true)
     setDocError(null)
     try {
-      const result = await window.claude.reinstallDocsRuntime?.()
+      const result = await codr.reinstallDocsRuntime?.()
       if (result?.error) {
         setDocError(result.error)
       }
@@ -271,7 +273,7 @@ export function DocsPanel({ docsAPI, onAddDocSource, onRecrawlDocSource }: DocsP
                   try { new URL(val) } catch { return }
                   setIsFetchingTitle(true)
                   try {
-                    const result = await window.claude.fetchDocTitle?.(val.trim())
+                    const result = await codr.fetchDocTitle?.(val.trim())
                     if (result?.title && !nameManuallyEdited.current) {
                       setDocName(result.title)
                     }

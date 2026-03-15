@@ -269,5 +269,4 @@ const agentApi = {
 
 }
 
-contextBridge.exposeInMainWorld('claude', agentApi)
-contextBridge.exposeInMainWorld('agent', agentApi)
+contextBridge.exposeInMainWorld('codr', agentApi)

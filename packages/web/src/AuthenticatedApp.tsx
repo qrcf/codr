@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   ClerkProvider,
   SignedIn,
@@ -7,7 +7,8 @@ import {
   useAuth,
   useSignIn,
 } from '@clerk/clerk-react'
-import { createWebSocketClaudeAPI } from './claude-ws-adapter'
+import { createWebSocketCodrAPI } from './ws-adapter'
+import { CodrProvider } from '@codr-context'
 import { ConnectionOverlay } from './ConnectionOverlay'
 import { VersionMismatchOverlay } from './VersionMismatchOverlay'
 
@@ -25,56 +26,15 @@ if (!CLERK_PUBLISHABLE_KEY) {
   throw new Error('VITE_CLERK_PUBLISHABLE_KEY is required')
 }
 
-// No-op stub so window.agent/window.claude are never undefined when shared components mount.
-// The real WebSocket-backed implementation replaces this in ConnectedApp's useEffect.
-function createStubAgentAPI() {
-  const noopUnsub = () => () => {}
-  return {
-    query: async () => {},
-    interrupt: async () => {},
-    getAgentState: async () => ({
-      isLoading: false,
-      streamingText: '',
-      streamingThinking: '',
-      streamingTools: [] as unknown[],
-    }),
-    onMessage: noopUnsub,
-    onError: noopUnsub,
-    onDone: noopUnsub,
-    onPermissionRequest: noopUnsub,
-    respondPermission: () => {},
-    onQuestionRequest: noopUnsub,
-    respondQuestion: () => {},
-    updateSettings: () => {},
-    selectFolder: async () => null as string | null,
-    listSessions: async () => ({ sessions: [] as unknown[], titlesLoaded: false }),
-    getSessionMessages: async () => [] as unknown[],
-    getAccountInfo: async () => null,
-    onAccountInfoUpdate: noopUnsub,
-    listFiles: async () => [] as string[],
-    onSessionRefreshHint: noopUnsub,
-    onSessionUpdated: noopUnsub,
-    getRemoteStatus: async () => null,
-    onRemoteStatusChange: noopUnsub,
-    onStateSync: noopUnsub,
-    onDesktopStatus: noopUnsub,
-  }
-}
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const isElectron = !!(window as any).claude?.isElectron
-
-// Only install the stub if the preload script hasn't already provided window.claude
-if (!isElectron) {
-  const stub = createStubAgentAPI()
-  ;(window as unknown as { claude: ReturnType<typeof createStubAgentAPI>; agent: ReturnType<typeof createStubAgentAPI> }).claude = stub
-  ;(window as unknown as { claude: ReturnType<typeof createStubAgentAPI>; agent: ReturnType<typeof createStubAgentAPI> }).agent = stub
-}
+const isElectron = !!(window as any).codr?.isElectron
 
 function WebConnectedApp() {
   const { getToken, signOut } = useAuth()
   const [desktopOnline, setDesktopOnline] = useState<boolean | null>(null)
   const [desktopVersion, setDesktopVersion] = useState<string | null>(null)
+  const [api, setApi] = useState<ReturnType<typeof createWebSocketCodrAPI> | null>(null)
+  const apiRef = useRef<ReturnType<typeof createWebSocketCodrAPI> | null>(null)
 
   const getClerkToken = useCallback(async () => {
     const token = await getToken()
@@ -83,24 +43,23 @@ function WebConnectedApp() {
   }, [getToken])
 
   useEffect(() => {
-    const api = createWebSocketClaudeAPI(RELAY_URL, getClerkToken)
+    const wsApi = createWebSocketCodrAPI(RELAY_URL, getClerkToken)
+    apiRef.current = wsApi
 
-    // Keep both names during migration.
-    ;(window as unknown as { claude: typeof api; agent: typeof api }).claude = api
-    ;(window as unknown as { claude: typeof api; agent: typeof api }).agent = api
+    const unsubDesktop = wsApi.onDesktopStatus((online) => setDesktopOnline(online))
+    const unsubVersion = wsApi.onDesktopVersion((version) => setDesktopVersion(version))
+    const unsubAuthFailed = wsApi.onAuthFailed(() => { void signOut() })
 
-    const unsubDesktop = api.onDesktopStatus((online) => setDesktopOnline(online))
-    const unsubVersion = api.onDesktopVersion((version) => setDesktopVersion(version))
-    const unsubAuthFailed = api.onAuthFailed(() => { void signOut() })
+    // Defer setState to avoid synchronous setState-in-effect
+    queueMicrotask(() => setApi(wsApi))
 
     return () => {
       unsubDesktop()
       unsubVersion()
       unsubAuthFailed()
-      api.disconnect()
-      const stub = createStubAgentAPI()
-      ;(window as unknown as { claude: ReturnType<typeof createStubAgentAPI>; agent: ReturnType<typeof createStubAgentAPI> }).claude = stub
-      ;(window as unknown as { claude: ReturnType<typeof createStubAgentAPI>; agent: ReturnType<typeof createStubAgentAPI> }).agent = stub
+      wsApi.disconnect()
+      apiRef.current = null
+      setApi(null)
     }
   }, [getClerkToken, signOut])
 
@@ -111,25 +70,23 @@ function WebConnectedApp() {
     && desktopVersion !== null
     && desktopVersion !== webVersion
 
-  if (desktopOnline !== true) {
-    // Show ConnectionOverlay until desktop is confirmed online.
-    // This covers: initial load, relay connecting, and desktop explicitly offline.
+  if (!api || desktopOnline !== true) {
     return showVersionMismatch
       ? <VersionMismatchOverlay desktopVersion={desktopVersion!} webVersion={webVersion} />
       : <ConnectionOverlay />
   }
 
   return (
-    <>
+    <CodrProvider api={api as unknown as CodrAPI}>
       {showVersionMismatch && <VersionMismatchOverlay desktopVersion={desktopVersion!} webVersion={webVersion} />}
       <App />
-    </>
+    </CodrProvider>
   )
 }
 
 function ConnectedApp() {
   // If running inside the Electron shell, the preload script already provides
-  // window.claude via IPC — no need for the WebSocket adapter
+  // window.codr via IPC — CodrProvider wraps the tree in main.tsx
   return isElectron ? <App /> : <WebConnectedApp />
 }
 
@@ -143,7 +100,7 @@ function ElectronSignIn() {
   useEffect(() => {
     if (!isLoaded) return
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const claude = (window as any).claude
+    const claude = (window as any).codr
     const cleanup = claude.onAuthToken?.(async (token: string) => {
       try {
         const result = await signIn!.create({ strategy: 'ticket', ticket: token })
@@ -161,7 +118,7 @@ function ElectronSignIn() {
   const handleSignIn = () => {
     setWaitingForBrowser(true)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(window as any).claude.openAuthInBrowser?.(`${window.location.origin}?mode=electron-auth`)
+    ;(window as any).codr.openAuthInBrowser?.(`${window.location.origin}?mode=electron-auth`)
   }
 
   return (

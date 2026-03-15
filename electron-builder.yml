@@ -46,6 +46,7 @@ mac:
 linux:
   category: Development
   icon: build/icons
+  maintainer: Quinn Finney <quinn@finney.id>
   target:
     - target: AppImage
       arch:

@@ -51,11 +51,14 @@ function main() {
       { stdio: 'inherit' }
     )
     execSync(
-      `powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${RESOURCES_BIN}' -Force; Move-Item -Force '${join(RESOURCES_BIN, `uv-${target}`, 'uv.exe')}' '${uvPath}'"`,
+      `powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${RESOURCES_BIN}' -Force"`,
       { stdio: 'inherit' }
     )
+    // Clean up: remove zip and extra binaries (uvw.exe, uvx.exe)
     rmSync(zipPath, { force: true })
-    rmSync(join(RESOURCES_BIN, `uv-${target}`), { recursive: true, force: true })
+    for (const extra of ['uvw.exe', 'uvx.exe']) {
+      rmSync(join(RESOURCES_BIN, extra), { force: true })
+    }
   } else {
     const tarball = `uv-${target}.tar.gz`
     const url = `https://github.com/astral-sh/uv/releases/latest/download/${tarball}`

@@ -10,10 +10,11 @@ const root = join(import.meta.dirname, '..')
 // --- Parse args ---
 
 const args = process.argv.slice(2)
+const isRetry = args.includes('--retry')
 const bump = args.includes('--major') ? 'major' : args.includes('--minor') ? 'minor' : args.includes('--patch') ? 'patch' : null
 
-if (!bump) {
-  console.error('Usage: pnpm release --major | --minor | --patch')
+if (!bump && !isRetry) {
+  console.error('Usage: pnpm release --major | --minor | --patch | --retry')
   process.exit(1)
 }
 
@@ -32,8 +33,37 @@ function check(label: string, cmd: string) {
   }
 }
 
-check('Working tree must be clean', 'git diff --quiet && git diff --cached --quiet')
 check('gh CLI required (brew install gh)', 'which gh')
+
+// --- Retry mode: re-trigger workflow for latest tag ---
+
+if (isRetry) {
+  const tag = run('git describe --tags --abbrev=0')
+  const version = tag.replace(/^v/, '')
+
+  console.log(`\nRetrying release for ${tag}...\n`)
+
+  // Delete existing draft release so electron-builder can re-upload artifacts
+  try {
+    const existing = execSync(`gh release view ${tag} --json isDraft`, { encoding: 'utf-8', cwd: root })
+    const release = JSON.parse(existing)
+    if (release.isDraft) {
+      console.log(`Deleting existing draft release ${tag}...`)
+      execSync(`gh release delete ${tag} --yes`, { stdio: 'inherit', cwd: root })
+    }
+  } catch {
+    // No existing release — fine
+  }
+
+  // Trigger the workflow via workflow_dispatch
+  execSync(`gh workflow run release.yml -f version=${version}`, { stdio: 'inherit', cwd: root })
+
+  console.log(`\n✓ Workflow triggered for ${tag}`)
+  console.log(`  Monitor: https://github.com/qrcf/codr/actions\n`)
+  process.exit(0)
+}
+
+check('Working tree must be clean', 'git diff --quiet && git diff --cached --quiet')
 check('claude CLI required', 'which claude')
 
 // --- Resolve version ---

@@ -15,7 +15,7 @@ const MD_COMPONENTS = {
     // File reference pill (inline, no language class)
     if (!className && FILE_REF_RE.test(text)) {
       return (
-        <span className="inline-flex items-center bg-[#444460] text-[#c4b5fd] px-[5px] py-[1px] rounded text-[0.82em] font-['SF_Mono','Fira_Code',monospace] whitespace-nowrap">
+        <span className="inline-flex items-center bg-[#444460] text-[#c4b5fd] px-1.25 py-px rounded text-[0.82em] font-['SF_Mono','Fira_Code',monospace] whitespace-nowrap">
           {text}
         </span>
       )
@@ -67,13 +67,13 @@ function TagPill({ tag }: { tag: ExtractedTag }) {
   if (entries.length === 0) return null
 
   return (
-    <span className="inline-flex items-center gap-[6px] flex-wrap">
-      <span className="text-[#666] text-[0.7em] font-['SF_Mono','Fira_Code',monospace] uppercase tracking-wider">{tag.tag}</span>
+    <span className="inline-flex items-center gap-1.5 flex-wrap">
+      <span className="text-text-dim text-[0.7em] font-['SF_Mono','Fira_Code',monospace] uppercase tracking-wider">{tag.tag}</span>
       {entries.map((e, i) => (
-        <span key={i} className="inline-flex items-center gap-[3px] bg-[#2a2a3a] rounded px-[6px] py-[1px] text-[0.75em] font-['SF_Mono','Fira_Code',monospace]">
+        <span key={i} className="inline-flex items-center gap-0.75 bg-border-subtle rounded px-1.5 py-px text-[0.75em] font-['SF_Mono','Fira_Code',monospace]">
           {e.key && <span className="text-[#777]">{e.key}</span>}
           {e.key && <span className="text-[#555]">:</span>}
-          <span className="text-[#999]">{formatTagValue(e.key, e.value)}</span>
+          <span className="text-text-muted">{formatTagValue(e.key, e.value)}</span>
         </span>
       ))}
     </span>
@@ -109,7 +109,7 @@ export function MarkdownContent({ children, tags: preParsedTags, className }: Ma
     <div className={className}>
       {text && <Markdown remarkPlugins={REMARK_PLUGINS} components={MD_COMPONENTS}>{text}</Markdown>}
       {tags.length > 0 && (
-        <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 pt-2 border-t border-[#2a2a3a]">
+        <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 pt-2 border-t border-border-subtle">
           {tags.map((tag, i) => (
             <TagPill key={i} tag={tag} />
           ))}

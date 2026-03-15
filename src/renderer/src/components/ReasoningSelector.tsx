@@ -35,10 +35,10 @@ export function ReasoningSelector({ value, onChange, disabled }: ReasoningSelect
   return (
     <div className="relative" ref={ref}>
       <button
-        className={`inline-flex items-center gap-1 rounded-md px-[10px] py-[3px] text-[0.78rem] cursor-pointer transition-all duration-150 bg-transparent border-none max-[768px]:text-[0.75em] max-[768px]:py-1 ${
+        className={`inline-flex items-center gap-1 rounded-md px-2.5 py-0.75 text-[0.78rem] cursor-pointer transition-all duration-150 bg-transparent border-none max-[768px]:text-[0.75em] max-[768px]:py-1 ${
           open || isActive
-            ? 'text-[#8142c7] hover:bg-white/[0.04]'
-            : 'text-[#888] hover:text-[#bbb] hover:bg-white/[0.04]'
+            ? 'text-accent hover:bg-white/4'
+            : 'text-text-faint hover:text-[#bbb] hover:bg-white/4'
         }`}
         onClick={() => setOpen(prev => !prev)}
         disabled={disabled}
@@ -48,12 +48,12 @@ export function ReasoningSelector({ value, onChange, disabled }: ReasoningSelect
         <ChevronDown size={12} className={`transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div className="absolute bottom-full left-0 mb-1 min-w-[170px] bg-[#1e1e2e] border border-[#333] rounded-md py-1 z-10 shadow-[0_4px_12px_rgba(0,0,0,0.4)]">
+        <div className="absolute bottom-full left-0 mb-1 min-w-42.5 bg-bg-card border border-border rounded-md py-1 z-10 shadow-[0_4px_12px_rgba(0,0,0,0.4)]">
           {LEVELS.map(l => (
             <button
               key={l.value}
-              className={`w-full flex flex-col px-3 py-[6px] text-left bg-transparent border-none cursor-pointer hover:bg-[#2a2a3e] ${
-                value === l.value ? 'text-[#8142c7]' : 'text-[#ccc] hover:text-white'
+              className={`w-full flex flex-col px-3 py-1.5 text-left bg-transparent border-none cursor-pointer hover:bg-[#2a2a3e] ${
+                value === l.value ? 'text-accent' : 'text-[#ccc] hover:text-white'
               }`}
               onClick={() => { onChange(l.value); setOpen(false) }}
             >

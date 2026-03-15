@@ -24,7 +24,7 @@ export function CollapsibleDialog({ title, icon, variant, children, defaultColla
   return (
     <div className={`rounded-lg overflow-hidden ${vs.border} ${vs.bg}`}>
       <button
-        className={`flex items-center gap-2 w-full px-[14px] py-2 border-none bg-transparent cursor-pointer font-semibold text-[0.9em] transition-colors hover:bg-white/5 ${vs.toggleColor}`}
+        className={`flex items-center gap-2 w-full px-3.5 py-2 border-none bg-transparent cursor-pointer font-semibold text-[0.9em] transition-colors hover:bg-white/5 ${vs.toggleColor}`}
         onClick={() => setCollapsed(!collapsed)}
       >
         {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}

@@ -60,7 +60,7 @@ export function ModelSelector({ provider, selectedModel, onModelChange, disabled
     if (exact) return exact
     // Fuzzy: full API ID contains the SDK family name (e.g. "claude-sonnet-4-6..." matches "sonnet")
     return models.find(m => {
-      const family = m.value.replace(/\[.*\]$/, '')
+      const family = m.value.replace(/\[.*]$/, '')
       return id.includes(family)
     })
   }
@@ -72,30 +72,30 @@ export function ModelSelector({ provider, selectedModel, onModelChange, disabled
   return (
     <div className="relative" ref={dropdownRef}>
       <button
-        className={`inline-flex items-center gap-1 rounded-md px-[10px] py-[3px] text-[0.78rem] cursor-pointer transition-all duration-150 bg-transparent border-none hover:text-[#bbb] hover:bg-white/[0.04] max-[768px]:text-[0.75em] max-[768px]:py-1 ${open ? 'text-[#8142c7]' : 'text-[#888]'}`}
+        className={`inline-flex items-center gap-1 rounded-md px-2.5 py-0.75 text-[0.78rem] cursor-pointer transition-all duration-150 bg-transparent border-none hover:text-[#bbb] hover:bg-white/4 max-[768px]:text-[0.75em] max-[768px]:py-1 ${open ? 'text-accent' : 'text-text-faint'}`}
         onClick={() => setOpen(prev => !prev)}
         disabled={disabled || loading}
         title="Select model"
       >
-        <span className="max-w-[120px] truncate">{displayLabel}</span>
+        <span className="max-w-30 truncate">{displayLabel}</span>
         <ChevronDown size={12} className={`transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div className="absolute bottom-full left-0 mb-1 min-w-[180px] bg-[#1e1e2e] border border-[#333] rounded-md py-1 z-10 shadow-[0_4px_12px_rgba(0,0,0,0.4)]">
+        <div className="absolute bottom-full left-0 mb-1 min-w-45 bg-bg-card border border-border rounded-md py-1 z-10 shadow-[0_4px_12px_rgba(0,0,0,0.4)]">
           {models.map((m) => (
             <button
               key={m.value}
-              className={`w-full flex items-center gap-2 px-3 py-[6px] text-[0.82em] bg-transparent border-none cursor-pointer hover:bg-[#2a2a3e] text-left ${currentModel?.value === m.value ? 'text-[#8142c7]' : 'text-[#ccc] hover:text-white'}`}
+              className={`w-full flex items-center gap-2 px-3 py-1.5 text-[0.82em] bg-transparent border-none cursor-pointer hover:bg-[#2a2a3e] text-left ${currentModel?.value === m.value ? 'text-accent' : 'text-[#ccc] hover:text-white'}`}
               onClick={() => {
                 onModelChange(m.value)
                 setOpen(false)
               }}
             >
-              <span className="w-3 flex-shrink-0">
+              <span className="w-3 shrink-0">
                 {currentModel?.value === m.value && <Check size={12} />}
               </span>
               <span>{m.displayName}</span>
-              {m.has1MContext && <span className="text-[0.7em] px-[4px] py-[1px] rounded bg-[#333] text-[#999] leading-none">1M</span>}
+              {m.has1MContext && <span className="text-[0.7em] px-1 py-px rounded bg-border text-text-muted leading-none">1M</span>}
             </button>
           ))}
         </div>

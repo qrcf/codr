@@ -69,94 +69,86 @@ export function QuestionDialog({ request, onRespond }: {
   }
 
   const handleNext = () => {
-    if (currentStep < totalSteps - 1) {
-      setCurrentStep(currentStep + 1)
-    }
+    if (currentStep < totalSteps - 1) setCurrentStep(currentStep + 1)
   }
 
   const handleBack = () => {
-    if (currentStep > 0) {
-      setCurrentStep(currentStep - 1)
-    }
+    if (currentStep > 0) setCurrentStep(currentStep - 1)
   }
 
   const allAnswered = request.questions.every((q) => {
     const sel = selections[q.question]
-    if (!sel || sel.size === 0) return false
-    if (sel.has('__other__') && !otherTexts[q.question]?.trim()) return false
-    return true
+    return !!(sel && sel.size > 0 && (!sel.has('__other__') || otherTexts[q.question]?.trim()))
   })
 
   const currentStepAnswered = (() => {
     const sel = selections[currentQuestion.question]
-    if (!sel || sel.size === 0) return false
-    if (sel.has('__other__') && !otherTexts[currentQuestion.question]?.trim()) return false
-    return true
+    return !!(sel && sel.size > 0 && (!sel.has('__other__') || otherTexts[currentQuestion.question]?.trim()))
   })()
 
   return (
     <div className="max-[768px]:text-[0.9em]">
-      <div className="question-header flex items-center gap-2 px-[14px] py-[10px] bg-[#2a2a3a] font-semibold text-[#8142c7] max-[768px]:px-3 max-[768px]:py-2">
-        <span className="inline-flex items-center justify-center w-[22px] h-[22px] rounded-full bg-[#8142c7] text-white text-[0.85em] font-bold flex-shrink-0">?</span>
+      <div className="question-header flex items-center gap-2 px-3.5 py-2.5 bg-border-subtle font-semibold text-accent max-[768px]:px-3 max-[768px]:py-2">
+        <span className="inline-flex items-center justify-center w-5.5 h-5.5 rounded-full bg-accent text-white text-[0.85em] font-bold shrink-0">?</span>
         Question
         {!isSingleQuestion && (
-          <span className="ml-auto text-[0.8em] font-normal text-[#999]">
+          <span className="ml-auto text-[0.8em] font-normal text-text-muted">
             {currentStep + 1} of {totalSteps}
           </span>
         )}
       </div>
       {!isSingleQuestion && (
-        <div className="question-stepper flex justify-center gap-2 px-[14px] pt-[10px] pb-1">
+        <div className="question-stepper flex justify-center gap-2 px-3.5 pt-2.5 pb-1">
           {request.questions.map((_, idx) => (
             <div
               key={idx}
               className={`w-2 h-2 rounded-full transition-[background,transform] duration-200 ${
                 idx === currentStep
-                  ? 'bg-[#8142c7] scale-[1.35]'
+                  ? 'bg-accent scale-[1.35]'
                   : idx < currentStep
-                    ? 'bg-[#8142c7]'
-                    : 'bg-[#333]'
+                    ? 'bg-accent'
+                    : 'bg-border'
               }`}
             />
           ))}
         </div>
       )}
-      <div key={currentQuestion.question} className="question-item px-[14px] py-3">
-        <div className="inline-block bg-[#333] text-[#aaa] text-[0.75em] px-2 py-[2px] rounded mb-[6px]">{currentQuestion.header}</div>
-        <div className="text-[0.95em] mb-[10px] text-[#ddd]">{currentQuestion.question}</div>
-        <div className="flex flex-col gap-[6px]">
+      <div key={currentQuestion.question} className="question-item px-3.5 py-3">
+        <div className="inline-block bg-border text-[#aaa] text-[0.75em] px-2 py-0.5 rounded mb-1.5">{currentQuestion.header}</div>
+        <div className="text-[0.95em] mb-2.5 text-[#ddd]">{currentQuestion.question}</div>
+        <div className="flex flex-col gap-1.5">
           {currentQuestion.options.map((opt) => {
             const selected = selections[currentQuestion.question]?.has(opt.label)
             return (
               <button
                 key={opt.label}
-                className={`flex flex-col items-start gap-[2px] px-3 py-2 rounded-md border text-left cursor-pointer transition-[border-color,background] duration-150 w-full ${
+                className={`flex flex-col items-start gap-0.5 px-3 py-2 rounded-md border text-left cursor-pointer transition-[border-color,background] duration-150 w-full ${
                   selected
-                    ? 'border-[#8142c7] bg-[#2a2a4a] text-[#ccc]'
-                    : 'border-[#333] bg-[#222] text-[#ccc] hover:border-[#8142c7] hover:bg-[#2a2a3a]'
+                    ? 'border-accent bg-[#2a2a4a] text-[#ccc]'
+                    : 'border-border bg-[#222] text-[#ccc] hover:border-accent hover:bg-border-subtle'
                 }`}
                 onClick={() => toggleOption(currentQuestion.question, opt.label, currentQuestion.multiSelect)}
               >
                 <span className="font-semibold text-[0.9em] text-[#eee]">{opt.label}</span>
-                <span className="text-[0.8em] text-[#999]">{opt.description}</span>
+                <span className="text-[0.8em] text-text-muted">{opt.description}</span>
               </button>
             )
           })}
           <button
-            className={`flex flex-col items-start gap-[2px] px-3 py-2 rounded-md border border-dashed text-left cursor-pointer transition-[border-color,background] duration-150 w-full ${
+            className={`flex flex-col items-start gap-0.5 px-3 py-2 rounded-md border border-dashed text-left cursor-pointer transition-[border-color,background] duration-150 w-full ${
               showOther[currentQuestion.question]
-                ? 'border-[#8142c7] bg-[#2a2a4a] text-[#ccc]'
-                : 'border-[#333] bg-[#222] text-[#ccc] hover:border-[#8142c7] hover:bg-[#2a2a3a]'
+                ? 'border-accent bg-[#2a2a4a] text-[#ccc]'
+                : 'border-border bg-[#222] text-[#ccc] hover:border-accent hover:bg-border-subtle'
             }`}
             onClick={() => toggleOther(currentQuestion.question, currentQuestion.multiSelect)}
           >
             <span className="font-semibold text-[0.9em] text-[#eee]">Other</span>
-            <span className="text-[0.8em] text-[#999]">Provide a custom answer</span>
+            <span className="text-[0.8em] text-text-muted">Provide a custom answer</span>
           </button>
         </div>
         {showOther[currentQuestion.question] && (
           <textarea
-            className="w-full mt-2 px-2 py-2 bg-[#1a1a1a] border border-[#444] rounded-md text-[#ddd] font-[inherit] text-[0.9em] resize-y focus:outline-none focus:border-[#8142c7]"
+            className="w-full mt-2 px-2 py-2 bg-[#1a1a1a] border border-[#444] rounded-md text-[#ddd] font-[inherit] text-[0.9em] resize-y focus:outline-none focus:border-accent"
             placeholder="Type your answer..."
             value={otherTexts[currentQuestion.question] || ''}
             onChange={(e) => setOtherTexts((prev) => ({ ...prev, [currentQuestion.question]: e.target.value }))}
@@ -164,15 +156,15 @@ export function QuestionDialog({ request, onRespond }: {
           />
         )}
       </div>
-      <div className="flex gap-2 px-[14px] py-[10px] justify-end border-t border-[#2a2a3a] max-[768px]:flex-wrap max-[768px]:gap-[6px] max-[768px]:px-3 max-[768px]:py-2">
+      <div className="flex gap-2 px-3.5 py-2.5 justify-end border-t border-border-subtle max-[768px]:flex-wrap max-[768px]:gap-1.5 max-[768px]:px-3 max-[768px]:py-2">
         {!isFirstStep && (
-          <button className="border-none rounded-md px-4 py-2 text-[0.9em] font-medium cursor-pointer transition-[background] duration-150 bg-[#555] text-white hover:bg-[#666] disabled:opacity-40 disabled:cursor-not-allowed max-[768px]:min-h-[40px]" onClick={handleBack}>
+          <button className="border-none rounded-md px-4 py-2 text-[0.9em] font-medium cursor-pointer transition-[background] duration-150 bg-[#555] text-white hover:bg-text-dim disabled:opacity-40 disabled:cursor-not-allowed max-[768px]:min-h-10" onClick={handleBack}>
             Back
           </button>
         )}
         {isLastStep ? (
           <button
-            className="border-none rounded-md px-4 py-2 text-[0.9em] font-medium cursor-pointer transition-[background] duration-150 bg-[#4caf50] text-white hover:bg-[#43a047] disabled:opacity-40 disabled:cursor-not-allowed max-[768px]:min-h-[40px]"
+            className="border-none rounded-md px-4 py-2 text-[0.9em] font-medium cursor-pointer transition-[background] duration-150 bg-success text-white hover:bg-[#43a047] disabled:opacity-40 disabled:cursor-not-allowed max-[768px]:min-h-10"
             onClick={handleSubmit}
             disabled={!allAnswered}
           >
@@ -180,7 +172,7 @@ export function QuestionDialog({ request, onRespond }: {
           </button>
         ) : (
           <button
-            className="border-none rounded-md px-4 py-2 text-[0.9em] font-medium cursor-pointer transition-[background] duration-150 bg-[#4caf50] text-white hover:bg-[#43a047] disabled:opacity-40 disabled:cursor-not-allowed max-[768px]:min-h-[40px]"
+            className="border-none rounded-md px-4 py-2 text-[0.9em] font-medium cursor-pointer transition-[background] duration-150 bg-success text-white hover:bg-[#43a047] disabled:opacity-40 disabled:cursor-not-allowed max-[768px]:min-h-10"
             onClick={handleNext}
             disabled={!currentStepAnswered}
           >

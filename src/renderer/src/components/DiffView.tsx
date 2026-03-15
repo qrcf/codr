@@ -26,16 +26,16 @@ export function DiffView({ oldString, newString, maxLines = 50 }: DiffViewProps)
       {visible.map((line, i) => (
         <div
           key={i}
-          className={`flex leading-[1.5] px-[10px] min-h-[1.5em] ${line.type === 'removed' ? 'bg-[rgba(244,67,54,0.1)]' : line.type === 'added' ? 'bg-[rgba(76,175,80,0.1)]' : ''}`}
+          className={`flex leading-normal px-2.5 min-h-[1.5em] ${line.type === 'removed' ? 'bg-[rgba(244,67,54,0.1)]' : line.type === 'added' ? 'bg-[rgba(76,175,80,0.1)]' : ''}`}
         >
-          <span className={`w-4 flex-shrink-0 select-none text-center ${line.type === 'removed' ? 'text-[#f44336]' : line.type === 'added' ? 'text-[#4caf50]' : 'text-[#888]'}`}>
+          <span className={`w-4 shrink-0 select-none text-center ${line.type === 'removed' ? 'text-[#f44336]' : line.type === 'added' ? 'text-success' : 'text-text-faint'}`}>
             {line.type === 'removed' ? '-' : line.type === 'added' ? '+' : ' '}
           </span>
-          <span className="whitespace-pre-wrap break-words flex-1">{line.text}</span>
+          <span className="whitespace-pre-wrap wrap-break-word flex-1">{line.text}</span>
         </div>
       ))}
       {truncated && (
-        <div className="px-[10px] py-1 text-[#888] text-[0.85em] italic">
+        <div className="px-2.5 py-1 text-text-faint text-[0.85em] italic">
           ... {lines.length - maxLines} more lines
         </div>
       )}

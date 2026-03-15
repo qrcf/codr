@@ -16,7 +16,7 @@ export function UpdateOverlay({ status, onRestart, onDismiss }: {
 
   if (status.status === 'checking') {
     return (
-      <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[#0d0d1a] text-neutral-200 font-mono gap-4">
+      <div className="fixed inset-0 z-9999 flex flex-col items-center justify-center bg-[#0d0d1a] text-neutral-200 font-mono gap-4">
         <Loader2 size={48} className="text-purple-600 mb-2 animate-spin" />
         <h2 className="m-0 text-xl font-semibold">Checking for Updates...</h2>
         <p className="m-0 text-neutral-500 text-sm">Looking for new versions of Codr</p>
@@ -32,7 +32,7 @@ export function UpdateOverlay({ status, onRestart, onDismiss }: {
     const percent = progress ? Math.round(progress.percent) : 0
 
     return (
-      <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[#0d0d1a] text-neutral-200 font-mono gap-4">
+      <div className="fixed inset-0 z-9999 flex flex-col items-center justify-center bg-[#0d0d1a] text-neutral-200 font-mono gap-4">
         <Download size={48} className="text-purple-600 mb-2" />
         <h2 className="m-0 text-xl font-semibold">Downloading Update</h2>
         {status.version && (
@@ -40,7 +40,7 @@ export function UpdateOverlay({ status, onRestart, onDismiss }: {
             Codr <span className="text-neutral-200">v{status.version}</span>
           </p>
         )}
-        <div className="w-[300px] mt-2">
+        <div className="w-75 mt-2">
           <div className="w-full h-1.5 bg-neutral-800 rounded-full overflow-hidden">
             <div
               className="h-full bg-purple-600 rounded-full transition-all duration-300 ease-out"
@@ -70,10 +70,10 @@ export function UpdateOverlay({ status, onRestart, onDismiss }: {
 
   if (status.status === 'downloaded') {
     return (
-      <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[#0d0d1a] text-neutral-200 font-mono gap-4">
+      <div className="fixed inset-0 z-9999 flex flex-col items-center justify-center bg-[#0d0d1a] text-neutral-200 font-mono gap-4">
         <CheckCircle size={48} className="text-purple-600 mb-2" />
         <h2 className="m-0 text-xl font-semibold">Update Ready</h2>
-        <p className="m-0 text-neutral-500 text-sm text-center max-w-[400px] leading-relaxed">
+        <p className="m-0 text-neutral-500 text-sm text-center max-w-100 leading-relaxed">
           Codr <span className="text-neutral-200">v{status.version}</span> has been downloaded
           and is ready to install. Restart to update.
         </p>
@@ -87,10 +87,10 @@ export function UpdateOverlay({ status, onRestart, onDismiss }: {
 
   if (status.status === 'error') {
     return (
-      <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[#0d0d1a] text-neutral-200 font-mono gap-4">
+      <div className="fixed inset-0 z-9999 flex flex-col items-center justify-center bg-[#0d0d1a] text-neutral-200 font-mono gap-4">
         <AlertCircle size={48} className="text-red-400 mb-2" />
         <h2 className="m-0 text-xl font-semibold">Update Error</h2>
-        <p className="m-0 text-neutral-500 text-sm text-center max-w-[400px] leading-relaxed">
+        <p className="m-0 text-neutral-500 text-sm text-center max-w-100 leading-relaxed">
           {status.error || 'Could not check for updates.'}
         </p>
         <div className="flex gap-3 mt-2">

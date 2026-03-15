@@ -58,32 +58,32 @@ export function LabPanel() {
               <div key={s.sessionId}>
                 <button
                   className={[
-                    'relative w-full bg-[#1a1a2a] border rounded-md px-3.5 py-2.5 cursor-pointer text-left transition-colors duration-150 text-inherit group',
+                    'relative w-full bg-bg-tertiary border rounded-md px-3.5 py-2.5 cursor-pointer text-left transition-colors duration-150 text-inherit group',
                     selectedSession === s.sessionId
-                      ? 'bg-[#22223a] border-[#8142c7]'
-                      : 'border-[#2a2a3a] hover:bg-[#22223a] hover:border-[#3a3a5a]',
+                      ? 'bg-[#22223a] border-accent'
+                      : 'border-border-subtle hover:bg-[#22223a] hover:border-[#3a3a5a]',
                   ].join(' ')}
                   onClick={() => handleSelectSession(s.sessionId)}
                 >
                   <div className="text-[#ddd] text-[13px] whitespace-nowrap overflow-hidden text-ellipsis mb-1">
                     {s.customTitle || s.generatedTitle || s.summary || s.sessionId.slice(0, 8)}
                   </div>
-                  <div className="flex gap-2.5 text-[11px] text-[#666]">
+                  <div className="flex gap-2.5 text-[11px] text-text-dim">
                     <span className="whitespace-nowrap">{s.sessionId.slice(0, 8)}</span>
                     {s.provider && <span className="whitespace-nowrap">{s.provider}</span>}
                     {s.cwd && <span className="whitespace-nowrap">{s.cwd.split('/').pop()}</span>}
                     <span className="whitespace-nowrap">{new Date(s.lastModified).toLocaleDateString()}</span>
                   </div>
                   {/* Tooltip on hover */}
-                  <div className="hidden group-hover:block absolute left-full top-0 ml-2 bg-[#0e0e16] border border-[#2a2a3a] rounded-md p-3 z-[100] max-w-[420px] max-h-[320px] overflow-auto pointer-events-none max-[768px]:!hidden">
+                  <div className="hidden group-hover:block absolute left-full top-0 ml-2 bg-[#0e0e16] border border-border-subtle rounded-md p-3 z-100 max-w-105 max-h-80 overflow-auto pointer-events-none max-[768px]:hidden!">
                     <pre className="m-0 font-mono text-[11px] text-[#a0d0a0] whitespace-pre-wrap break-all">{JSON.stringify(s, null, 2)}</pre>
                   </div>
                 </button>
 
                 {selectedSession === s.sessionId && (
-                  <div className="bg-[#0e0e16] border border-[#2a2a3a] rounded-b-md border-t-0 p-4 overflow-auto max-h-[50vh] -mt-px">
+                  <div className="bg-[#0e0e16] border border-border-subtle rounded-b-md border-t-0 p-4 overflow-auto max-h-[50vh] -mt-px">
                     {detailLoading ? (
-                      <div className="text-[#666] italic text-[13px]">Loading session messages...</div>
+                      <div className="text-text-dim italic text-[13px]">Loading session messages...</div>
                     ) : (
                       <pre className="m-0 font-mono text-[12px] text-[#a0d0a0] whitespace-pre-wrap break-all">{sessionDetail}</pre>
                     )}

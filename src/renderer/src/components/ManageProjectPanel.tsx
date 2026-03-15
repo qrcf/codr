@@ -467,11 +467,17 @@ function ComputedIgnoresSection({ folderPath }: { folderPath: string }) {
   useEffect(() => {
     if (!expanded || loaded.current) return
     loaded.current = true
-    setLoading(true)
-    window.claude.getComputedIgnores?.(folderPath)
-      .then((e) => setEntries(e ?? []))
-      .catch(() => {})
-      .finally(() => setLoading(false))
+    void (async () => {
+      setLoading(true)
+      try {
+        const e = await window.claude.getComputedIgnores?.(folderPath)
+        setEntries(e ?? [])
+      } catch {
+        // ignore
+      } finally {
+        setLoading(false)
+      }
+    })()
   }, [expanded, folderPath])
 
   // Reload when expanded is toggled open (allows refresh after config changes)

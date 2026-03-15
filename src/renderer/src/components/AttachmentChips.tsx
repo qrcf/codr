@@ -86,7 +86,7 @@ export function MessageAttachmentChips({
                 categoryIcon(att.category)
               )}
               <span className="max-w-40 truncate">{att.originalName}</span>
-              <span className="text-[#666] text-[0.85em]">{formatSize(att.sizeBytes)}</span>
+              <span className="text-text-dim text-[0.85em]">{formatSize(att.sizeBytes)}</span>
             </button>
             {isExpanded && att.category === 'image' && att.thumbnailDataUrl && (
               <div className="mt-1 rounded-lg overflow-hidden border border-[#3a3a50] max-w-80">

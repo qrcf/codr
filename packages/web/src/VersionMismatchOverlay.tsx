@@ -2,49 +2,25 @@ import { AlertTriangle } from 'lucide-react'
 
 export function VersionMismatchOverlay({ desktopVersion, webVersion }: { desktopVersion: string; webVersion: string }) {
   return (
-    <div style={{
-      position: 'fixed',
-      inset: 0,
-      zIndex: 9999,
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: '#0d0d1a',
-      color: '#e0e0e0',
-      fontFamily: 'monospace',
-      gap: '16px',
-    }}>
-      <AlertTriangle size={48} style={{ color: '#f0c040', marginBottom: '8px' }} />
-      <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 600 }}>
+    <div className="fixed inset-0 z-9999 flex flex-col items-center justify-center bg-[#0d0d1a] text-[#e0e0e0] font-mono gap-4">
+      <AlertTriangle size={48} className="text-warning mb-2" />
+      <h2 className="m-0 text-xl font-semibold">
         Version Mismatch
       </h2>
-      <p style={{ margin: 0, color: '#888', fontSize: '14px', textAlign: 'center', maxWidth: '400px', lineHeight: '1.6' }}>
-        Your desktop app (<span style={{ color: '#e0e0e0' }}>v{desktopVersion}</span>) is out of date
-        with the web client (<span style={{ color: '#e0e0e0' }}>v{webVersion}</span>).
+      <p className="m-0 text-text-faint text-sm text-center max-w-100 leading-relaxed">
+        Your desktop app (<span className="text-[#e0e0e0]">v{desktopVersion}</span>) is out of date
+        with the web client (<span className="text-[#e0e0e0]">v{webVersion}</span>).
         Please download the latest version to continue.
       </p>
       <a
         href="https://codr.works"
         target="_blank"
         rel="noopener noreferrer"
-        style={{
-          display: 'inline-block',
-          marginTop: '8px',
-          background: '#8142C7',
-          color: '#fff',
-          padding: '12px 32px',
-          borderRadius: '8px',
-          fontSize: '14px',
-          fontWeight: 500,
-          fontFamily: 'monospace',
-          textDecoration: 'none',
-          cursor: 'pointer',
-        }}
+        className="inline-block mt-2 bg-accent text-white px-8 py-3 rounded-lg text-sm font-medium font-mono no-underline cursor-pointer"
       >
         Download Latest Version
       </a>
-      <p style={{ margin: 0, color: '#555', fontSize: '12px', marginTop: '4px' }}>
+      <p className="m-0 text-text-dim text-xs mt-1">
         codr.works
       </p>
     </div>

@@ -38,7 +38,7 @@ export function AuthGate({ children }: AuthGateProps) {
   if (authenticated === null) {
     return (
       <div className="flex items-center justify-center h-screen bg-[#0d0d1a]">
-        <div className="text-[#666] font-mono text-[14px]">Loading...</div>
+        <div className="text-text-dim font-mono text-[14px]">Loading...</div>
       </div>
     )
   }
@@ -60,7 +60,7 @@ export function AuthGate({ children }: AuthGateProps) {
           <p className="text-[#555] font-mono text-[14px] m-0">Remote AI coding assistant</p>
 
           <button
-            className="bg-[#8142c7] border-none text-white px-12 py-3.5 rounded-lg font-mono text-[15px] font-medium cursor-pointer mt-2 transition-colors duration-150 hover:enabled:bg-[#6e35ab] disabled:bg-[#3a3560] disabled:cursor-default"
+            className="bg-accent border-none text-white px-12 py-3.5 rounded-lg font-mono text-[15px] font-medium cursor-pointer mt-2 transition-colors duration-150 hover:enabled:bg-[#6e35ab] disabled:bg-[#3a3560] disabled:cursor-default"
             onClick={handleSignIn}
             disabled={waitingForBrowser}
           >
@@ -71,7 +71,7 @@ export function AuthGate({ children }: AuthGateProps) {
             <p className="text-[#555] font-mono text-[13px] m-0">
               Complete sign-in in your browser.{' '}
               <button
-                className="bg-transparent border-none text-[#8142c7] font-mono text-[13px] cursor-pointer p-0 underline hover:text-[#9a63d9]"
+                className="bg-transparent border-none text-accent font-mono text-[13px] cursor-pointer p-0 underline hover:text-[#9a63d9]"
                 onClick={() => setWaitingForBrowser(false)}
               >
                 Cancel

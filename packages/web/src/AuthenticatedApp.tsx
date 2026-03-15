@@ -165,34 +165,23 @@ function ElectronSignIn() {
   }
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0d0d1a' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
-        <h1 style={{ color: '#e0e0e0', fontSize: '32px', fontWeight: 600, margin: 0, fontFamily: 'monospace' }}>Codr</h1>
-        <p style={{ color: '#555', fontFamily: 'monospace', fontSize: '14px', margin: 0 }}>Remote AI coding assistant</p>
+    <div className="flex items-center justify-center h-screen bg-[#0d0d1a]">
+      <div className="flex flex-col items-center gap-4">
+        <h1 className="text-[#e0e0e0] text-[32px] font-semibold m-0 font-mono">Codr</h1>
+        <p className="text-text-dim font-mono text-sm m-0">Remote AI coding assistant</p>
         <button
           onClick={handleSignIn}
           disabled={waitingForBrowser}
-          style={{
-            background: waitingForBrowser ? '#3a3560' : '#8142C7',
-            border: 'none',
-            color: '#fff',
-            padding: '14px 48px',
-            borderRadius: '8px',
-            fontFamily: 'monospace',
-            fontSize: '15px',
-            fontWeight: 500,
-            cursor: waitingForBrowser ? 'default' : 'pointer',
-            marginTop: '8px',
-          }}
+          className="bg-accent disabled:bg-accent-disabled border-none text-white px-12 py-3.5 rounded-lg font-mono text-[15px] font-medium cursor-pointer disabled:cursor-default mt-2"
         >
           {waitingForBrowser ? 'Waiting for browser...' : 'Sign in'}
         </button>
         {waitingForBrowser && (
-          <p style={{ color: '#555', fontFamily: 'monospace', fontSize: '13px', margin: 0 }}>
+          <p className="text-text-dim font-mono text-[13px] m-0">
             Complete sign-in in your browser.{' '}
             <button
               onClick={() => setWaitingForBrowser(false)}
-              style={{ background: 'none', border: 'none', color: '#8142C7', fontFamily: 'monospace', fontSize: '13px', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
+              className="bg-transparent border-none text-accent font-mono text-[13px] cursor-pointer p-0 underline"
             >
               Cancel
             </button>
@@ -246,29 +235,19 @@ function ElectronAuthCallback() {
   }, [getToken])
 
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      height: '100vh',
-      background: '#0d0d1a',
-      color: '#e0e0e0',
-      fontFamily: 'monospace',
-      gap: '16px',
-    }}>
+    <div className="flex flex-col items-center justify-center h-screen bg-[#0d0d1a] text-[#e0e0e0] font-mono gap-4">
       {status === 'loading' && <p>Signing you in...</p>}
       {status === 'redirecting' && <p>Redirecting to Codr...</p>}
       {status === 'done' && (
         <>
-          <p style={{ fontSize: '18px' }}>You can close this tab</p>
-          <p style={{ color: '#888' }}>Sign-in was sent to the Codr app</p>
+          <p className="text-[18px]">You can close this tab</p>
+          <p className="text-text-faint">Sign-in was sent to the Codr app</p>
         </>
       )}
       {status === 'error' && (
         <>
-          <p style={{ color: '#ff6b6b' }}>Sign-in failed</p>
-          <p style={{ color: '#888', fontSize: '14px' }}>{error}</p>
+          <p className="text-[#ff6b6b]">Sign-in failed</p>
+          <p className="text-text-faint text-sm">{error}</p>
         </>
       )}
     </div>
@@ -282,13 +261,7 @@ export default function AuthenticatedApp() {
         {isElectron ? (
           <ElectronSignIn />
         ) : (
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '100vh',
-            background: '#0d0d1a',
-          }}>
+          <div className="flex items-center justify-center h-screen bg-[#0d0d1a]">
             <SignIn />
           </div>
         )}

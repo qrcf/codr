@@ -11,10 +11,10 @@ function StreamingThinkingSection({ thinking }: { thinking: string }) {
   return (
     <div className="mb-1">
       <div
-        className="flex items-center gap-[6px] px-2 py-1 cursor-pointer select-none text-[#999] text-[0.85em] rounded hover:bg-[#2a2a3a] hover:text-[#ccc]"
+        className="flex items-center gap-1.5 px-2 py-1 cursor-pointer select-none text-text-muted text-[0.85em] rounded hover:bg-border-subtle hover:text-[#ccc]"
         onClick={() => setExpanded(!expanded)}
       >
-        <span className="text-[0.8em] text-[#666] flex-shrink-0">{expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
+        <span className="text-[0.8em] text-text-dim shrink-0">{expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
         <span className="font-['SF_Mono','Fira_Code',monospace]">Reasoning</span>
       </div>
       {expanded && (
@@ -56,16 +56,16 @@ const StreamingArea = memo(function StreamingArea({
         )}
         {formattedStreaming && <MarkdownContent className="message-content" tags={formattedStreaming.tags}>{formattedStreaming.text}</MarkdownContent>}
         {streamingTools.length > 0 && (
-          <div className="flex flex-col gap-[1px] mt-1">
+          <div className="flex flex-col gap-px mt-1">
             {streamingTools.map((tool) => (
               <ToolCallBlock key={tool.id} tool={tool} />
             ))}
           </div>
         )}
-        <div className="flex items-center gap-[10px] py-2">
-          <div className="w-4 h-4 border-2 border-[#444] border-t-[#8142c7] rounded-full animate-[spin_0.8s_linear_infinite] flex-shrink-0" />
-          <span className="text-[#888] italic">{isCompacting ? 'Compacting context...' : streamingThinking && !streamingText && streamingTools.length === 0 ? 'Reasoning...' : 'Working...'}</span>
-          <button className="ml-auto bg-transparent border border-[#555] text-[#aaa] rounded px-[10px] py-[2px] text-[0.8em] cursor-pointer hover:bg-[#f44336] hover:border-[#f44336] hover:text-white" onClick={onInterrupt}>Cancel</button>
+        <div className="flex items-center gap-2.5 py-2">
+          <div className="w-4 h-4 border-2 border-[#444] border-t-accent rounded-full animate-[spin_0.8s_linear_infinite] shrink-0" />
+          <span className="text-text-faint italic">{isCompacting ? 'Compacting context...' : streamingThinking && !streamingText && streamingTools.length === 0 ? 'Reasoning...' : 'Working...'}</span>
+          <button className="ml-auto bg-transparent border border-[#555] text-[#aaa] rounded px-2.5 py-0.5 text-[0.8em] cursor-pointer hover:bg-[#f44336] hover:border-[#f44336] hover:text-white" onClick={onInterrupt}>Cancel</button>
         </div>
       </div>
     )
@@ -73,10 +73,10 @@ const StreamingArea = memo(function StreamingArea({
 
   return (
     <div className="py-1">
-      <div className="flex items-center gap-[10px] py-2">
-        <div className="w-4 h-4 border-2 border-[#444] border-t-[#8142c7] rounded-full animate-[spin_0.8s_linear_infinite] flex-shrink-0" />
-        <span className="text-[#888] italic">{isCompacting ? 'Compacting context...' : 'Thinking...'}</span>
-        <button className="ml-auto bg-transparent border border-[#555] text-[#aaa] rounded px-[10px] py-[2px] text-[0.8em] cursor-pointer hover:bg-[#f44336] hover:border-[#f44336] hover:text-white" onClick={onInterrupt}>Cancel</button>
+      <div className="flex items-center gap-2.5 py-2">
+        <div className="w-4 h-4 border-2 border-[#444] border-t-accent rounded-full animate-[spin_0.8s_linear_infinite] shrink-0" />
+        <span className="text-text-faint italic">{isCompacting ? 'Compacting context...' : 'Thinking...'}</span>
+        <button className="ml-auto bg-transparent border border-[#555] text-[#aaa] rounded px-2.5 py-0.5 text-[0.8em] cursor-pointer hover:bg-[#f44336] hover:border-[#f44336] hover:text-white" onClick={onInterrupt}>Cancel</button>
       </div>
     </div>
   )
@@ -138,9 +138,9 @@ export function MessageList({
 
   return (
     <div className="relative h-full overflow-hidden">
-    <div className="h-full overflow-y-auto px-6 py-4 flex flex-col gap-1 max-w-[820px] w-full mx-auto max-[768px]:max-w-full max-[768px]:px-3 max-[768px]:py-3 scroll-auto-hide" ref={messagesContainerRef}>
+    <div className="h-full overflow-y-auto px-6 py-4 flex flex-col gap-1 max-w-205 w-full mx-auto max-[768px]:max-w-full max-[768px]:px-3 max-[768px]:py-3 scroll-auto-hide" ref={messagesContainerRef}>
       {hasMoreMessages && (
-        <div className="text-center p-2 text-[#888] text-[0.85rem]">Loading earlier messages...</div>
+        <div className="text-center p-2 text-text-faint text-[0.85rem]">Loading earlier messages...</div>
       )}
       {messages.map((msg) => (
         <MessageBubble key={msg.id} message={msg} approvedPlanToolIds={approvedPlanToolIds} />

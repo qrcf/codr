@@ -31,13 +31,13 @@ export function RemotePanel() {
     <div>
       <div className="flex items-center gap-1.5 text-[12px] text-[#aaa]">
         <span className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
-        <span className="text-[#888] text-[11px]">
+        <span className="text-text-faint text-[11px]">
           {status === 'connected' && 'Remote'}
           {status === 'connecting' && 'Connecting...'}
           {status === 'disconnected' && 'Offline'}
         </span>
         {status === 'connected' && webClients > 0 && (
-          <span className="text-[#666] text-[11px] ml-auto">
+          <span className="text-text-dim text-[11px] ml-auto">
             {webClients} viewer{webClients !== 1 ? 's' : ''}
           </span>
         )}

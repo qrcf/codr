@@ -5,15 +5,12 @@ import type {
   ProviderRunCallbacks,
   ProviderRunResult,
 } from '../provider'
-import type { Codex, Thread, ThreadEvent, ThreadItem, ThreadOptions, Input, UserInput } from '@openai/codex-sdk'
+import { Codex, type Thread, type ThreadEvent, type ThreadItem, type ThreadOptions, type Input, type UserInput } from '@openai/codex-sdk'
 import { preprocessPromptFull, buildContextSummary } from '../prompt-preprocessor'
 import { readAttachmentAsContentBlock } from '../../attachments'
 
-type CodexModule = { Codex: new (options?: Record<string, unknown>) => InstanceType<typeof Codex> }
-
-async function createCodexInstance(config?: Record<string, unknown>): Promise<InstanceType<typeof Codex>> {
-  const mod = await import('@openai/codex-sdk') as unknown as CodexModule
-  return new mod.Codex(config ? { config } : undefined)
+function createCodexInstance(config?: Record<string, unknown>): Codex {
+  return new Codex(config ? { config } : undefined)
 }
 
 // Item types that map to tool_use / tool_result blocks in the renderer

@@ -1,5 +1,4 @@
 name: Release
-run-name: "${{ github.event.inputs.version && format('Release v{0}', github.event.inputs.version) || format('Release {0}', github.ref_name) }}"
 
 on:
   push:

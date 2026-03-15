@@ -186,18 +186,13 @@ execSync(`git tag ${newTag}`, { cwd: root })
 console.log('Pushing...')
 execSync(`git push origin HEAD ${newTag}`, { stdio: 'inherit', cwd: root })
 
-// Delete any existing draft release for this tag
+// Delete any existing draft release for this tag (don't touch the tag — it was already pushed above)
 try {
   const existing = execSync(`gh release view ${newTag} --json isDraft,tagName`, { encoding: 'utf-8', cwd: root })
   const release = JSON.parse(existing)
   if (release.isDraft) {
     console.log(`Deleting existing draft release ${newTag}...`)
     execSync(`gh release delete ${newTag} --yes`, { stdio: 'inherit', cwd: root })
-    // Also delete the remote tag so gh release create can recreate it
-    try { execSync(`git push origin :refs/tags/${newTag}`, { stdio: 'ignore', cwd: root }) } catch {}
-    execSync(`git tag -d ${newTag}`, { stdio: 'ignore', cwd: root })
-    execSync(`git tag ${newTag}`, { cwd: root })
-    execSync(`git push origin ${newTag}`, { stdio: 'inherit', cwd: root })
   }
 } catch {
   // No existing release — proceed

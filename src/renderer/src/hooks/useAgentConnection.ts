@@ -65,6 +65,7 @@ export function useAgentConnection({
   const streamingThinkingRef = useRef('')
   const streamingToolsRef = useRef<ToolCallInfo[]>([])
   const isLoadingRef = useRef(false)
+  const errorSessionRef = useRef<string | null>(null)
 
   // Keep ref in sync
   useEffect(() => { isLoadingRef.current = isLoading }, [isLoading])
@@ -392,6 +393,8 @@ export function useAgentConnection({
       if (!querySessionId && activeId) return
       if (!activeId && querySessionId) return
 
+      errorSessionRef.current = querySessionId || activeSessionIdRef.current
+
       // Track sessions that can no longer be resumed (e.g. after sleep/wake corruption)
       if (error.includes('can no longer be resumed') && activeSessionIdRef.current) {
         invalidatedSessionsRef.current.add(activeSessionIdRef.current)
@@ -427,7 +430,9 @@ export function useAgentConnection({
       dialogsRef.current.onDoneWithPlanExit()
 
       const sessionId = activeSessionIdRef.current
-      if (sessionId) {
+      const hadError = errorSessionRef.current === sessionId
+      errorSessionRef.current = null
+      if (sessionId && !hadError) {
         window.claude.getSessionMessages(sessionId).then((raw) => {
           if (activeSessionIdRef.current !== sessionId) return
           const parsed = reconcileParsedMessages(allMessagesRef.current, parseSessionMessages(raw))

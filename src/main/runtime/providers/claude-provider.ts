@@ -196,6 +196,13 @@ export class ClaudeProvider implements AgentProvider {
 
     this.activeQueries.set(currentKey, q)
 
+    // For resumed sessions, fire onSessionIdentified immediately so the user
+    // prompt gets indexed. The iterator's guard (!capturedSessionId) won't fire
+    // for resumes since capturedSessionId is already set.
+    if (!isNewSession && capturedSessionId) {
+      callbacks.onSessionIdentified(capturedSessionId)
+    }
+
     q.accountInfo?.().then((info) => {
       if (!info) return
       setCachedAccountInfo(info)

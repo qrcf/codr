@@ -61,6 +61,7 @@ export function registerAgentHandlers(
     const providerId = resolveSessionProvider(selectedProvider, storedSession?.provider)
     const provider = providers[providerId]
     const resolvedModel = model ?? storedSession?.model ?? await getSelectedModel(providerId)
+    const resolvedCwd = cwd ?? storedSession?.workspaceDir ?? undefined
     let currentKey = resumeSessionId || `new-${Date.now()}-${Math.random().toString(36).slice(2)}`
 
     broadcaster.markQueryStart(currentKey, prompt)
@@ -68,7 +69,7 @@ export function registerAgentHandlers(
     let errorOccurred = false
 
     await provider.runQuery(
-      { prompt, resumeSessionId, planMode, cwd, askMode, origin, model: resolvedModel, thinkingBudget, attachments },
+      { prompt, resumeSessionId, planMode, cwd: resolvedCwd, askMode, origin, model: resolvedModel, thinkingBudget, attachments },
       {
         onSessionIdentified: (sessionId) => {
           if (sessionId === currentKey) {
@@ -142,7 +143,14 @@ export function registerAgentHandlers(
   ipcMain.handle('agent:query', async (_event, prompt: string, opts?: { resumeSessionId?: string; planMode?: boolean; cwd?: string; askMode?: boolean; model?: string; thinkingBudget?: 'low' | 'medium' | 'high'; attachments?: AttachmentMeta[] }) => {
     const win = getMainWindow()
     if (!win) return
-    await runQuery(prompt, opts?.resumeSessionId, opts?.planMode, opts?.cwd, opts?.askMode, 'local', opts?.model, opts?.thinkingBudget, opts?.attachments)
+    try {
+      await runQuery(prompt, opts?.resumeSessionId, opts?.planMode, opts?.cwd, opts?.askMode, 'local', opts?.model, opts?.thinkingBudget, opts?.attachments)
+    } catch (err) {
+      const errorText = err instanceof Error ? err.message : String(err)
+      const fallbackKey = opts?.resumeSessionId || null
+      broadcaster.send('agent:error', errorText, fallbackKey)
+      broadcaster.send('agent:done', undefined, fallbackKey)
+    }
   })
 
   ipcMain.handle('agent:interrupt', async (_event, sessionId?: string) => {

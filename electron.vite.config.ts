@@ -3,7 +3,6 @@ import { defineConfig } from 'electron-vite'
 import { loadEnv } from 'vite'
 import react from '@vitejs/plugin-react-swc'
 import tailwindcss from '@tailwindcss/vite'
-import { visualizer } from 'rollup-plugin-visualizer'
 
 const pkg = JSON.parse(readFileSync('package.json', 'utf-8'))
 
@@ -20,7 +19,7 @@ export default defineConfig(({ mode }) => {
     preload: {},
     renderer: {
       root: 'src/renderer',
-      plugins: [react(), tailwindcss(), visualizer({ open: true, gzipSize: true, filename: 'dist/bundle-stats.html' })],
+      plugins: [react(), tailwindcss()],
       define: {
         __APP_VERSION__: JSON.stringify(pkg.version),
       },

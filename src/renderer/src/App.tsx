@@ -17,6 +17,7 @@ import { useAgentConnection } from './hooks/useAgentConnection'
 import { useSessionManager } from './hooks/useSessionManager'
 import { useDraftSessions } from './hooks/useDraftSessions'
 import { useArchivedSessions } from './hooks/useArchivedSessions'
+import { hasStableSessionTitle } from './utils/session-title'
 
 export default function App() {
   const stableGetToken = useCallback(async () => {
@@ -435,6 +436,13 @@ export default function App() {
     })
   }
 
+  // isDraft: true while the active session still has a draft id (editable — controls project switcher)
+  const isDraft = !!session.activeSessionId?.startsWith('draft-')
+  const activeDraft = draftSessions.drafts.find(d => d.draftId === session.activeSessionId)
+  const hasResolvedTitle = hasStableSessionTitle(session.activeSession)
+  // isPendingNewChat: true while draft/promoted local metadata still marks this as pending.
+  const isPendingNewChat = isDraft || (!!activeDraft?.pendingNewChat && !hasResolvedTitle)
+
   return (
     <div className="flex h-screen w-full">
       {showUpdateOverlay && (
@@ -459,7 +467,15 @@ export default function App() {
         }}
         onNewChat={(provider, cwd) => {
           const p = provider || 'claude'
-          session.handleNewChat(provider, cwd)
+          let storedProject: string | undefined
+          try {
+            const parsed = JSON.parse(localStorage.getItem('projects') || '[]') as string[]
+            storedProject = parsed[0]
+          } catch {
+            storedProject = undefined
+          }
+          const resolvedCwd = cwd || session.activeSession?.cwd || allProjects[0]?.path || storedProject
+          session.handleNewChat(provider, resolvedCwd)
           setCurrentProvider(p)
           window.claude.getModels?.(p).then(result => { setSelectedModel(result?.selectedModel) })
           setSettingsOpen(false)
@@ -506,6 +522,7 @@ export default function App() {
         onUnarchiveSession={archive.unarchiveSession}
         userProfile={userProfile}
         onProjectsUpdate={setAllProjects}
+        onCleanupPromotedDraft={draftSessions.removeDraft}
       />
       {sidebarOpen && <div className="hidden max-[768px]:block fixed inset-0 bg-black/50 z-40" onClick={() => setSidebarOpen(false)} />}
 
@@ -546,7 +563,8 @@ export default function App() {
           onToggleSidebar={toggleSidebar}
           projectTitle={session.projectTitle}
           activeSession={session.activeSession}
-          isDraft={!!session.activeSessionId?.startsWith('draft-') && agent.messages.length === 0}
+          isDraft={isDraft}
+          isPendingNewChat={isPendingNewChat}
           allProjects={allProjects}
           onChangeProject={session.handleChangeProject}
           approvedPlan={dialogs.approvedPlan}

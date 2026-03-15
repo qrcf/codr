@@ -4,6 +4,7 @@ export interface DraftSession {
   draftId: string
   createdAt: number
   cwd?: string
+  pendingNewChat: boolean
 }
 
 const STORAGE_KEY = 'draft-sessions'
@@ -13,10 +14,16 @@ function readDrafts(): DraftSession[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return []
-    const parsed = JSON.parse(raw) as DraftSession[]
+    const parsed = JSON.parse(raw) as Array<Partial<DraftSession> & { draftId: string; createdAt: number }>
+    const normalized: DraftSession[] = parsed.map((d) => ({
+      draftId: d.draftId,
+      createdAt: d.createdAt,
+      cwd: d.cwd,
+      pendingNewChat: d.pendingNewChat ?? true,
+    }))
     // Clean up stale drafts
     const now = Date.now()
-    return parsed.filter(d => now - d.createdAt < STALE_MS)
+    return normalized.filter(d => now - d.createdAt < STALE_MS)
   } catch {
     return []
   }
@@ -34,6 +41,7 @@ export function useDraftSessions() {
       draftId: `draft-${Date.now()}`,
       createdAt: Date.now(),
       cwd,
+      pendingNewChat: true,
     }
     setDrafts(prev => {
       const next = [draft, ...prev]

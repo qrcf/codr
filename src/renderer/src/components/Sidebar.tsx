@@ -5,6 +5,7 @@ import { parseSessionMessages, extractTokenUsageFromRaw, extractModelFromRaw } f
 import { SidebarProfile } from './SidebarProfile'
 import type { ChatMessage } from '../types'
 import type { DraftSession } from '../hooks/useDraftSessions'
+import { hasStableSessionTitle } from '../utils/session-title'
 
 export type SessionStatusType = 'question' | 'plan-review' | 'permission'
 
@@ -32,6 +33,7 @@ interface SidebarProps {
   onUnarchiveSession?: (id: string) => void
   userProfile?: { email: string | null; fullName: string | null; imageUrl: string | null } | null
   onProjectsUpdate?: (projects: ProjectInfo[]) => void
+  onCleanupPromotedDraft?: (draftId: string) => void
 }
 
 function folderName(path: string): string {
@@ -57,6 +59,7 @@ export function Sidebar({
   onUnarchiveSession,
   userProfile,
   onProjectsUpdate,
+  onCleanupPromotedDraft,
 }: SidebarProps) {
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [sessionsLoaded, setSessionsLoaded] = useState(false)
@@ -235,27 +238,75 @@ export function Sidebar({
     }
   }, [])
 
-  // Push active session info up to parent
+  const realSessionIds = useMemo(() => new Set(sessions.map(s => s.sessionId)), [sessions])
+  const draftById = useMemo(
+    () => new Map((drafts || []).map(d => [d.draftId, d])),
+    [drafts],
+  )
+
+  // Merge real sessions with promoted-draft metadata so handoff state is stable
+  // until backend hydration catches up (title/cwd can arrive later).
+  const mergeSessionWithDraft = useCallback((session: SessionInfo): SessionInfo => {
+    const draft = draftById.get(session.sessionId)
+    if (!draft) return session
+    const shouldShowPlaceholder = draft.pendingNewChat && !hasStableSessionTitle(session)
+    return {
+      ...session,
+      cwd: session.cwd || draft.cwd,
+      customTitle: shouldShowPlaceholder ? 'New Chat' : session.customTitle,
+      lastModified: session.lastModified || draft.createdAt,
+    }
+  }, [draftById])
+
+  // Convert drafts to SessionInfo shape, filtering out promoted drafts
+  // whose real session already appears in the fetched sessions list.
+  const draftAsSessionInfo: SessionInfo[] = useMemo(() => (drafts || [])
+    .filter(d => !realSessionIds.has(d.draftId))
+    .map(d => ({
+      sessionId: d.draftId,
+      summary: '',
+      lastModified: d.createdAt,
+      fileSize: 0,
+      customTitle: d.pendingNewChat ? 'New Chat' : '',
+      cwd: d.cwd,
+    } as SessionInfo)), [drafts, realSessionIds])
+
+  const mergedRealSessions = useMemo(
+    () => sessions.map(mergeSessionWithDraft),
+    [sessions, mergeSessionWithDraft],
+  )
+
+  const allSessions = useMemo(
+    () => [...draftAsSessionInfo, ...mergedRealSessions],
+    [draftAsSessionInfo, mergedRealSessions],
+  )
+
+  // Push active session info up to parent from the same merged source used by rows.
   useEffect(() => {
     if (!onActiveSessionInfo) return
     if (!activeSessionId) { onActiveSessionInfo(null); return }
-    const match = sessions.find(s => s.sessionId === activeSessionId)
-    if (match) { onActiveSessionInfo(match); return }
-    const draftMatch = drafts?.find(d => d.draftId === activeSessionId)
-    if (draftMatch) {
-      onActiveSessionInfo({
-        sessionId: draftMatch.draftId,
-        summary: '',
-        lastModified: draftMatch.createdAt,
-        fileSize: 0,
-        customTitle: 'New Chat',
-        cwd: draftMatch.cwd,
-      } as SessionInfo)
+    const match = allSessions.find(s => s.sessionId === activeSessionId)
+    if (match) {
+      onActiveSessionInfo(match)
       return
     }
     // Session may be in transition (draft → real ID) — don't null out,
-    // preserve previous activeSession until the session list refreshes.
-  }, [sessions, drafts, activeSessionId, onActiveSessionInfo])
+    // preserve previous activeSession until merged data is available.
+  }, [allSessions, activeSessionId, onActiveSessionInfo])
+
+  // Clean up promoted drafts only once the real session can render independently.
+  useEffect(() => {
+    if (!onCleanupPromotedDraft || !drafts) return
+    for (const d of drafts) {
+      if (d.draftId.startsWith('draft-')) continue // not a promoted draft
+      const realSession = sessions.find(s => s.sessionId === d.draftId)
+      const hasRealTitle = hasStableSessionTitle(realSession)
+      const hasRealProject = !!realSession?.cwd
+      if (realSession && hasRealTitle && hasRealProject) {
+        onCleanupPromotedDraft(d.draftId)
+      }
+    }
+  }, [sessions, drafts, onCleanupPromotedDraft])
 
   // Close provider dropdown on outside click
   useEffect(() => {
@@ -309,22 +360,6 @@ export function Sidebar({
       })
     }
   }, [activeSessionId, sessions, drafts])
-
-  // Convert drafts to SessionInfo shape, filtering out promoted drafts
-  // whose real session already appears in the fetched sessions list
-  const realSessionIds = new Set(sessions.map(s => s.sessionId))
-  const draftAsSessionInfo: SessionInfo[] = (drafts || [])
-    .filter(d => !realSessionIds.has(d.draftId))
-    .map(d => ({
-      sessionId: d.draftId,
-      summary: '',
-      lastModified: d.createdAt,
-      fileSize: 0,
-      customTitle: 'New Chat',
-      cwd: d.cwd,
-    } as SessionInfo))
-
-  const allSessions = [...draftAsSessionInfo, ...sessions]
 
   const activeSessionProvider = sessions.find(s => s.sessionId === activeSessionId)?.provider || 'claude'
   const defaultProvider: 'claude' | 'codex' = (codexAvailable && activeSessionProvider === 'codex') ? 'codex' : 'claude'

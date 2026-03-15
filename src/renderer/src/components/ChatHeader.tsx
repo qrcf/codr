@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { PanelLeftClose, PanelLeftOpen, ChevronDown, Search, ClipboardList, Settings, RefreshCw } from 'lucide-react'
 import { timeAgo } from '../utils/timeAgo'
+import { getHeaderSessionTitle, hasStableSessionTitle } from '../utils/session-title'
 
 function truncate(s: string | undefined, max: number): string {
   if (!s) return ''
@@ -18,6 +19,7 @@ interface ChatHeaderProps {
   projectTitle: string
   activeSession: SessionInfo | null
   isDraft?: boolean
+  isPendingNewChat?: boolean
   allProjects?: ProjectOption[]
   onChangeProject?: (cwd: string) => void
   approvedPlan?: { content: string; filePath: string } | null
@@ -26,7 +28,7 @@ interface ChatHeaderProps {
   onRegenTitle?: (sessionId: string, firstPrompt: string) => Promise<void>
 }
 
-export function ChatHeader({ sidebarOpen, onToggleSidebar, projectTitle, activeSession, isDraft, allProjects, onChangeProject, approvedPlan, onShowPlan, onOpenManageProject, onRegenTitle }: ChatHeaderProps) {
+export function ChatHeader({ sidebarOpen, onToggleSidebar, projectTitle, activeSession, isDraft, isPendingNewChat, allProjects, onChangeProject, approvedPlan, onShowPlan, onOpenManageProject, onRegenTitle }: ChatHeaderProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [isRegenerating, setIsRegenerating] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -73,6 +75,8 @@ export function ChatHeader({ sidebarOpen, onToggleSidebar, projectTitle, activeS
   })
 
   const canSwitchProject = isDraft && allProjects && allProjects.length > 0
+  const hasResolvedTitle = hasStableSessionTitle(activeSession)
+  const headerTitle = getHeaderSessionTitle(activeSession, !!isPendingNewChat)
 
   return (
     <header className="flex items-center gap-3 px-4 py-3 border-b border-[#333] flex-shrink-0 max-[768px]:px-3 max-[768px]:py-[10px] max-[768px]:gap-2">
@@ -157,14 +161,14 @@ export function ChatHeader({ sidebarOpen, onToggleSidebar, projectTitle, activeS
           <Settings size={13} />
         </button>
       )}
-      {activeSession && !activeSession.sessionId.startsWith('draft-') && (
+      {activeSession && (isPendingNewChat || hasResolvedTitle) && (
         <div className="relative flex-1 min-w-0 group flex items-center gap-1">
-          {(activeSession.customTitle || activeSession.generatedTitle) && (
+          {headerTitle && (
             <span className="block text-[#999] text-[0.85em] whitespace-nowrap overflow-hidden text-ellipsis cursor-default min-w-0">
-              {activeSession.customTitle || activeSession.generatedTitle}
+              {headerTitle}
             </span>
           )}
-          {onRegenTitle && (activeSession.firstPrompt || activeSession.summary) && (
+          {!isPendingNewChat && onRegenTitle && (activeSession.firstPrompt || activeSession.summary) && (
             <button
               className={`hidden group-hover:flex items-center justify-center flex-shrink-0 bg-transparent border-none text-[#555] p-0.5 rounded cursor-pointer transition-colors duration-150 hover:text-[#aaa] ${isRegenerating ? '!flex' : ''}`}
               title="Regenerate title"
@@ -182,64 +186,66 @@ export function ChatHeader({ sidebarOpen, onToggleSidebar, projectTitle, activeS
               <RefreshCw size={11} className={isRegenerating ? 'animate-spin' : ''} />
             </button>
           )}
-          <div className="hidden group-hover:block max-[768px]:!hidden absolute top-full left-0 min-w-[280px] max-w-[420px] bg-[#1e1e2e] border border-[#333] rounded-lg px-3 pb-[10px] pt-[18px] z-[100] shadow-[0_4px_16px_rgba(0,0,0,0.5)]" onClick={(e) => {
-            const target = e.target as HTMLElement
-            if (target.classList.contains('tooltip-value')) {
-              const text = target.textContent || ''
-              navigator.clipboard.writeText(text)
-              target.classList.add('copied')
-              setTimeout(() => target.classList.remove('copied'), 600)
-            }
-          }}>
-            {activeSession.summary && (
+          {!isPendingNewChat && (
+            <div className="hidden group-hover:block max-[768px]:!hidden absolute top-full left-0 min-w-[280px] max-w-[420px] bg-[#1e1e2e] border border-[#333] rounded-lg px-3 pb-[10px] pt-[18px] z-[100] shadow-[0_4px_16px_rgba(0,0,0,0.5)]" onClick={(e) => {
+              const target = e.target as HTMLElement
+              if (target.classList.contains('tooltip-value')) {
+                const text = target.textContent || ''
+                navigator.clipboard.writeText(text)
+                target.classList.add('copied')
+                setTimeout(() => target.classList.remove('copied'), 600)
+              }
+            }}>
+              {activeSession.summary && (
+                <div className="flex gap-[10px] py-1 text-[0.8em] leading-[1.4] [&+&]:border-t [&+&]:border-[#2a2a3a]">
+                  <span className="text-[#666] flex-shrink-0 min-w-[90px]">SDK Summary</span>
+                  <span className="tooltip-value text-[#ccc] break-words cursor-pointer rounded px-1 py-[1px] -mx-1 -my-[1px] transition-[background] duration-150 hover:bg-[#2a2a3a]">{activeSession.summary}</span>
+                </div>
+              )}
+              {activeSession.generatedTitle && (
+                <div className="flex gap-[10px] py-1 text-[0.8em] leading-[1.4] [&+&]:border-t [&+&]:border-[#2a2a3a]">
+                  <span className="text-[#666] flex-shrink-0 min-w-[90px]">Generated Title</span>
+                  <span className="tooltip-value text-[#ccc] break-words cursor-pointer rounded px-1 py-[1px] -mx-1 -my-[1px] transition-[background] duration-150 hover:bg-[#2a2a3a]">{activeSession.generatedTitle}</span>
+                </div>
+              )}
+              {activeSession.customTitle && (
+                <div className="flex gap-[10px] py-1 text-[0.8em] leading-[1.4] [&+&]:border-t [&+&]:border-[#2a2a3a]">
+                  <span className="text-[#666] flex-shrink-0 min-w-[90px]">Custom Title</span>
+                  <span className="tooltip-value text-[#ccc] break-words cursor-pointer rounded px-1 py-[1px] -mx-1 -my-[1px] transition-[background] duration-150 hover:bg-[#2a2a3a]">{activeSession.customTitle}</span>
+                </div>
+              )}
+              {activeSession.firstPrompt && (
+                <div className="flex gap-[10px] py-1 text-[0.8em] leading-[1.4] [&+&]:border-t [&+&]:border-[#2a2a3a]">
+                  <span className="text-[#666] flex-shrink-0 min-w-[90px]">First Prompt</span>
+                  <span className="tooltip-value text-[#ccc] break-words cursor-pointer rounded px-1 py-[1px] -mx-1 -my-[1px] transition-[background] duration-150 hover:bg-[#2a2a3a]">{truncate(activeSession.firstPrompt, 120)}</span>
+                </div>
+              )}
+              {activeSession.cwd && (
+                <div className="flex gap-[10px] py-1 text-[0.8em] leading-[1.4] [&+&]:border-t [&+&]:border-[#2a2a3a]">
+                  <span className="text-[#666] flex-shrink-0 min-w-[90px]">Project</span>
+                  <span className="tooltip-value text-[#ccc] break-words cursor-pointer rounded px-1 py-[1px] -mx-1 -my-[1px] transition-[background] duration-150 hover:bg-[#2a2a3a]">{activeSession.cwd}</span>
+                </div>
+              )}
+              {activeSession.gitBranch && activeSession.gitBranch !== 'HEAD' && (
+                <div className="flex gap-[10px] py-1 text-[0.8em] leading-[1.4] [&+&]:border-t [&+&]:border-[#2a2a3a]">
+                  <span className="text-[#666] flex-shrink-0 min-w-[90px]">Branch</span>
+                  <span className="tooltip-value text-[#ccc] break-words cursor-pointer rounded px-1 py-[1px] -mx-1 -my-[1px] transition-[background] duration-150 hover:bg-[#2a2a3a]">{activeSession.gitBranch}</span>
+                </div>
+              )}
               <div className="flex gap-[10px] py-1 text-[0.8em] leading-[1.4] [&+&]:border-t [&+&]:border-[#2a2a3a]">
-                <span className="text-[#666] flex-shrink-0 min-w-[90px]">SDK Summary</span>
-                <span className="tooltip-value text-[#ccc] break-words cursor-pointer rounded px-1 py-[1px] -mx-1 -my-[1px] transition-[background] duration-150 hover:bg-[#2a2a3a]">{activeSession.summary}</span>
+                <span className="text-[#666] flex-shrink-0 min-w-[90px]">Last Modified</span>
+                <span className="tooltip-value text-[#ccc] break-words cursor-pointer rounded px-1 py-[1px] -mx-1 -my-[1px] transition-[background] duration-150 hover:bg-[#2a2a3a]">{timeAgo(activeSession.lastModified)}</span>
               </div>
-            )}
-            {activeSession.generatedTitle && (
               <div className="flex gap-[10px] py-1 text-[0.8em] leading-[1.4] [&+&]:border-t [&+&]:border-[#2a2a3a]">
-                <span className="text-[#666] flex-shrink-0 min-w-[90px]">Generated Title</span>
-                <span className="tooltip-value text-[#ccc] break-words cursor-pointer rounded px-1 py-[1px] -mx-1 -my-[1px] transition-[background] duration-150 hover:bg-[#2a2a3a]">{activeSession.generatedTitle}</span>
+                <span className="text-[#666] flex-shrink-0 min-w-[90px]">Session ID</span>
+                <span className="tooltip-value text-[#ccc] break-words cursor-pointer rounded px-1 py-[1px] -mx-1 -my-[1px] transition-[background] duration-150 hover:bg-[#2a2a3a] font-['SF_Mono','Fira_Code','Cascadia_Code',monospace] text-[0.9em] opacity-70">{activeSession.sessionId}</span>
               </div>
-            )}
-            {activeSession.customTitle && (
               <div className="flex gap-[10px] py-1 text-[0.8em] leading-[1.4] [&+&]:border-t [&+&]:border-[#2a2a3a]">
-                <span className="text-[#666] flex-shrink-0 min-w-[90px]">Custom Title</span>
-                <span className="tooltip-value text-[#ccc] break-words cursor-pointer rounded px-1 py-[1px] -mx-1 -my-[1px] transition-[background] duration-150 hover:bg-[#2a2a3a]">{activeSession.customTitle}</span>
+                <span className="text-[#666] flex-shrink-0 min-w-[90px]">File Size</span>
+                <span className="tooltip-value text-[#ccc] break-words cursor-pointer rounded px-1 py-[1px] -mx-1 -my-[1px] transition-[background] duration-150 hover:bg-[#2a2a3a]">{activeSession.fileSize < 1024 ? `${activeSession.fileSize} B` : `${(activeSession.fileSize / 1024).toFixed(1)} KB`}</span>
               </div>
-            )}
-            {activeSession.firstPrompt && (
-              <div className="flex gap-[10px] py-1 text-[0.8em] leading-[1.4] [&+&]:border-t [&+&]:border-[#2a2a3a]">
-                <span className="text-[#666] flex-shrink-0 min-w-[90px]">First Prompt</span>
-                <span className="tooltip-value text-[#ccc] break-words cursor-pointer rounded px-1 py-[1px] -mx-1 -my-[1px] transition-[background] duration-150 hover:bg-[#2a2a3a]">{truncate(activeSession.firstPrompt, 120)}</span>
-              </div>
-            )}
-            {activeSession.cwd && (
-              <div className="flex gap-[10px] py-1 text-[0.8em] leading-[1.4] [&+&]:border-t [&+&]:border-[#2a2a3a]">
-                <span className="text-[#666] flex-shrink-0 min-w-[90px]">Project</span>
-                <span className="tooltip-value text-[#ccc] break-words cursor-pointer rounded px-1 py-[1px] -mx-1 -my-[1px] transition-[background] duration-150 hover:bg-[#2a2a3a]">{activeSession.cwd}</span>
-              </div>
-            )}
-            {activeSession.gitBranch && activeSession.gitBranch !== 'HEAD' && (
-              <div className="flex gap-[10px] py-1 text-[0.8em] leading-[1.4] [&+&]:border-t [&+&]:border-[#2a2a3a]">
-                <span className="text-[#666] flex-shrink-0 min-w-[90px]">Branch</span>
-                <span className="tooltip-value text-[#ccc] break-words cursor-pointer rounded px-1 py-[1px] -mx-1 -my-[1px] transition-[background] duration-150 hover:bg-[#2a2a3a]">{activeSession.gitBranch}</span>
-              </div>
-            )}
-            <div className="flex gap-[10px] py-1 text-[0.8em] leading-[1.4] [&+&]:border-t [&+&]:border-[#2a2a3a]">
-              <span className="text-[#666] flex-shrink-0 min-w-[90px]">Last Modified</span>
-              <span className="tooltip-value text-[#ccc] break-words cursor-pointer rounded px-1 py-[1px] -mx-1 -my-[1px] transition-[background] duration-150 hover:bg-[#2a2a3a]">{timeAgo(activeSession.lastModified)}</span>
             </div>
-            <div className="flex gap-[10px] py-1 text-[0.8em] leading-[1.4] [&+&]:border-t [&+&]:border-[#2a2a3a]">
-              <span className="text-[#666] flex-shrink-0 min-w-[90px]">Session ID</span>
-              <span className="tooltip-value text-[#ccc] break-words cursor-pointer rounded px-1 py-[1px] -mx-1 -my-[1px] transition-[background] duration-150 hover:bg-[#2a2a3a] font-['SF_Mono','Fira_Code','Cascadia_Code',monospace] text-[0.9em] opacity-70">{activeSession.sessionId}</span>
-            </div>
-            <div className="flex gap-[10px] py-1 text-[0.8em] leading-[1.4] [&+&]:border-t [&+&]:border-[#2a2a3a]">
-              <span className="text-[#666] flex-shrink-0 min-w-[90px]">File Size</span>
-              <span className="tooltip-value text-[#ccc] break-words cursor-pointer rounded px-1 py-[1px] -mx-1 -my-[1px] transition-[background] duration-150 hover:bg-[#2a2a3a]">{activeSession.fileSize < 1024 ? `${activeSession.fileSize} B` : `${(activeSession.fileSize / 1024).toFixed(1)} KB`}</span>
-            </div>
-          </div>
+          )}
         </div>
       )}
       {approvedPlan && (

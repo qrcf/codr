@@ -82,7 +82,7 @@ export function parseSessionMessages(raw: RawSessionMessage[]): ChatMessage[] {
     } else if (msg.type === 'injected_context') {
       const ic = (msg as { injectedContext?: InjectedContext }).injectedContext
       if (ic) {
-        const lastUserIdx = result.findLastIndex(m => m.role === 'user')
+        const lastUserIdx = result.findLastIndex((m: ChatMessage) => m.role === 'user')
         if (lastUserIdx >= 0) {
           result[lastUserIdx] = { ...result[lastUserIdx], injectedContext: ic }
         }

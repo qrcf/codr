@@ -13,7 +13,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function SourceRow({ source, right }: { source: string; right?: string }) {
   return (
-    <div className="flex items-baseline justify-between gap-2 py-[1px]">
+    <div className="flex items-baseline justify-between gap-2 py-px">
       <span className="text-[#8a9ab0] truncate font-['SF_Mono','Fira_Code',monospace] text-[0.72em]">{source}</span>
       {right && <span className="text-[#555] shrink-0 font-['SF_Mono','Fira_Code',monospace] text-[0.68em]">{right}</span>}
     </div>
@@ -51,7 +51,7 @@ export function ContextChunksRenderer({ context }: { context: InjectedContext })
   return (
     <div className="mt-1">
       <button
-        className="flex items-center gap-[6px] px-2 py-1 bg-transparent border-none cursor-pointer select-none text-[#777] text-[0.78em] rounded hover:bg-bg-card hover:text-[#aaa] transition-colors"
+        className="flex items-center gap-1.5 px-2 py-1 bg-transparent border-none cursor-pointer select-none text-[#777] text-[0.78em] rounded hover:bg-bg-card hover:text-[#aaa] transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
         <span className="text-[#555] shrink-0">{expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}</span>
@@ -66,7 +66,7 @@ export function ContextChunksRenderer({ context }: { context: InjectedContext })
 
             {mode && (
               <div className="mb-2">
-                <span className="text-[0.68em] px-[6px] py-[2px] rounded bg-[#1a1a2e] text-[#8a9ab0] border border-border-subtle font-['SF_Mono','Fira_Code',monospace] uppercase tracking-wider">
+                <span className="text-[0.68em] px-1.5 py-0.5 rounded bg-[#1a1a2e] text-[#8a9ab0] border border-border-subtle font-['SF_Mono','Fira_Code',monospace] uppercase tracking-wider">
                   {mode}
                 </span>
               </div>

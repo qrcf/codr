@@ -72,7 +72,7 @@ interface StateSyncPayload {
 }
 
 interface RawSessionMessage {
-  type: 'user' | 'assistant'
+  type: 'user' | 'assistant' | 'injected_context' | 'system'
   uuid: string
   session_id: string
   message: unknown

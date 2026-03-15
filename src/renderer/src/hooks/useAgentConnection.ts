@@ -350,7 +350,7 @@ export function useAgentConnection({
           const ic = (msg as { injectedContext?: InjectedContext }).injectedContext
           if (ic) {
             setMessages(prev => {
-              const lastUserIdx = prev.findLastIndex(m => m.role === 'user')
+              const lastUserIdx = prev.findLastIndex((m: ChatMessage) => m.role === 'user')
               if (lastUserIdx < 0) return prev
               const updated = [...prev]
               updated[lastUserIdx] = { ...updated[lastUserIdx], injectedContext: ic }

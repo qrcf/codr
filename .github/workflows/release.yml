@@ -132,6 +132,25 @@ jobs:
             gh release upload "$TAG" "$YML" --clobber
           fi
 
+      - name: Ensure latest.yml is on the release
+        if: matrix.platform == 'win'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          YML="dist/latest.yml"
+          if [ ! -f "$YML" ]; then
+            echo "::warning::latest.yml not found in dist/"
+            exit 0
+          fi
+          if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -q '^latest.yml$'; then
+            echo "latest.yml already on release"
+          else
+            echo "Uploading latest.yml..."
+            gh release upload "$TAG" "$YML" --clobber
+          fi
+
   finalize:
     needs: build
     runs-on: ubuntu-latest

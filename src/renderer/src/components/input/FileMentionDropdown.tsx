@@ -52,7 +52,7 @@ export function FileMentionDropdown({ files, docSources, query, activeIndex, onS
   if (totalItems === 0) {
     return (
       <div className={dropdownClass}>
-        <div className="p-3 text-[#666] text-[0.85em] text-center">No matches</div>
+        <div className="p-3 text-text-dim text-[0.85em] text-center">No matches</div>
       </div>
     )
   }
@@ -63,7 +63,7 @@ export function FileMentionDropdown({ files, docSources, query, activeIndex, onS
       {showFindRefs && (
         <div
           ref={activeIndex === 0 ? activeRef : undefined}
-          className={`${itemBase} border-b border-[#333] font-sans${activeIndex === 0 ? ` ${itemActive}` : ''}`}
+          className={`${itemBase} border-b border-border font-sans${activeIndex === 0 ? ` ${itemActive}` : ''}`}
           title={
             indexerReady
               ? 'Search your project index for relevant files'

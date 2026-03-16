@@ -12,7 +12,7 @@ export function FolderEmptyState({ onSelectFolder }: FolderEmptyStateProps) {
       </div>
       <div className="flex flex-col gap-2">
         <h2 className="text-[1em] font-semibold text-[#ccc] m-0">Select a project folder</h2>
-        <p className="text-[0.85em] text-text-dim m-0 max-w-[280px] leading-relaxed">
+        <p className="text-[0.85em] text-text-dim m-0 max-w-70 leading-relaxed">
           Choose a folder so the AI can read and edit your files.
         </p>
       </div>

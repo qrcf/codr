@@ -1,9 +1,13 @@
 import { query } from '@anthropic-ai/claude-agent-sdk'
-import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { homedir } from 'node:os'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import type { AgentProviderId } from './provider'
-import { getClaudeCliPath } from './providers/claude-provider'
+import { getClaudeCliPath } from './providers/claude/provider'
+import { getCursorProvider } from './providers/cursor/provider'
+import type { SessionConfigSelectOption, SessionConfigSelectOptions, SessionConfigSelectGroup } from '@agentclientprotocol/sdk'
+import { updateCapability } from './provider-capabilities'
+
+const execFileAsync = promisify(execFile)
 
 export interface ModelOption {
   value: string
@@ -28,7 +32,7 @@ export async function getModelsForProvider(
 
   const modelFetchers: Partial<Record<AgentProviderId, () => Promise<ModelOption[]>>> = {
     claude: fetchClaudeModels,
-    codex: fetchCodexModels,
+    cursor: fetchCursorModels,
   }
   const fetcher = modelFetchers[provider]
   const models = fetcher ? await fetcher() : []
@@ -119,28 +123,57 @@ async function fetchClaudeModels(): Promise<ModelOption[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Codex: read auth credentials, call OpenAI /v1/models
+// Cursor: ACP configOptions (primary) + CLI `cursor agent models` (fallback)
 // ---------------------------------------------------------------------------
 
-async function fetchCodexModels(): Promise<ModelOption[]> {
-  const cachePath = join(homedir(), '.codex', 'models_cache.json')
-  if (!existsSync(cachePath)) {
-    console.warn('[models] No ~/.codex/models_cache.json found')
-    return []
-  }
-
-  try {
-    const data = JSON.parse(readFileSync(cachePath, 'utf-8')) as {
-      models?: Array<{ slug: string; display_name?: string; visibility?: string; priority?: number }>
+async function fetchCursorModels(): Promise<ModelOption[]> {
+  // Primary: check ACP configOptions if provider is alive
+  const provider = getCursorProvider()
+  if (provider?.isAlive() && provider.lastConfigOptions) {
+    const modelOpt = provider.lastConfigOptions.find(o => o.category === 'model')
+    if (modelOpt && modelOpt.type === 'select' && modelOpt.options.length > 0) {
+      updateCapability('cursor', 'model-selection', true)
+      const flatOptions = flattenSelectOptions(modelOpt.options)
+      return flatOptions.map(o => ({
+        value: o.value,
+        displayName: o.name || o.value,
+      }))
     }
-    if (!data.models) return []
+  }
 
-    return data.models
-      .filter((m) => m.visibility === 'list')
-      .sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99))
-      .map((m) => ({ value: m.slug, displayName: m.display_name || m.slug }))
+  // Fallback: CLI `cursor agent models`
+  try {
+    const { stdout } = await execFileAsync('cursor', ['agent', 'models'], {
+      env: { ...process.env },
+      timeout: 10_000,
+    })
+
+    const models: ModelOption[] = []
+    const linePattern = /^(\S+)\s+-\s+(.+?)(?:\s+\((current|default)\))?$/
+    for (const line of stdout.split('\n')) {
+      const match = line.trim().match(linePattern)
+      if (match) {
+        models.push({
+          value: match[1],
+          displayName: match[2].trim(),
+        })
+      }
+    }
+
+    if (models.length > 0) {
+      updateCapability('cursor', 'model-selection', true)
+    }
+    return models
   } catch (err) {
-    console.error('[models] Failed to read Codex models cache:', err instanceof Error ? err.message : err)
+    console.error('[models] Failed to fetch Cursor models:', err instanceof Error ? err.message : err)
     return []
   }
+}
+
+function flattenSelectOptions(options: SessionConfigSelectOptions): SessionConfigSelectOption[] {
+  if (options.length === 0) return []
+  if ('group' in options[0]) {
+    return (options as SessionConfigSelectGroup[]).flatMap(g => g.options)
+  }
+  return options as SessionConfigSelectOption[]
 }

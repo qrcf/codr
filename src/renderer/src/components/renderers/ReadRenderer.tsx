@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ToolCallInfo } from '../../types'
-import { CodeBlock } from '../CodeBlock'
+import { CodeBlock } from '../messages/CodeBlock'
 import { langFromPath } from '../../utils/langUtils'
 
 const MAX_VISIBLE_LINES = 30
@@ -54,7 +54,7 @@ export function ReadRenderer({ tool }: { tool: ToolCallInfo }) {
           </div>
           {truncated && (
             <button
-              style={{ display: 'block', width: '100%', background: '#1a1a2a', border: 'none', borderTop: '1px solid #3a3a4a', color: '#8142c7', padding: '6px', fontSize: '0.82em', cursor: 'pointer', textAlign: 'center' }}
+              style={{ display: 'block', width: '100%', background: '#1a1a2a', border: 'none', borderTop: '1px solid #3a3a4a', color: 'var(--color-accent)', padding: '6px', fontSize: '0.82em', cursor: 'pointer', textAlign: 'center' }}
               onMouseEnter={e => { e.currentTarget.style.background = '#222238' }}
               onMouseLeave={e => { e.currentTarget.style.background = '#1a1a2a' }}
               onClick={() => setShowAll(true)}

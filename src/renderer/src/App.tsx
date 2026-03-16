@@ -1,17 +1,17 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import { useCodr } from './hooks/useCodr'
-import { Sidebar, type ProjectInfo } from './components/Sidebar'
-import { ChatHeader } from './components/ChatHeader'
+import { Sidebar, type ProjectInfo } from './components/layout/Sidebar'
+import { ChatHeader } from './components/layout/ChatHeader'
 
-const SettingsPanel = lazy(() => import('./components/SettingsPanel').then(m => ({ default: m.SettingsPanel })))
-const ManageProjectPanel = lazy(() => import('./components/ManageProjectPanel').then(m => ({ default: m.ManageProjectPanel })))
-import { MessageList } from './components/MessageList'
-import { DialogsPanel } from './components/DialogsPanel'
-import { InputArea } from './components/InputArea'
-import { UpdateOverlay } from './components/UpdateOverlay'
-import { PlanOverlay } from './components/PlanOverlay'
-import { FolderEmptyState } from './components/FolderEmptyState'
-import type { ReasoningLevel } from './components/ReasoningSelector'
+const SettingsPanel = lazy(() => import('./components/settings/SettingsPanel').then(m => ({ default: m.SettingsPanel })))
+const ManageProjectPanel = lazy(() => import('./components/settings/ManageProjectPanel').then(m => ({ default: m.ManageProjectPanel })))
+import { MessageList } from './components/layout/MessageList'
+import { DialogsPanel } from './components/layout/DialogsPanel'
+import { InputArea } from './components/layout/InputArea'
+import { UpdateOverlay } from './components/overlays/UpdateOverlay'
+import { PlanOverlay } from './components/overlays/PlanOverlay'
+import { FolderEmptyState } from './components/ui/FolderEmptyState'
+import type { ReasoningLevel } from './components/input/ReasoningSelector'
 import { useDocsAPI } from './hooks/useDocsAPI'
 import { useInputComposer } from './hooks/useInputComposer'
 import { useDialogs } from './hooks/useDialogs'
@@ -140,6 +140,8 @@ export default function App() {
       setMessages: agent.setMessages,
       saveActiveToCache: agent.saveActiveToCache,
       restoreFromCache: agent.restoreFromCache,
+      reconcileFromDb: agent.reconcileFromDb,
+      isLoadingRef: agent.isLoadingRef,
     },
     resetInput: () => resetInputRef.current(),
     resetPlan: dialogs.resetPlan,
@@ -176,7 +178,6 @@ export default function App() {
   const projectFolder = session.activeSession?.cwd || null
   useEffect(() => {
     if (!projectFolder) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setProjectIndexStatus('not-indexed')
       return
     }
@@ -260,6 +261,13 @@ export default function App() {
     userChangedModelRef.current = true
     setSelectedModel(model)
     await codr.setModel?.(currentProviderRef.current, model)
+  }
+
+  const handleHeaderProviderChange = async (id: AgentProviderId) => {
+    setCurrentProvider(id)
+    userChangedModelRef.current = false
+    await codr.setProvider?.(id)
+    codr.getModels?.(id).then(result => { setSelectedModel(result?.selectedModel) })
   }
 
   // --- Send from queue (pulls data from a QueuedMessage instead of input state) ---
@@ -347,13 +355,31 @@ export default function App() {
     return () => document.removeEventListener('keydown', handler)
   }, [session.activeSessionId, dialogs])
 
-  // Close plan overlay and clear queue when switching sessions
-  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
-  useEffect(() => { setShowPlanOverlay(false); messageQueue.clear(); pendingSendFromQueueRef.current = null }, [session.activeSessionId])
+  // Close plan overlay and clear queue when switching sessions (but not on draft→real promotion)
+  const prevSessionIdForQueueRef = useRef(session.activeSessionId)
+  useEffect(() => {
+    const prev = prevSessionIdForQueueRef.current
+    prevSessionIdForQueueRef.current = session.activeSessionId
+    // Draft promotion: preserve queue and pending messages
+    if (prev?.startsWith('draft-') && session.activeSessionId && !session.activeSessionId.startsWith('draft-')) {
+      return
+    }
+    setShowPlanOverlay(false)
+    messageQueue.clear()
+    pendingSendFromQueueRef.current = null
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.activeSessionId, messageQueue.clear])
 
   // Reset scroll lock when session changes or user sends a message
   useEffect(() => {
     shouldAutoScrollRef.current = true
+  }, [session.activeSessionId])
+
+  // Auto-focus input on new chat or session switch
+  useEffect(() => {
+    if (session.activeSessionId) {
+      textareaRef.current?.focus()
+    }
   }, [session.activeSessionId])
 
   // --- Scroll to bottom ---
@@ -403,7 +429,9 @@ export default function App() {
   }, [hasMoreMessages, loadMoreMessages, isLoadingHistoryRef])
 
   const handleInterrupt = () => {
-    codr.interrupt(session.activeSessionId ?? undefined)
+    const sid = session.activeSessionId
+    // Draft sessions use a temporary key in the provider — pass undefined to interrupt any active query
+    codr.interrupt(sid?.startsWith('draft-') ? undefined : sid ?? undefined)
   }
 
   const handleSelectFolder = async () => {
@@ -518,21 +546,22 @@ export default function App() {
       dialogs.markPlanApproved(plan.planContent, plan.planFilePath)
     }
 
-    // Allow ExitPlanMode permission to unblock the SDK
+    // Allow ExitPlanMode permission to unblock the SDK / ACP extension method
     dialogs.handlePermissionResponse(permissionId, true)
     dialogs.resetPlan()
     dialogs.setMode('code')
-
-    const notesClause = userNotes ? `\n\nUser notes: ${userNotes}` : ''
-    const approvalMessage = plan
-      ? `User has approved your plan. You can now start coding.\n\nYour plan has been saved to: ${plan.planFilePath}\n\n## Approved Plan:\n${plan.planContent}${notesClause}`
-      : `User has approved your plan. You can now start coding.${notesClause}`
 
     const displayMessage = userNotes || 'Plan approved. Proceed with implementation.'
     agent.setMessages((prev) => [
       ...prev,
       { id: agent.nextId(), role: 'user', content: displayMessage, toolCalls: [] },
     ])
+
+    const notesClause = userNotes ? `\n\nUser notes: ${userNotes}` : ''
+    const approvalMessage = plan
+      ? `User has approved your plan. You can now start coding.\n\nYour plan has been saved to: ${plan.planFilePath}\n\n## Approved Plan:\n${plan.planContent}${notesClause}`
+      : `User has approved your plan. You can now start coding.${notesClause}`
+
     agent.setIsLoading(true)
     agent.resetStreaming()
 
@@ -581,14 +610,20 @@ export default function App() {
   }
 
   const handlePlanRequestChanges = async (permissionId: number, feedback: string) => {
+    const plan = dialogs.planReview
     // Deny the ExitPlanMode permission with the user's feedback
     dialogs.handlePermissionResponse(permissionId, false, feedback)
     dialogs.resetPlan()
 
+    // Show feedback in chat (for all providers — gives user visual confirmation)
     agent.setMessages((prev) => [
       ...prev,
       { id: agent.nextId(), role: 'user', content: feedback, toolCalls: [] },
     ])
+
+    // For ACP providers, the feedback flows through the extension method return.
+    // For Claude SDK, the deny message goes through the permission gate.
+    void plan
   }
 
   const toggleSidebar = () => {
@@ -694,6 +729,7 @@ export default function App() {
         userProfile={userProfile}
         onProjectsUpdate={setAllProjects}
         onCleanupPromotedDraft={draftSessions.removeDraft}
+        currentProvider={currentProvider}
       />
       {sidebarOpen && <div className="hidden max-[768px]:block fixed inset-0 bg-black/50 z-40" onClick={() => setSidebarOpen(false)} />}
 
@@ -742,6 +778,9 @@ export default function App() {
           onShowPlan={() => setShowPlanOverlay(true)}
           onOpenManageProject={(folder) => { setManageProjectFolder(folder); setManageProjectOpen(true); setSettingsOpen(false) }}
           onRegenTitle={codr.regenTitle ? (sessionId, firstPrompt) => codr.regenTitle!(sessionId, firstPrompt) : undefined}
+          currentProvider={currentProvider}
+          onProviderChange={handleHeaderProviderChange}
+          canChangeProvider={isDraft && agent.messages.length === 0 && !agent.isLoading}
         />
 
         <div className="flex-1 min-h-0 relative overflow-hidden">

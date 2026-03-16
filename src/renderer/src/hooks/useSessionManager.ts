@@ -15,6 +15,8 @@ interface AgentHandle {
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>
   saveActiveToCache: () => boolean
   restoreFromCache: (sessionId: string | null) => boolean
+  reconcileFromDb: (sessionId: string) => void
+  isLoadingRef: React.MutableRefObject<boolean>
 }
 
 interface DraftActions {
@@ -126,7 +128,13 @@ export function useSessionManager({
     if (!isReloadingSameSession) {
       // Try to restore from cache first (session was running in background)
       const restored = agent.restoreFromCache(sessionId)
-      if (!restored) {
+      if (restored) {
+        // If the session completed while backgrounded, reconcile with DB
+        // to ensure we have the complete, correct message history.
+        if (!agent.isLoadingRef.current && sessionId) {
+          agent.reconcileFromDb(sessionId)
+        }
+      } else {
         agent.loadMessages(sessionMessages, initialTokenUsage)
         agent.resetStreaming()
         agent.setIsLoading(false)

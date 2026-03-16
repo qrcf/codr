@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from 'react'
 import type { PlanReviewState } from '../types'
+import type { AgentProviderId } from '../../../shared/provider-types'
 import { useCodr } from './useCodr'
 
 interface UseDialogsParams {
@@ -64,9 +65,9 @@ export function useDialogs({ activeSessionIdRef }: UseDialogsParams) {
     }
   }, [])
 
-  const onPlanWrite = useCallback((toolId: string, planFilePath: string, planContent: string) => {
+  const onPlanWrite = useCallback((toolId: string, planFilePath: string, planContent: string, provider?: AgentProviderId) => {
     pendingPlanToolIdRef.current = toolId
-    const state = { planFilePath, planContent }
+    const state: PlanReviewState = { planFilePath, planContent, ...(provider ? { provider } : {}) }
     planReviewRef.current = state
     setPlanReview(state)
   }, [])

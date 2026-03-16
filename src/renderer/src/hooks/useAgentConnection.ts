@@ -66,7 +66,7 @@ interface DialogCallbacks {
   onPermissionCleared: (key: string, id: number) => void
   onQuestionRequest: (key: string, request: QuestionRequest) => void
   onQuestionCleared: (key: string, id: number) => void
-  onPlanWrite: (toolId: string, planFilePath: string, planContent: string) => void
+  onPlanWrite: (toolId: string, planFilePath: string, planContent: string, provider?: import('../../../shared/provider-types').AgentProviderId) => void
   onExitPlanMode: (allowedPrompts?: Array<{ tool: string; prompt: string }>) => void
   onDoneWithPlanExit: () => void
   applyStateSync: (
@@ -145,19 +145,36 @@ export function useAgentConnection({
     const thinking = streamingThinkingRef.current
 
     if (text || tools.length > 0 || thinking) {
-      setMessages((prev) => {
-        const last = prev[prev.length - 1]
-        if (!text && tools.length > 0 && last?.role === 'assistant') {
-          const updated = [...prev]
-          updated[updated.length - 1] = {
-            ...last,
-            toolCalls: [...last.toolCalls, ...tools],
-            thinking: last.thinking || thinking || undefined,
-          }
-          return updated
+      // Update allMessagesRef and messages state with the same objects
+      const allMsgs = allMessagesRef.current
+      const last = allMsgs[allMsgs.length - 1]
+      if (!text && tools.length > 0 && last?.role === 'assistant') {
+        const updatedLast: ChatMessage = {
+          ...last,
+          toolCalls: [...last.toolCalls, ...tools],
+          thinking: last.thinking || thinking || undefined,
         }
-        return [...prev, { id: nextId(), role: 'assistant', content: text, toolCalls: tools, thinking: thinking || undefined }]
-      })
+        const updatedAll = [...allMsgs]
+        updatedAll[updatedAll.length - 1] = updatedLast
+        allMessagesRef.current = updatedAll
+        setMessages((prev) => {
+          const prevLast = prev[prev.length - 1]
+          if (prevLast?.role === 'assistant') {
+            const updated = [...prev]
+            updated[updated.length - 1] = {
+              ...prevLast,
+              toolCalls: [...prevLast.toolCalls, ...tools],
+              thinking: prevLast.thinking || thinking || undefined,
+            }
+            return updated
+          }
+          return prev
+        })
+      } else {
+        const newMsg: ChatMessage = { id: nextId(), role: 'assistant', content: text, toolCalls: tools, thinking: thinking || undefined }
+        allMessagesRef.current = [...allMsgs, newMsg]
+        setMessages((prev) => [...prev, newMsg])
+      }
     }
 
     streamingTextRef.current = ''
@@ -267,6 +284,20 @@ export function useAgentConnection({
 
     return true
   }, [])
+
+  /** Fetch messages from DB and reconcile with current state. Safe to call any time. */
+  const reconcileFromDb = useCallback((sessionId: string) => {
+    codr.getSessionMessages(sessionId).then((raw) => {
+      if (activeSessionIdRef.current !== sessionId) return
+      if (isLoadingRef.current) return
+      const parsed = reconcileParsedMessages(allMessagesRef.current, parseSessionMessages(raw))
+      allMessagesRef.current = parsed
+      setMessages(parsed.slice(-PAGE_SIZE))
+      setHasMoreMessages(parsed.length > PAGE_SIZE)
+      const usage = extractTokenUsageFromRaw(raw)
+      if (usage) setTokenUsage(usage)
+    }).catch(() => {})
+  }, [codr, activeSessionIdRef])
 
   // Pagination
   const loadMoreMessages = useCallback(() => {
@@ -482,6 +513,10 @@ export function useAgentConnection({
 
       const isSubagent = !!(raw as { parent_tool_use_id?: string | null }).parent_tool_use_id
       const msg = raw as AgentMessage
+      // DEBUG: log all incoming messages to trace [object Object] bug
+      if (msg.type === 'stream_event' || msg.type === 'assistant') {
+        console.log('[debug:msg]', msg.type, JSON.stringify(msg).slice(0, 400))
+      }
       switch (msg.type) {
         case 'stream_event': {
           const evt = msg as StreamEvent
@@ -610,10 +645,9 @@ export function useAgentConnection({
             const tokens = sysMsg.compact_metadata?.pre_tokens
             const label = tokens ? `Context compacted (${Math.round(tokens / 1000)}k tokens summarized)` : 'Context compacted'
             commitCurrentTurn()
-            setMessages((prev) => [
-              ...prev,
-              { id: nextId(), role: 'system', content: label, toolCalls: [] },
-            ])
+            const sysMessage: ChatMessage = { id: nextId(), role: 'system', content: label, toolCalls: [] }
+            allMessagesRef.current = [...allMessagesRef.current, sysMessage]
+            setMessages((prev) => [...prev, sysMessage])
           }
           break
         }
@@ -692,10 +726,9 @@ export function useAgentConnection({
       }
 
       commitCurrentTurn()
-      setMessages((prev) => [
-        ...prev,
-        { id: nextId(), role: 'assistant', content: error, toolCalls: [] },
-      ])
+      const errorMsg: ChatMessage = { id: nextId(), role: 'assistant', content: error, toolCalls: [] }
+      allMessagesRef.current = [...allMessagesRef.current, errorMsg]
+      setMessages((prev) => [...prev, errorMsg])
       isLoadingRef.current = false
       setIsLoading(false)
 
@@ -735,8 +768,14 @@ export function useAgentConnection({
         }
         return
       }
-      if (!querySessionId && activeId) return
-      if (!activeId && querySessionId) return
+      if (!querySessionId && activeId) {
+        setTimeout(() => onQueueProcessRef.current(), 0)
+        return
+      }
+      if (!activeId && querySessionId) {
+        setTimeout(() => onQueueProcessRef.current(), 0)
+        return
+      }
 
       commitCurrentTurn()
       isLoadingRef.current = false
@@ -752,7 +791,8 @@ export function useAgentConnection({
           if (activeSessionIdRef.current !== doneSessionId) return
           // Skip stale reconciliation if a new query has already started (e.g. from queue)
           if (isLoadingRef.current) return
-          const parsed = reconcileParsedMessages(allMessagesRef.current, parseSessionMessages(raw))
+          const parsedRaw = parseSessionMessages(raw)
+          const parsed = reconcileParsedMessages(allMessagesRef.current, parsedRaw)
           allMessagesRef.current = parsed
           const initial = parsed.slice(-PAGE_SIZE)
           setMessages(initial)
@@ -769,6 +809,12 @@ export function useAgentConnection({
       if (autoAllowedToolsRef.current.has(request.tool)) {
         codr.respondPermission(request.id, true)
         return
+      }
+      // ExitPlanMode with embedded plan content (from Cursor provider's cursor/create_plan)
+      if (request.tool === 'ExitPlanMode' && (request.input as Record<string, unknown>)?.planContent) {
+        const input = request.input as { planContent: string; planFilePath: string; provider?: string }
+        dialogsRef.current.onPlanWrite(`cursor-plan-${request.id}`, input.planFilePath, input.planContent, input.provider as import('../../../shared/provider-types').AgentProviderId)
+        dialogsRef.current.onExitPlanMode()
       }
       const key = querySessionId || '_unknown'
       dialogsRef.current.onPermissionRequest(key, request)
@@ -905,10 +951,9 @@ export function useAgentConnection({
 
         if (isLoadingRef.current) {
           commitCurrentTurn()
-          setMessages((prev) => [
-            ...prev,
-            { id: nextId(), role: 'system', content: 'Session interrupted — you can send a new message to continue.', toolCalls: [] },
-          ])
+          const interruptMsg: ChatMessage = { id: nextId(), role: 'system', content: 'Session interrupted — you can send a new message to continue.', toolCalls: [] }
+          allMessagesRef.current = [...allMessagesRef.current, interruptMsg]
+          setMessages((prev) => [...prev, interruptMsg])
           setIsLoading(false)
           dialogsRef.current.onDoneWithPlanExit()
         }
@@ -944,6 +989,7 @@ export function useAgentConnection({
     loadMoreMessages,
     saveActiveToCache,
     restoreFromCache,
+    reconcileFromDb,
     nextId,
   }
 }

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Check } from 'lucide-react'
-import { MarkdownContent } from '../MarkdownContent'
+import { MarkdownContent } from '../messages/MarkdownContent'
 import type { ToolCallInfo } from '../../types'
 
 interface PlanWriteRendererProps {

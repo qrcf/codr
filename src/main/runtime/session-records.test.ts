@@ -30,11 +30,11 @@ test('buildSessionList includes both providers regardless of selected provider',
         firstPrompt: 'Claude first prompt',
       },
       {
-        sessionId: 'codex-1',
-        provider: 'codex',
+        sessionId: 'cursor-1',
+        provider: 'cursor',
         createdAt: 2,
         updatedAt: 20,
-        firstPrompt: 'Codex first prompt',
+        firstPrompt: 'Cursor first prompt',
       },
     ],
     claudeSessions: [makeClaudeSession()],
@@ -47,7 +47,7 @@ test('buildSessionList includes both providers regardless of selected provider',
   assert.deepEqual(
     result.sessions.map((session) => [session.sessionId, session.provider]),
     [
-      ['codex-1', 'codex'],
+      ['cursor-1', 'cursor'],
       ['claude-1', 'claude'],
     ],
   )
@@ -60,13 +60,13 @@ test('shouldUseIndexedMessages only accepts records from the same provider', () 
   }
 
   assert.equal(shouldUseIndexedMessages(indexed, 'claude'), true)
-  assert.equal(shouldUseIndexedMessages(indexed, 'codex'), false)
+  assert.equal(shouldUseIndexedMessages(indexed, 'cursor'), false)
   assert.equal(shouldUseIndexedMessages(null, 'claude'), false)
 })
 
 test('resolveSessionProvider prefers the stored session provider over current selection', () => {
-  assert.equal(resolveSessionProvider('codex', 'claude'), 'claude')
-  assert.equal(resolveSessionProvider('claude', 'codex'), 'codex')
+  assert.equal(resolveSessionProvider('cursor', 'claude'), 'claude')
+  assert.equal(resolveSessionProvider('claude', 'cursor'), 'cursor')
   assert.equal(resolveSessionProvider('claude', undefined), 'claude')
 })
 

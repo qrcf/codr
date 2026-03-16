@@ -188,11 +188,20 @@ const agentApi = {
   // CLI status check
   checkCliStatus: () => ipcRenderer.invoke('cli:check-status'),
 
-  // Provider status (independent check for both Claude and Codex)
-  getProviderStatus: () => ipcRenderer.invoke('providers:get-status') as Promise<{
-    claude: { installed: boolean; loggedIn: boolean; detail?: string }
-    codex: { installed: boolean; loggedIn: boolean; detail?: string }
-  }>,
+  // Provider status (independent check for all providers)
+  getProviderStatus: () => ipcRenderer.invoke('providers:get-status') as Promise<
+    Record<AgentProviderId, { installed: boolean; loggedIn: boolean; detail?: string; email?: string; org?: string }>
+  >,
+
+  // Provider capabilities (runtime-mutable)
+  getProviderCapabilities: () => ipcRenderer.invoke('providers:get-capabilities') as Promise<
+    Record<AgentProviderId, string[]>
+  >,
+  onCapabilitiesChanged: (callback: (data: { providerId: AgentProviderId; capabilities: string[] }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: { providerId: AgentProviderId; capabilities: string[] }) => callback(data)
+    ipcRenderer.on('providers:capabilities-changed', listener)
+    return () => { ipcRenderer.removeListener('providers:capabilities-changed', listener) }
+  },
 
   // Docs feature
   addDocSource: (source: { url: string; name: string; crawlDepth?: number; prefix?: string }) =>

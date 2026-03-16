@@ -16,8 +16,9 @@ import { getSelectedProvider } from './runtime/provider-config'
 import { getIndexedSessionMessages, getIndexedSessionMeta, listIndexedSessions, putIndexedRawMessages, upsertIndexedSession } from './runtime/session-index'
 import { buildSessionList, shouldUseIndexedMessages, type ClaudeDbSessionMeta } from './runtime/session-records'
 import type { ProviderSessionDiscovery, DiscoveryContext } from './runtime/provider-discovery'
-import { ClaudeSessionDiscovery, setCachedAccountInfo as setClaudeCachedAccountInfo, getCachedAccountInfo } from './runtime/discovery/claude-discovery'
-import { CodexSessionDiscovery } from './runtime/discovery/codex-discovery'
+import { ClaudeSessionDiscovery, setCachedAccountInfo as setClaudeCachedAccountInfo, getCachedAccountInfo } from './runtime/providers/claude/discovery'
+import { CursorSessionDiscovery } from './runtime/providers/cursor/discovery'
+import { getAllCapabilities, setBroadcastCapabilityChange } from './runtime/provider-capabilities'
 
 // Re-export ProviderStatusInfo for consumers
 export type { ProviderStatusInfo } from './runtime/provider-discovery'
@@ -26,7 +27,7 @@ export type { ProviderStatusInfo } from './runtime/provider-discovery'
 
 const discoveries: ProviderSessionDiscovery[] = [
   new ClaudeSessionDiscovery(),
-  new CodexSessionDiscovery(),
+  new CursorSessionDiscovery(),
 ]
 
 function getDiscovery(providerId: AgentProviderId): ProviderSessionDiscovery | undefined {
@@ -125,7 +126,7 @@ export async function listSessionsData(relayClient?: RelayClient, getAuthToken?:
     }),
   )
 
-  const refreshedIndexed = await listIndexedSessions()
+  const refreshedIndexed = (await listIndexedSessions())
 
   // Claude-specific: collect SDK sessions for buildSessionList cross-referencing
   const claudeIdx = discoveries.findIndex(d => d.providerId === 'claude')
@@ -135,20 +136,24 @@ export async function listSessionsData(relayClient?: RelayClient, getAuthToken?:
 
   const result = buildSessionList({
     indexedSessions: refreshedIndexed,
-    claudeSessions: claudeDiscovered.map(s => ({
+    claudeSessions: claudeDiscovered.map((s): SessionInfo => ({
       sessionId: s.sessionId,
-      ...s,
-    })) as SessionInfo[],
+      summary: '',
+      lastModified: s.updatedAt || 0,
+      fileSize: 0,
+      generatedTitle: s.title || undefined,
+      firstPrompt: s.firstPrompt || undefined,
+      cwd: s.workspaceDir || undefined,
+    })),
     claudeDbSessions: claudeDbSessions || [],
   })
 
-  // Backfill: generate haiku titles only for Claude sessions with no title from ANY source
+  // Backfill: generate haiku titles for sessions with no title from ANY source
   const sdkMap = new Map(
     claudeDiscovered.filter(s => s.sessionId).map(s => [s.sessionId, s]),
   )
   for (const indexed of refreshedIndexed) {
     if (indexed.title) continue
-    if (indexed.provider !== 'claude') continue
     if (!indexed.firstPrompt) continue
     const sdk = sdkMap.get(indexed.sessionId)
     if (sdk?.title) continue
@@ -222,7 +227,9 @@ export function beginTitleGeneration(prompt: string): Promise<string> {
 async function storeTitleForSession(sessionId: string, title: string): Promise<void> {
   if (!title || !moduleRelayClient || !moduleBroadcaster) return
 
-  await upsertIndexedSession(sessionId, { provider: 'claude', title })
+  // Look up the session's actual provider rather than hardcoding 'claude'
+  const meta = await getIndexedSessionMeta(sessionId)
+  await upsertIndexedSession(sessionId, { provider: meta?.provider || 'claude', title })
 
   const baseUrl = moduleRelayClient.getApiBaseUrl()
   if (baseUrl) {
@@ -439,6 +446,11 @@ export function registerSessionHandlers(relayClient?: RelayClient, broadcaster?:
   moduleRelayClient = relayClient
   moduleBroadcaster = broadcaster
 
+  // Wire up capability change broadcasts to renderer
+  setBroadcastCapabilityChange((providerId, capabilities) => {
+    broadcaster?.send('providers:capabilities-changed', { providerId, capabilities })
+  })
+
   ipcMain.handle('sessions:list', async () => {
     return listSessionsData(relayClient, getAuthToken)
   })
@@ -466,6 +478,10 @@ export function registerSessionHandlers(relayClient?: RelayClient, broadcaster?:
 
   ipcMain.handle('providers:get-status', async () => {
     return getProviderStatusData()
+  })
+
+  ipcMain.handle('providers:get-capabilities', async () => {
+    return getAllCapabilities()
   })
 
   ipcMain.handle('sessions:list-files', async (_event, dir?: string) => {
@@ -501,7 +517,8 @@ export function registerSessionHandlers(relayClient?: RelayClient, broadcaster?:
 
   ipcMain.handle('sessions:regen-title', async (_event, sessionId: string, firstPrompt: string) => {
     if (!firstPrompt?.trim()) return
-    await upsertIndexedSession(sessionId, { provider: 'claude', title: null })
+    const meta = await getIndexedSessionMeta(sessionId)
+    await upsertIndexedSession(sessionId, { provider: meta?.provider || 'claude', title: null })
     titleGenerationBySession.delete(sessionId)
     const title = await beginTitleGeneration(firstPrompt.trim())
     await storeTitleForSession(sessionId, title)

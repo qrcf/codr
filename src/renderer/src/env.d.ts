@@ -190,6 +190,10 @@ interface CodrAPI {
   // Provider status — independent check for all providers (desktop only)
   getProviderStatus?: () => Promise<Record<import('../../shared/provider-types').AgentProviderId, { installed: boolean; loggedIn: boolean; detail?: string; email?: string; org?: string }>>
 
+  // Provider capabilities — runtime-mutable capability discovery (desktop only)
+  getProviderCapabilities?: () => Promise<Record<AgentProviderId, string[]>>
+  onCapabilitiesChanged?: (callback: (data: { providerId: AgentProviderId; capabilities: string[] }) => void) => () => void
+
   // Docs feature
   addDocSource?: (source: { url: string; name: string; crawlDepth?: number; prefix?: string }) => Promise<DocSource | { error: string }>
   removeDocSource?: (sourceId: number) => Promise<{ ok?: boolean; error?: string }>

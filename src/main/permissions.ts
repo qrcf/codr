@@ -110,6 +110,44 @@ export function resolvePermission(id: number, allowed: boolean, message?: string
 }
 
 /**
+ * Register a pending permission in the shared system (used by Cursor provider).
+ * Returns a unique ID and a promise that resolves when the user responds.
+ */
+export function registerPendingPermission(sessionId: string | null): {
+  id: number
+  promise: Promise<{ allowed: boolean; message?: string }>
+} {
+  const id = ++permissionIdCounter
+  const promise = new Promise<{ allowed: boolean; message?: string }>((resolve, reject) => {
+    pendingPermissions.set(id, {
+      querySessionId: sessionId,
+      resolve: (allowed, message?) => resolve({ allowed, message }),
+      reject: (reason?) => reject(new Error(reason || 'Session interrupted')),
+    })
+  })
+  return { id, promise }
+}
+
+/**
+ * Register a pending question in the shared system (used by Cursor provider).
+ * Returns a unique ID and a promise that resolves when the user answers.
+ */
+export function registerPendingQuestion(sessionId: string | null): {
+  id: number
+  promise: Promise<Record<string, string>>
+} {
+  const id = ++permissionIdCounter
+  const promise = new Promise<Record<string, string>>((resolve, reject) => {
+    pendingQuestions.set(id, {
+      querySessionId: sessionId,
+      resolve,
+      reject: (reason?) => reject(new Error(reason || 'Session interrupted')),
+    })
+  })
+  return { id, promise }
+}
+
+/**
  * Resolve a pending question request with user's answers.
  */
 export function resolveQuestion(id: number, answers: Record<string, string>) {

@@ -1,4 +1,4 @@
-import { DiffView } from '../DiffView'
+import { DiffView } from '../ui/DiffView'
 import type { ToolCallInfo } from '../../types'
 
 export function EditRenderer({ tool }: { tool: ToolCallInfo }) {

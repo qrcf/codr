@@ -1,4 +1,4 @@
-export const PROVIDER_IDS = ['claude', 'codex'] as const
+export const PROVIDER_IDS = ['claude', 'cursor'] as const
 
 export type AgentProviderId = (typeof PROVIDER_IDS)[number]
 

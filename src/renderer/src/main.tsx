@@ -1,8 +1,8 @@
 import { StrictMode, lazy, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import { CodrProvider } from './CodrContext'
-import { AuthGate } from './components/AuthGate'
-import { CliGate } from './components/CliGate'
+import { AuthGate } from './components/overlays/AuthGate'
+import { CliGate } from './components/overlays/CliGate'
 import './index.css'
 
 const App = lazy(() => import('./App.tsx'))

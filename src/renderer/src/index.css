@@ -214,18 +214,6 @@ body {
 .plan-permission-text hr { border: none; border-top: 1px solid #444; margin: 12px 0; }
 .plan-permission-text strong { color: #fff; }
 
-/* Collapsible dialog collapsed state */
-.collapsible-body.collapsed .permission-header,
-.collapsible-body.collapsed .permission-detail,
-.collapsible-body.collapsed .plan-review-header,
-.collapsible-body.collapsed .plan-review-content,
-.collapsible-body.collapsed .plan-review-feedback,
-.collapsible-body.collapsed .plan-permission-feedback,
-.collapsible-body.collapsed .question-header,
-.collapsible-body.collapsed .question-item,
-.collapsible-body.collapsed .question-stepper {
-  display: none;
-}
 
 /* Tooltip "copied" JS-applied state */
 .tooltip-value.copied { background: #1a3a1a; }

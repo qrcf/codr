@@ -18,7 +18,7 @@ export function AskUserQuestionRenderer({ tool }: { tool: ToolCallInfo }) {
                 return (
                   <div
                     key={opt.label}
-                    className={`flex flex-col gap-[2px] px-3 py-2 border rounded-md ${isSelected ? 'border-[#8142c7] bg-[#2a2a4a] text-[#ccc]' : 'border-[#2a2a2a] bg-[#1a1a1a] text-[#777]'}`}
+                    className={`flex flex-col gap-[2px] px-3 py-2 border rounded-md ${isSelected ? 'border-accent bg-[#2a2a4a] text-[#ccc]' : 'border-[#2a2a2a] bg-[#1a1a1a] text-[#777]'}`}
                   >
                     <span className={`font-semibold text-[0.9em] ${isSelected ? 'text-[#eee]' : ''}`}>{opt.label}</span>
                     <span className="text-[0.8em] opacity-80">{opt.description}</span>
@@ -27,7 +27,7 @@ export function AskUserQuestionRenderer({ tool }: { tool: ToolCallInfo }) {
               })}
             </div>
             {answer && !q.options.some((o) => answer.split(', ').includes(o.label)) && (
-              <div className="mt-2 px-3 py-2 border border-[#8142c7] rounded-md bg-[#2a2a4a] text-[#ccc] text-[0.9em]">
+              <div className="mt-2 px-3 py-2 border border-accent rounded-md bg-[#2a2a4a] text-[#ccc] text-[0.9em]">
                 Answer: {answer}
               </div>
             )}

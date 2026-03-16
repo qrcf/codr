@@ -1,5 +1,5 @@
 import { Loader2, XCircle, CheckCircle2 } from 'lucide-react'
-import { MarkdownContent } from '../MarkdownContent'
+import { MarkdownContent } from '../messages/MarkdownContent'
 import type { ToolCallInfo } from '../../types'
 
 export function AgentRenderer({ tool }: { tool: ToolCallInfo }) {

@@ -1,5 +1,5 @@
 import type { ToolCallInfo } from '../../types'
-import { CodeBlock } from '../CodeBlock'
+import { CodeBlock } from '../messages/CodeBlock'
 import { langFromPath } from '../../utils/langUtils'
 
 const PREVIEW_LINES = 8

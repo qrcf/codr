@@ -7,8 +7,8 @@ import { getSelectedProvider, setSelectedProvider, getSelectedModel, setSelected
 import { getModelsForProvider } from './runtime/models'
 import { appendIndexedRawMessage, getIndexedSessionMeta, putIndexedRawMessages, upsertIndexedSession } from './runtime/session-index'
 import { shouldPersistIndexedMessage } from './runtime/session-index-storage'
-import { ClaudeProvider, getClaudeCliPath } from './runtime/providers/claude-provider'
-import { CodexProvider } from './runtime/providers/codex-provider'
+import { ClaudeProvider, getClaudeCliPath } from './runtime/providers/claude/provider'
+import { CursorProvider } from './runtime/providers/cursor/provider'
 import type { AgentProvider, AgentProviderId, AgentProviderContext } from './runtime/provider'
 import { isValidProviderId } from './runtime/provider'
 import { resolveSessionProvider } from './runtime/session-records'
@@ -52,7 +52,7 @@ export function registerAgentHandlers(
   }
   const providers: Record<AgentProviderId, AgentProvider> = {
     claude: new ClaudeProvider(providerContext),
-    codex: new CodexProvider(providerContext),
+    cursor: new CursorProvider(providerContext),
   }
 
   // Run a query (used by both IPC and relay-forwarded commands)

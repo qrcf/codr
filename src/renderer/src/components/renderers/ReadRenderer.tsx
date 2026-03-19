@@ -14,13 +14,12 @@ function parseLine(raw: string): { lineNum: number; content: string } | null {
 
 export function ReadRenderer({ tool }: { tool: ToolCallInfo }) {
   const [showAll, setShowAll] = useState(false)
-  const filePath = tool.input.file_path as string | undefined
-  if (!filePath) return null
+  const filePath = (tool.input.file_path as string) || tool.locations?.[0]?.path || ''
   const offset = tool.input.offset as number | undefined
   const limit = tool.input.limit as number | undefined
   const result = tool.result || ''
 
-  const fileName = filePath.split('/').pop() || filePath
+  const fileName = filePath ? (filePath.split('/').pop() || filePath) : (tool.title || 'Read')
   const allLines = result.split('\n')
   const parsedLines = allLines.map(parseLine)
   const totalLines = allLines.length

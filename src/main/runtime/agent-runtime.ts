@@ -3,7 +3,9 @@ import { appendIndexedRawMessage, putIndexedRawMessages, upsertIndexedSession } 
 import { shouldPersistIndexedMessage } from './session-index-storage'
 import type { AgentProvider, AgentProviderId, AgentProviderContext, AgentQueryRequest } from './provider'
 import { ClaudeProvider } from './providers/claude/provider'
-import { CursorProvider, setCursorProvider } from './providers/cursor/provider'
+import { AcpProvider } from './acp/provider'
+import { registerAcpProvider } from './acp/registry'
+import { createCursorConfig } from './acp/configs/cursor'
 
 export class AgentRuntime {
   private readonly providers: Record<AgentProviderId, AgentProvider>
@@ -11,8 +13,8 @@ export class AgentRuntime {
 
   constructor(ctx: AgentProviderContext) {
     this.ctx = ctx
-    const cursorProvider = new CursorProvider(ctx)
-    setCursorProvider(cursorProvider)
+    const cursorProvider = new AcpProvider(createCursorConfig(), ctx)
+    registerAcpProvider(cursorProvider)
     this.providers = {
       claude: new ClaudeProvider(ctx),
       cursor: cursorProvider,

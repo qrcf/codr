@@ -30,7 +30,7 @@ function toolCallsMatch(a: ToolCallInfo[], b: ToolCallInfo[]): boolean {
     const other = b[index]
     if (!other) return false
     return tool.id === other.id
-      && tool.name === other.name
+      && tool.kind === other.kind
       && tool.result === other.result
       && tool.isError === other.isError
       && tool.status === other.status

@@ -24,6 +24,7 @@ import { registerAgentHandlers } from './agent'
 import { registerSessionHandlers, listSessionsData, getSessionMessagesData, getAccountInfoData, listFilesData, startSessionWatcher, setAuthFailureHandler } from './sessions'
 import { resolvePermission, resolveQuestion, updateSettings, approveToolForSession, type MessageOrigin } from './permissions'
 import { getSelectedProvider, setSelectedProvider, getSelectedModel, setSelectedModel } from './runtime/provider-config'
+import { getAllCapabilities } from './runtime/provider-capabilities'
 import { getModelsForProvider } from './runtime/models'
 import { EventBroadcaster } from './event-broadcaster'
 import { RelayClient } from './relay-client'
@@ -293,6 +294,12 @@ relayClient.onMessage(async (msg) => {
           case 'get_session_messages':
             data = await getSessionMessagesData(params?.sessionId as string, params?.dir as string | undefined)
             break
+          case 'get_session_raw_messages': {
+            const { getIndexedSessionMessages } = await import('./runtime/session-index')
+            const indexed = await getIndexedSessionMessages(params?.sessionId as string)
+            data = indexed?.rawMessages ?? []
+            break
+          }
           case 'get_account_info':
             data = await getAccountInfoData()
             break
@@ -325,6 +332,9 @@ relayClient.onMessage(async (msg) => {
             data = { models, selectedModel }
             break
           }
+          case 'get_provider_capabilities':
+            data = getAllCapabilities()
+            break
           case 'set_model': {
             const smProvider = params?.provider as AgentProviderId
             const smModel = params?.model as string | undefined

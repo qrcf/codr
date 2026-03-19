@@ -71,6 +71,15 @@ export function CliGate({ children }: CliGateProps) {
     checkStatus()
   }, [checkStatus])
 
+  // React to background status refresh results
+  useEffect(() => {
+    if (!codr.onProviderStatusChanged) return
+    return codr.onProviderStatusChanged((status) => {
+      const anyReady = Object.values(status).some(s => s.installed && s.loggedIn)
+      if (anyReady) setGateStatus('ready')
+    })
+  }, [codr])
+
   if (gateStatus === 'checking') {
     return (
       <div className="flex items-center justify-center h-screen bg-[#0d0d1a]">

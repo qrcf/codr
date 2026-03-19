@@ -54,6 +54,8 @@ export interface AgentProviderContext {
 
 export interface AgentProvider {
   readonly id: AgentProviderId
+  /** When true, provider stores session data itself — agent.ts skips its own storage. */
+  readonly handlesOwnStorage?: boolean
   runQuery: (req: AgentQueryRequest, callbacks: ProviderRunCallbacks) => Promise<ProviderRunResult>
   interruptQuery: (sessionId?: string) => Promise<void>
   /** Force-clean active queries during abnormal teardown. Returns cleaned-up session IDs. */

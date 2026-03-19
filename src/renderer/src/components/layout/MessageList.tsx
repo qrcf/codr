@@ -1,10 +1,10 @@
-import { memo, useMemo, useState, useEffect, useCallback } from 'react'
+import { memo, useState, useEffect, useCallback } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { MarkdownContent } from '../messages/MarkdownContent'
 import { MessageBubble } from '../messages/MessageBubble'
 import { ToolCallBlock } from '../messages/ToolCallBlock'
 import { formatMessageContent } from '../../utils/formatMessage'
-import type { ChatMessage, ToolCallInfo } from '../../types'
+import type { ChatMessage, ToolCallInfo, StreamingSegment } from '../../types'
 
 function StreamingThinkingSection({ thinking }: { thinking: string }) {
   const [expanded, setExpanded] = useState(true)
@@ -29,6 +29,7 @@ interface StreamingAreaProps {
   streamingText: string
   streamingTools: ToolCallInfo[]
   streamingThinking: string
+  streamingSegments: StreamingSegment[]
   isCompacting: boolean
   onInterrupt: () => void
 }
@@ -38,30 +39,33 @@ const StreamingArea = memo(function StreamingArea({
   streamingText,
   streamingTools,
   streamingThinking,
+  streamingSegments,
   isCompacting,
   onInterrupt,
 }: StreamingAreaProps) {
-  const formattedStreaming = useMemo(
-    () => streamingText ? formatMessageContent(streamingText) : null,
-    [streamingText],
-  )
-
   if (!isLoading) return null
 
-  if (streamingThinking || streamingText || streamingTools.length > 0) {
+  if (streamingSegments.length > 0) {
     return (
       <div className="py-1">
-        {formattedStreaming && <MarkdownContent className="message-content" tags={formattedStreaming.tags}>{formattedStreaming.text}</MarkdownContent>}
-        {streamingTools.length > 0 && (
-          <div className="flex flex-col gap-px mt-1">
-            {streamingTools.map((tool) => (
-              <ToolCallBlock key={tool.id} tool={tool} />
-            ))}
-          </div>
-        )}
-        {streamingThinking && (
-          <StreamingThinkingSection thinking={streamingThinking} />
-        )}
+        {streamingSegments.map((segment, i) => {
+          switch (segment.type) {
+            case 'thinking':
+              return <StreamingThinkingSection key={`thinking-${i}`} thinking={segment.content} />
+            case 'tools':
+              return (
+                <div key={`tools-${i}`} className="flex flex-col gap-px mt-1">
+                  {segment.tools.map((tool) => (
+                    <ToolCallBlock key={tool.id} tool={tool} />
+                  ))}
+                </div>
+              )
+            case 'text': {
+              const formatted = formatMessageContent(segment.content)
+              return <MarkdownContent key={`text-${i}`} className="message-content" tags={formatted.tags}>{formatted.text}</MarkdownContent>
+            }
+          }
+        })}
         <div className="flex items-center gap-2.5 py-2">
           <div className="w-4 h-4 border-2 border-[#444] border-t-accent rounded-full animate-[spin_0.8s_linear_infinite] shrink-0" />
           <span className="text-text-faint italic">{isCompacting ? 'Compacting context...' : streamingThinking && !streamingText && streamingTools.length === 0 ? 'Reasoning...' : 'Working...'}</span>
@@ -88,6 +92,7 @@ interface MessageListProps {
   streamingText: string
   streamingTools: ToolCallInfo[]
   streamingThinking: string
+  streamingSegments: StreamingSegment[]
   isCompacting: boolean
   hasMoreMessages: boolean
   onInterrupt: () => void
@@ -105,6 +110,7 @@ export function MessageList({
   streamingText,
   streamingTools,
   streamingThinking,
+  streamingSegments,
   isCompacting,
   hasMoreMessages,
   onInterrupt,
@@ -151,6 +157,7 @@ export function MessageList({
         streamingText={streamingText}
         streamingTools={streamingTools}
         streamingThinking={streamingThinking}
+        streamingSegments={streamingSegments}
         isCompacting={isCompacting}
         onInterrupt={onInterrupt}
       />

@@ -11,9 +11,15 @@ interface ContentBlock {
   thinking?: string
   id?: string
   name?: string
+  kind?: string
+  title?: string
   input?: Record<string, unknown>
   tool_use_id?: string
   content?: unknown
+  locations?: Array<{ path: string; line?: number | null }>
+  rawInput?: unknown
+  rawOutput?: unknown
+  meta?: Record<string, unknown>
 }
 
 export function parseSessionMessages(raw: RawSessionMessage[]): ChatMessage[] {
@@ -97,15 +103,21 @@ export function parseSessionMessages(raw: RawSessionMessage[]): ChatMessage[] {
           thinkingParts.push(block.thinking)
         } else if (block.type === 'text' && block.text) {
           textParts.push(block.text)
-        } else if (block.type === 'tool_use' && block.id && block.name) {
+        } else if (block.type === 'tool_use' && block.id && (block.kind || block.name)) {
           const toolResult = toolResults.get(block.id)
           toolCalls.push({
             id: block.id,
-            name: block.name,
+            kind: block.kind || block.name || 'other',
+            title: block.title,
             input: block.input || {},
             result: toolResult?.content,
             isError: toolResult?.isError,
             status: toolResult ? (toolResult.isError ? 'error' : 'done') : 'running',
+            content: block.content as Array<{ type: string; [key: string]: unknown }> | undefined,
+            locations: block.locations,
+            rawInput: block.rawInput,
+            rawOutput: block.rawOutput,
+            meta: block.meta,
           })
         }
       }

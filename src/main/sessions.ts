@@ -13,11 +13,13 @@ import type { EventBroadcaster } from './event-broadcaster'
 import type { AgentProviderId } from './runtime/provider'
 import { PROVIDER_IDS } from './runtime/provider'
 import { getSelectedProvider } from './runtime/provider-config'
-import { getIndexedSessionMessages, getIndexedSessionMeta, listIndexedSessions, putIndexedRawMessages, upsertIndexedSession } from './runtime/session-index'
+import { getIndexedSessionMessages, getIndexedSessionMeta, listIndexedSessions, putIndexedRawMessages, upsertIndexedSession, getPersistedProviderStatus, persistProviderStatus } from './runtime/session-index'
 import { buildSessionList, shouldUseIndexedMessages, type ClaudeDbSessionMeta } from './runtime/session-records'
 import type { ProviderSessionDiscovery, DiscoveryContext } from './runtime/provider-discovery'
 import { ClaudeSessionDiscovery, setCachedAccountInfo as setClaudeCachedAccountInfo, getCachedAccountInfo } from './runtime/providers/claude/discovery'
-import { CursorSessionDiscovery } from './runtime/providers/cursor/discovery'
+import { AcpSessionDiscovery } from './runtime/acp/discovery'
+import { isAcpSessionFormat, parseAcpSession } from './runtime/acp/session-parser'
+import { createCursorConfig } from './runtime/acp/configs/cursor'
 import { getAllCapabilities, setBroadcastCapabilityChange } from './runtime/provider-capabilities'
 
 // Re-export ProviderStatusInfo for consumers
@@ -27,7 +29,7 @@ export type { ProviderStatusInfo } from './runtime/provider-discovery'
 
 const discoveries: ProviderSessionDiscovery[] = [
   new ClaudeSessionDiscovery(),
-  new CursorSessionDiscovery(),
+  new AcpSessionDiscovery(createCursorConfig()),
 ]
 
 function getDiscovery(providerId: AgentProviderId): ProviderSessionDiscovery | undefined {
@@ -99,21 +101,15 @@ let moduleBroadcaster: EventBroadcaster | undefined
 
 // --- Reusable data functions (called by both IPC and relay) ---
 
-export async function listSessionsData(relayClient?: RelayClient, getAuthToken?: () => Promise<string>) {
-  const context: DiscoveryContext = {
-    relayClient: relayClient ? {
-      getApiBaseUrl: () => relayClient.getApiBaseUrl(),
-      getAuthToken: () => relayClient.getAuthToken(),
-    } : undefined,
-    getAuthToken,
-  }
-
-  // Discover sessions from all providers in parallel
+/** Full discovery + upsert cycle. Returns the updated indexed sessions. */
+async function runDiscovery(context: DiscoveryContext): Promise<{
+  allDiscovered: import('./runtime/provider-discovery').DiscoveredSession[][]
+  refreshedIndexed: import('./runtime/session-index').IndexedSessionMeta[]
+}> {
   const allDiscovered = await Promise.all(
     discoveries.map(d => d.discoverSessions(context).catch(() => []))
   )
 
-  // Upsert all discovered sessions into the shared index
   await Promise.all(
     allDiscovered.flat().map(async (session) => {
       await upsertIndexedSession(session.sessionId, {
@@ -126,9 +122,71 @@ export async function listSessionsData(relayClient?: RelayClient, getAuthToken?:
     }),
   )
 
-  const refreshedIndexed = (await listIndexedSessions())
+  const refreshedIndexed = await listIndexedSessions()
+  return { allDiscovered, refreshedIndexed }
+}
 
-  // Claude-specific: collect SDK sessions for buildSessionList cross-referencing
+let pendingDiscoveryPromise: Promise<void> | null = null
+
+/** Kick off discovery in the background; broadcast refresh-hint if the session set changes. */
+function discoverInBackground(context: DiscoveryContext, prevSessionIds: Set<string>): void {
+  if (pendingDiscoveryPromise) return
+  pendingDiscoveryPromise = (async () => {
+    try {
+      const { refreshedIndexed } = await runDiscovery(context)
+      const newIds = new Set(refreshedIndexed.map(s => s.sessionId))
+      const changed =
+        newIds.size !== prevSessionIds.size ||
+        refreshedIndexed.some(s => !prevSessionIds.has(s.sessionId))
+      if (changed) {
+        moduleBroadcaster?.send('sessions:refresh-hint')
+      }
+    } catch { /* silent — background work */ }
+  })().finally(() => {
+    pendingDiscoveryPromise = null
+  })
+}
+
+export async function listSessionsData(relayClient?: RelayClient, getAuthToken?: () => Promise<string>) {
+  const context: DiscoveryContext = {
+    relayClient: relayClient ? {
+      getApiBaseUrl: () => relayClient.getApiBaseUrl(),
+      getAuthToken: () => relayClient.getAuthToken(),
+    } : undefined,
+    getAuthToken,
+  }
+
+  // If we have sessions in the index already, return them immediately and discover in background
+  const existingIndexed = await listIndexedSessions()
+  if (existingIndexed.length > 0) {
+    const claudeDbSessions = await fetchClaudeDbSessions(relayClient, getAuthToken)
+    const dbFetchSucceeded = claudeDbSessions !== null
+
+    const result = buildSessionList({
+      indexedSessions: existingIndexed,
+      claudeSessions: [],
+      claudeDbSessions: claudeDbSessions || [],
+    })
+
+    // Backfill titles for indexed sessions without one
+    for (const indexed of existingIndexed) {
+      if (indexed.title) continue
+      if (!indexed.firstPrompt) continue
+      storeSessionTitle(indexed.sessionId, indexed.firstPrompt)
+    }
+
+    const prevIds = new Set(existingIndexed.map(s => s.sessionId))
+    discoverInBackground(context, prevIds)
+
+    return {
+      sessions: result.sessions,
+      titlesLoaded: dbFetchSucceeded || result.titlesLoaded,
+    }
+  }
+
+  // First run — no index yet, do blocking discovery
+  const { allDiscovered, refreshedIndexed } = await runDiscovery(context)
+
   const claudeIdx = discoveries.findIndex(d => d.providerId === 'claude')
   const claudeDiscovered = claudeIdx >= 0 ? allDiscovered[claudeIdx] : []
   const claudeDbSessions = await fetchClaudeDbSessions(relayClient, getAuthToken)
@@ -269,6 +327,10 @@ export async function getSessionMessagesData(sessionId: string, dir?: string) {
   // Check our index first for any provider
   const indexed = await getIndexedSessionMessages(sessionId)
   if (expectedProvider && shouldUseIndexedMessages(indexed, expectedProvider)) {
+    // ACP sessions are stored as raw SessionUpdate events — convert to message format
+    if (isAcpSessionFormat(indexed.rawMessages)) {
+      return parseAcpSession(sessionId, expectedProvider, indexed.rawMessages)
+    }
     return indexed.rawMessages
   }
 
@@ -428,7 +490,9 @@ export async function listFilesData(dir?: string, maxFiles?: number) {
 
 export type AllProviderStatus = Record<AgentProviderId, import('./runtime/provider-discovery').ProviderStatusInfo>
 
-export async function getProviderStatusData(): Promise<AllProviderStatus> {
+let pendingStatusPromise: Promise<AllProviderStatus> | null = null
+
+async function doProviderStatusCheck(): Promise<AllProviderStatus> {
   const results = await Promise.all(
     PROVIDER_IDS.map(async (id) => {
       const discovery = getDiscovery(id)
@@ -437,7 +501,39 @@ export async function getProviderStatusData(): Promise<AllProviderStatus> {
       return [id, status] as const
     })
   )
-  return Object.fromEntries(results) as AllProviderStatus
+  const status = Object.fromEntries(results) as AllProviderStatus
+  // Persist for next boot
+  for (const [id, info] of Object.entries(status)) {
+    persistProviderStatus(id, info)
+  }
+  return status
+}
+
+function refreshProviderStatusInBackground(): void {
+  if (pendingStatusPromise) return
+  pendingStatusPromise = doProviderStatusCheck().finally(() => {
+    pendingStatusPromise = null
+  })
+  pendingStatusPromise.then((fresh) => {
+    // Broadcast to renderer if status has changed
+    moduleBroadcaster?.send('providers:status-changed', fresh)
+  }).catch(() => {})
+}
+
+export async function getProviderStatusData(): Promise<AllProviderStatus> {
+  // Return persisted status immediately on boot; refresh in background
+  const persisted = getPersistedProviderStatus()
+  if (persisted && Object.keys(persisted).length > 0) {
+    refreshProviderStatusInBackground()
+    return persisted as AllProviderStatus
+  }
+
+  // First-ever run or no cache — do a blocking check
+  if (pendingStatusPromise) return pendingStatusPromise
+  pendingStatusPromise = doProviderStatusCheck().finally(() => {
+    pendingStatusPromise = null
+  })
+  return pendingStatusPromise
 }
 
 // --- IPC handlers ---
@@ -457,6 +553,11 @@ export function registerSessionHandlers(relayClient?: RelayClient, broadcaster?:
 
   ipcMain.handle('sessions:get-messages', async (_event, sessionId: string, dir?: string) => {
     return getSessionMessagesData(sessionId, dir)
+  })
+
+  ipcMain.handle('sessions:get-raw-messages', async (_event, sessionId: string) => {
+    const indexed = await getIndexedSessionMessages(sessionId)
+    return indexed?.rawMessages ?? []
   })
 
   ipcMain.handle('sessions:select-folder', async () => {

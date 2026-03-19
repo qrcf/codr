@@ -22,28 +22,27 @@ function useCopyButton(text: string | undefined) {
 }
 
 function isPlanWrite(t: ToolCallInfo): boolean {
-  return t.name === 'Write' && (t.input.file_path as string)?.includes('.claude/plans/')
+  return (t.kind === 'Edit' || t.kind === 'Write') && (t.input.file_path as string)?.includes('.claude/plans/')
 }
 
 function buildToolSummary(tools: ToolCallInfo[]): string {
   const counts: Record<string, number> = {}
-  for (const t of tools) counts[t.name] = (counts[t.name] || 0) + 1
+  for (const t of tools) counts[t.kind] = (counts[t.kind] || 0) + 1
 
   const parts: string[] = []
   if (counts.Read) parts.push(`Read ${counts.Read} file${counts.Read > 1 ? 's' : ''}`)
-  if (counts.Edit) parts.push(`edited ${counts.Edit} file${counts.Edit > 1 ? 's' : ''}`)
-  if (counts.Write) parts.push(`wrote ${counts.Write} file${counts.Write > 1 ? 's' : ''}`)
-  if (counts.Grep) parts.push(`${counts.Grep} search${counts.Grep > 1 ? 'es' : ''}`)
-  if (counts.Glob) parts.push(`${counts.Glob} glob${counts.Glob > 1 ? 's' : ''}`)
+  if (counts.Edit || counts.Write) parts.push(`edited ${(counts.Edit || 0) + (counts.Write || 0)} file${((counts.Edit || 0) + (counts.Write || 0)) > 1 ? 's' : ''}`)
+  if (counts.Grep || counts.Glob) parts.push(`${(counts.Grep || 0) + (counts.Glob || 0)} search${((counts.Grep || 0) + (counts.Glob || 0)) > 1 ? 'es' : ''}`)
   if (counts.Bash) parts.push(`ran ${counts.Bash} command${counts.Bash > 1 ? 's' : ''}`)
+  if (counts.WebFetch || counts.WebSearch) parts.push(`${(counts.WebFetch || 0) + (counts.WebSearch || 0)} fetch${((counts.WebFetch || 0) + (counts.WebSearch || 0)) > 1 ? 'es' : ''}`)
   if (counts.TodoWrite) parts.push('updated tasks')
   if (counts.EnterPlanMode || counts.ExitPlanMode) parts.push('plan mode')
 
-  // Catch any remaining tool types
-  const excluded = ['Read', 'Edit', 'Write', 'Grep', 'Glob', 'Bash', 'Agent', 'TodoWrite', 'EnterPlanMode', 'ExitPlanMode']
-  for (const [name, count] of Object.entries(counts)) {
-    if (!excluded.includes(name)) {
-      parts.push(`${count} ${name}`)
+  const excluded = new Set(['Read', 'Edit', 'Write', 'Grep', 'Glob', 'Bash', 'Agent', 'TodoWrite',
+    'EnterPlanMode', 'ExitPlanMode', 'AskUserQuestion', 'WebFetch', 'WebSearch'])
+  for (const [kind, count] of Object.entries(counts)) {
+    if (!excluded.has(kind)) {
+      parts.push(`${count} ${kind}`)
     }
   }
 
@@ -51,9 +50,9 @@ function buildToolSummary(tools: ToolCallInfo[]): string {
 }
 
 export const MessageBubble = memo(function MessageBubble({ message, approvedPlanToolIds }: { message: ChatMessage; approvedPlanToolIds?: Set<string> }) {
-  const agents = message.toolCalls.filter((t) => t.name === 'Agent')
+  const agents = message.toolCalls.filter((t) => t.kind === 'Agent')
   const planWrites = message.toolCalls.filter((t) => isPlanWrite(t))
-  const otherTools = message.toolCalls.filter((t) => t.name !== 'Agent' && !isPlanWrite(t))
+  const otherTools = message.toolCalls.filter((t) => t.kind !== 'Agent' && !isPlanWrite(t))
   const hasRunning = otherTools.some((t) => t.status === 'running')
   const [groupExpanded, setGroupExpanded] = useState(hasRunning)
   const [thinkingExpanded, setThinkingExpanded] = useState(false)
@@ -101,6 +100,27 @@ export const MessageBubble = memo(function MessageBubble({ message, approvedPlan
           )}
         </div>
       )}
+      {agents.map((agent) => (
+        <AgentCard key={agent.id} tool={agent} />
+      ))}
+      {planWrites.map((pw) => (
+        <PlanWriteRenderer key={pw.id} tool={pw} isApproved={approvedPlanToolIds?.has(pw.id)} />
+      ))}
+      {otherTools.length > 0 && (
+        <div className="mt-2">
+          <div className="flex items-center gap-1.5 px-2 py-1 cursor-pointer select-none text-text-muted text-[0.85em] rounded hover:bg-border-subtle hover:text-[#ccc]" onClick={() => setGroupExpanded(!groupExpanded)}>
+            <span className="text-[0.8em] text-text-dim shrink-0">{groupExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
+            <span className="font-['SF_Mono','Fira_Code',monospace]">{buildToolSummary(otherTools)}</span>
+          </div>
+          {groupExpanded && (
+            <div className="flex flex-col gap-px mt-1">
+              {otherTools.map((tool) => (
+                <ToolCallBlock key={tool.id} tool={tool} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       {message.content && (
         <div>
           <div
@@ -125,27 +145,6 @@ export const MessageBubble = memo(function MessageBubble({ message, approvedPlan
       )}
       {message.attachments && message.attachments.length > 0 && (
         <MessageAttachmentChips attachments={message.attachments} />
-      )}
-      {agents.map((agent) => (
-        <AgentCard key={agent.id} tool={agent} />
-      ))}
-      {planWrites.map((pw) => (
-        <PlanWriteRenderer key={pw.id} tool={pw} isApproved={approvedPlanToolIds?.has(pw.id)} />
-      ))}
-      {otherTools.length > 0 && (
-        <div className="mt-2">
-          <div className="flex items-center gap-1.5 px-2 py-1 cursor-pointer select-none text-text-muted text-[0.85em] rounded hover:bg-border-subtle hover:text-[#ccc]" onClick={() => setGroupExpanded(!groupExpanded)}>
-            <span className="text-[0.8em] text-text-dim shrink-0">{groupExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
-            <span className="font-['SF_Mono','Fira_Code',monospace]">{buildToolSummary(otherTools)}</span>
-          </div>
-          {groupExpanded && (
-            <div className="flex flex-col gap-px mt-1">
-              {otherTools.map((tool) => (
-                <ToolCallBlock key={tool.id} tool={tool} />
-              ))}
-            </div>
-          )}
-        </div>
       )}
     </>
   )

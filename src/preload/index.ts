@@ -96,6 +96,7 @@ const agentApi = {
   selectFolder: () => ipcRenderer.invoke('sessions:select-folder'),
   listSessions: () => ipcRenderer.invoke('sessions:list'),
   getSessionMessages: (sessionId: string) => ipcRenderer.invoke('sessions:get-messages', sessionId),
+  getSessionRawMessages: (sessionId: string) => ipcRenderer.invoke('sessions:get-raw-messages', sessionId),
   getAccountInfo: () => {
     // Try the probe query first (works in dev). If it fails, keep the promise
     // pending until agent.ts pushes account info via IPC after the first real query.
@@ -201,6 +202,12 @@ const agentApi = {
     const listener = (_event: Electron.IpcRendererEvent, data: { providerId: AgentProviderId; capabilities: string[] }) => callback(data)
     ipcRenderer.on('providers:capabilities-changed', listener)
     return () => { ipcRenderer.removeListener('providers:capabilities-changed', listener) }
+  },
+
+  onProviderStatusChanged: (callback: (status: Record<AgentProviderId, { installed: boolean; loggedIn: boolean; detail?: string; email?: string; org?: string }>) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: Record<AgentProviderId, { installed: boolean; loggedIn: boolean; detail?: string; email?: string; org?: string }>) => callback(status)
+    ipcRenderer.on('providers:status-changed', listener)
+    return () => { ipcRenderer.removeListener('providers:status-changed', listener) }
   },
 
   // Docs feature

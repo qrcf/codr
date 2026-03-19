@@ -23,12 +23,14 @@ interface UseInputComposerParams {
   onSend: () => void
   docsAPI: ReturnType<typeof useDocsAPI>
   projectFolderRef: React.MutableRefObject<string | null>
+  availableCommands: SlashCommand[]
 }
 
 export function useInputComposer({
   onSend,
   docsAPI,
   projectFolderRef,
+  availableCommands,
 }: UseInputComposerParams) {
   const codr = useCodr()
   const [input, setInput] = useState('')
@@ -42,6 +44,9 @@ export function useInputComposer({
   const [attachments, setAttachments] = useState<AttachmentMeta[]>([])
   const [isDragOver, setIsDragOver] = useState(false)
   const [refFinderOpen, setRefFinderOpen] = useState(false)
+  const [slashActive, setSlashActive] = useState(false)
+  const [slashQuery, setSlashQuery] = useState('')
+  const [slashIndex, setSlashIndex] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Textarea auto-resize
@@ -81,6 +86,26 @@ export function useInputComposer({
     const cursor = e.target.selectionStart
     setInput(value)
 
+    // Slash command detection: `/` at start of input
+    if (slashActive) {
+      const textAfterSlash = value.slice(1, cursor)
+      if (textAfterSlash.includes('\n') || cursor < 1 || value[0] !== '/') {
+        setSlashActive(false)
+        setSlashQuery('')
+        setSlashIndex(0)
+      } else {
+        setSlashQuery(textAfterSlash)
+        setSlashIndex(0)
+      }
+    } else if (value[0] === '/' && cursor >= 1 && !mentionActive) {
+      // Activate on first `/` at start of input
+      if (availableCommands.length > 0) {
+        setSlashActive(true)
+        setSlashQuery(value.slice(1, cursor))
+        setSlashIndex(0)
+      }
+    }
+
     if (mentionActive) {
       const textAfterAt = value.slice(mentionStart + 1, cursor)
       if (textAfterAt.includes(' ') || textAfterAt.includes('\n') || cursor <= mentionStart) {
@@ -91,7 +116,7 @@ export function useInputComposer({
         setMentionQuery(textAfterAt)
         setMentionIndex(0)
       }
-    } else {
+    } else if (!slashActive) {
       const charBeforeCursor = value[cursor - 1]
       const charBeforeAt = value[cursor - 2]
       if (charBeforeCursor === '@' && (cursor === 1 || charBeforeAt === ' ' || charBeforeAt === '\n' || charBeforeAt === undefined)) {
@@ -308,7 +333,44 @@ export function useInputComposer({
     textareaRef.current?.focus()
   }, [])
 
+  // Compute filtered slash commands for the dropdown
+  const filteredSlashCommands = slashActive
+    ? availableCommands.filter(c => c.name.toLowerCase().startsWith(slashQuery.toLowerCase()))
+    : []
+
+  const handleSlashSelect = useCallback((cmd: SlashCommand) => {
+    setInput(`/${cmd.name} `)
+    setSlashActive(false)
+    setSlashQuery('')
+    setSlashIndex(0)
+    textareaRef.current?.focus()
+  }, [])
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (slashActive && filteredSlashCommands.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSlashIndex(i => Math.min(i + 1, filteredSlashCommands.length - 1))
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSlashIndex(i => Math.max(i - 1, 0))
+        return
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault()
+        handleSlashSelect(filteredSlashCommands[slashIndex])
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setSlashActive(false)
+        setSlashQuery('')
+        setSlashIndex(0)
+        return
+      }
+    }
     if (mentionActive) {
       const totalItems = getMentionItemCount(fileCache, docsAPI.sources, mentionQuery)
       if (e.key === 'ArrowDown') {
@@ -392,5 +454,10 @@ export function useInputComposer({
     handleDrop,
     handlePaste,
     resetInput,
+    slashActive,
+    slashQuery,
+    slashIndex,
+    filteredSlashCommands,
+    handleSlashSelect,
   }
 }

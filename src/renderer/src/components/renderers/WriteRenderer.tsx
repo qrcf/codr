@@ -5,11 +5,10 @@ import { langFromPath } from '../../utils/langUtils'
 const PREVIEW_LINES = 8
 
 export function WriteRenderer({ tool }: { tool: ToolCallInfo }) {
-  const filePath = tool.input.file_path as string | undefined
-  if (!filePath) return null
-  const content = tool.input.content as string || ''
+  const filePath = (tool.input.file_path as string) || tool.locations?.[0]?.path || ''
+  const content = (tool.input.content as string) || tool.result || ''
 
-  const fileName = filePath.split('/').pop() || filePath
+  const fileName = filePath ? (filePath.split('/').pop() || filePath) : (tool.title || 'Write')
   const lines = content.split('\n')
   const lineCount = lines.length
   const preview = lines.slice(0, PREVIEW_LINES).join('\n')

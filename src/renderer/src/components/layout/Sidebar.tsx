@@ -203,6 +203,18 @@ export function Sidebar({
     }).catch(() => {})
   }, [codr])
 
+  // Apply background status refresh results
+  useEffect(() => {
+    if (!codr.onProviderStatusChanged) return
+    return codr.onProviderStatusChanged((status) => {
+      const avail: Partial<Record<AgentProviderId, boolean>> = {}
+      for (const [id, info] of Object.entries(status)) {
+        avail[id as AgentProviderId] = info.installed
+      }
+      setProviderAvailability(avail)
+    })
+  }, [codr])
+
   // Fetch account info with retry
   useEffect(() => {
     let retryTimer: ReturnType<typeof setTimeout> | null = null

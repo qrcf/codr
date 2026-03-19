@@ -13,7 +13,7 @@ import type {
   ProviderRunCallbacks,
   ProviderRunResult,
 } from '../../provider'
-import { preprocessPromptForDocs, buildContextSummary } from '../../prompt-preprocessor'
+import { preprocessPromptFull, buildContextSummary } from '../../prompt-preprocessor'
 import { readAttachmentAsContentBlock } from '../../../attachments'
 
 /**
@@ -149,7 +149,7 @@ export class ClaudeProvider implements AgentProvider {
       })
     }
 
-    const { prompt: cleanedPrompt, contextChunks, contextString } = await preprocessPromptForDocs(this.ctx, finalPrompt, req.cwd, { includeCodebaseContext: isNewSession })
+    const { prompt: cleanedPrompt, contextChunks, contextString } = await preprocessPromptFull(this.ctx, finalPrompt, req.cwd, { includeCodebaseContext: isNewSession })
     finalPrompt = cleanedPrompt
 
     // Create codebase search MCP server if indexer is available
@@ -203,6 +203,19 @@ export class ClaudeProvider implements AgentProvider {
       callbacks.onSessionIdentified(capturedSessionId)
     }
 
+    // Emit known Claude slash commands so the renderer can show them
+    const emitClaudeCommands = (sessionId: string) => {
+      callbacks.onMessage({
+        type: 'available_commands',
+        session_id: sessionId,
+        commands: [
+          { name: 'compact', description: 'Summarize conversation history to free up context' },
+        ],
+        provider: 'claude',
+      }, sessionId)
+    }
+    if (capturedSessionId) emitClaudeCommands(capturedSessionId)
+
     q.accountInfo?.().then((info) => {
       if (!info) return
       setCachedAccountInfo(info)
@@ -229,6 +242,8 @@ export class ClaudeProvider implements AgentProvider {
             callbacks.onMessage({ type: 'injected_context', session_id: capturedSessionId, injectedContext }, currentKey)
             injectedContextEmitted = true
           }
+
+          emitClaudeCommands(capturedSessionId)
         }
         callbacks.onMessage(message, currentKey)
       }

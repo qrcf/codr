@@ -70,12 +70,23 @@ export interface ChatMessage {
 
 export interface ToolCallInfo {
   id: string
-  name: string
+  kind: string
+  title?: string
   input: Record<string, unknown>
   result?: string
   isError?: boolean
   status: 'running' | 'done' | 'error'
+  content?: Array<{ type: string; [key: string]: unknown }>
+  locations?: Array<{ path: string; line?: number | null }>
+  rawInput?: unknown
+  rawOutput?: unknown
+  meta?: Record<string, unknown>
 }
+
+export type StreamingSegment =
+  | { type: 'thinking'; content: string }
+  | { type: 'tools'; tools: ToolCallInfo[] }
+  | { type: 'text'; content: string }
 
 export interface PlanReviewState {
   planFilePath: string

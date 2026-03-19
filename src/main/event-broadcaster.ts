@@ -15,6 +15,7 @@ const CHANNEL_TO_WS_TYPE: Record<string, string> = {
   'agent:question-cleared': 'question_cleared',
   'docs:crawl-progress': 'doc_crawl_progress',
   'docs:setup-progress': 'setup_progress',
+  'providers:capabilities-changed': 'providers_capabilities_changed',
 }
 
 export interface TokenUsage {
@@ -25,6 +26,12 @@ export interface TokenUsage {
   contextWindow: number
   subagentInputTokens?: number
   subagentOutputTokens?: number
+}
+
+export interface SlashCommand {
+  name: string
+  description: string
+  hint?: string
 }
 
 export interface ConversationState {
@@ -39,6 +46,7 @@ export interface ConversationState {
   planReview: PlanReviewState | null
   querySessionId: string | null
   tokenUsage: TokenUsage | null
+  availableCommands: SlashCommand[]
 }
 
 function createEmptyState(querySessionId: string | null = null): ConversationState {
@@ -54,6 +62,7 @@ function createEmptyState(querySessionId: string | null = null): ConversationSta
     planReview: null,
     querySessionId,
     tokenUsage: null,
+    availableCommands: [],
   }
 }
 
@@ -138,12 +147,16 @@ export class EventBroadcaster {
           } else if (evt.event.type === 'content_block_delta' && evt.event.delta?.type === 'thinking_delta' && evt.event.delta.thinking) {
             state.streamingThinking += evt.event.delta.thinking
           } else if (evt.event.type === 'content_block_start' && evt.event.content_block?.type === 'tool_use') {
-            const block = evt.event.content_block
+            const block = evt.event.content_block as { id?: string; name?: string; kind?: string; title?: string; input?: Record<string, unknown>; content?: Array<{ type: string; [key: string]: unknown }>; locations?: Array<{ path: string; line?: number | null }>; meta?: Record<string, unknown> }
             state.streamingTools.push({
               id: block.id || `tool-${Date.now()}-${Math.random()}`,
-              name: block.name || 'Unknown',
-              input: {},
+              kind: block.kind || block.name || 'other',
+              title: block.title,
+              input: block.input || {},
               status: 'running',
+              content: block.content,
+              locations: block.locations,
+              meta: block.meta,
             })
           }
         } else if (msg.type === 'assistant') {
@@ -172,7 +185,7 @@ export class EventBroadcaster {
             }
           }
           // Full assistant message — extract complete tool_use blocks with input
-          const assistantMsg = msg as { message?: { content?: Array<{ type: string; id?: string; name?: string; input?: Record<string, unknown> }> } }
+          const assistantMsg = msg as { message?: { content?: Array<{ type: string; id?: string; name?: string; kind?: string; title?: string; input?: Record<string, unknown>; content?: Array<{ type: string; [key: string]: unknown }>; locations?: Array<{ path: string; line?: number | null }>; rawInput?: unknown; rawOutput?: unknown; meta?: Record<string, unknown> }> } }
           const content = assistantMsg.message?.content
           if (Array.isArray(content)) {
             for (const block of content) {
@@ -182,12 +195,20 @@ export class EventBroadcaster {
                   state.streamingTools[idx] = {
                     ...state.streamingTools[idx],
                     input: block.input || {},
+                    ...(block.kind && { kind: block.kind }),
+                    ...(block.title && { title: block.title }),
+                    ...(block.content && { content: block.content }),
+                    ...(block.locations && { locations: block.locations }),
+                    ...(block.rawInput !== undefined && { rawInput: block.rawInput }),
+                    ...(block.rawOutput !== undefined && { rawOutput: block.rawOutput }),
+                    ...(block.meta && { meta: block.meta }),
                   }
                 }
 
-                // Track Write calls to .claude/plans/
-                if (block.name === 'Write') {
-                  const filePath = block.input?.file_path as string
+                const toolKind = block.kind || block.name
+                // Track edit calls to .claude/plans/
+                if (toolKind === 'edit' || toolKind === 'Write') {
+                  const filePath = (block.input?.file_path as string) || block.locations?.[0]?.path
                   if (filePath?.includes('.claude/plans/')) {
                     this.lastPlanWrites.set(querySessionId, {
                       filePath,
@@ -196,9 +217,9 @@ export class EventBroadcaster {
                   }
                 }
 
-                // Detect ExitPlanMode
+                // Detect ExitPlanMode / switch_mode
                 const lastPlanWrite = this.lastPlanWrites.get(querySessionId)
-                if (block.name === 'ExitPlanMode' && lastPlanWrite) {
+                if ((toolKind === 'switch_mode' || toolKind === 'ExitPlanMode') && lastPlanWrite) {
                   state.planReview = {
                     planFilePath: lastPlanWrite.filePath,
                     planContent: lastPlanWrite.content,
@@ -223,6 +244,11 @@ export class EventBroadcaster {
               content: label,
               toolCalls: [],
             })
+          }
+        } else if (msg.type === 'available_commands') {
+          const cmdsMsg = msg as { commands?: SlashCommand[] }
+          if (cmdsMsg.commands) {
+            state.availableCommands = cmdsMsg.commands
           }
         } else if (msg.type === 'user') {
           // User message — extract tool_result blocks with tool output

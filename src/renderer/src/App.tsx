@@ -208,10 +208,13 @@ export default function App() {
     refFinderOpen, setRefFinderOpen,
     handleKeyDown, handleDragOver, handleDragLeave, handleDrop, handlePaste,
     resetInput,
+    slashActive, slashIndex,
+    filteredSlashCommands, handleSlashSelect,
   } = useInputComposer({
     onSend: () => handleSend(),
     docsAPI,
     projectFolderRef: session.projectFolderRef,
+    availableCommands: agent.availableCommands,
   })
 
   // --- Model selector state ---
@@ -380,7 +383,7 @@ export default function App() {
     if (session.activeSessionId) {
       textareaRef.current?.focus()
     }
-  }, [session.activeSessionId])
+  }, [session.activeSessionId, textareaRef])
 
   // --- Scroll to bottom ---
   const scrollToBottom = useCallback(() => {
@@ -397,6 +400,7 @@ export default function App() {
     streamingText,
     streamingThinking,
     streamingTools,
+    streamingSegments,
     hasMoreMessages,
     loadMoreMessages,
     isLoadingHistoryRef,
@@ -404,7 +408,7 @@ export default function App() {
 
   useEffect(() => {
     if (!isLoadingHistoryRef.current) requestAnimationFrame(scrollToBottom)
-  }, [messages, isLoading, streamingText, streamingThinking, streamingTools,
+  }, [messages, isLoading, streamingText, streamingThinking, streamingTools, streamingSegments,
     isLoadingHistoryRef, dialogs.permissionRequests, dialogs.questionRequests, dialogs.planReady, scrollToBottom])
 
   // Scroll-based pagination
@@ -447,6 +451,18 @@ export default function App() {
     const rawInput = input.trim()
     const prompt = [docRefs, fileRefs, rawInput].filter(Boolean).join(' ')
     const currentAttachments = attachments.length > 0 ? [...attachments] : undefined
+
+    // If plan review is active, intercept and route through request-changes flow
+    const planKey = session.activeSessionId || '_unknown'
+    const planPermRequest = dialogs.permissionRequests[planKey]
+    const isPlanReviewActive = planPermRequest?.tool === 'ExitPlanMode' && dialogs.planReady
+
+    if (isPlanReviewActive && (prompt || currentAttachments)) {
+      resetInput()
+      setInput('')
+      await handlePlanRequestChanges(planPermRequest.id, prompt || '(attachments)')
+      return
+    }
 
     // Empty input: if queued messages exist, stop AI (or send first queued)
     if (!prompt && !currentAttachments) {
@@ -540,10 +556,17 @@ export default function App() {
   }
 
   // --- Plan handlers ---
-  const handlePlanBuild = async (permissionId: number, userNotes?: string) => {
+  const handlePlanBuild = async (permissionId: number) => {
     const plan = dialogs.planReview
     if (plan) {
       dialogs.markPlanApproved(plan.planContent, plan.planFilePath)
+    }
+
+    // Capture any notes typed in the main input area
+    const userNotes = input.trim() || undefined
+    if (userNotes) {
+      resetInput()
+      setInput('')
     }
 
     // Allow ExitPlanMode permission to unblock the SDK / ACP extension method
@@ -573,11 +596,18 @@ export default function App() {
     })
   }
 
-  const handlePlanClearContextBuild = async (permissionId: number, userNotes?: string) => {
+  const handlePlanClearContextBuild = async (permissionId: number) => {
     const plan = dialogs.planReview
     const cwd = session.activeSession?.cwd
     if (plan) {
       dialogs.markPlanApproved(plan.planContent, plan.planFilePath)
+    }
+
+    // Capture any notes typed in the main input area
+    const userNotes = input.trim() || undefined
+    if (userNotes) {
+      resetInput()
+      setInput('')
     }
 
     // Allow ExitPlanMode permission (cleanup — don't leave agent hanging)
@@ -793,6 +823,7 @@ export default function App() {
               streamingText={agent.streamingText}
               streamingTools={agent.streamingTools}
               streamingThinking={agent.streamingThinking}
+              streamingSegments={agent.streamingSegments}
               isCompacting={agent.isCompacting}
               hasMoreMessages={agent.hasMoreMessages}
               onInterrupt={handleInterrupt}
@@ -823,7 +854,6 @@ export default function App() {
           onModelChange={handleModelChange}
           onPlanBuild={handlePlanBuild}
           onPlanClearContextBuild={handlePlanClearContextBuild}
-          onPlanRequestChanges={handlePlanRequestChanges}
         />
 
         <div className="shrink-0 border-t border-border">
@@ -878,6 +908,10 @@ export default function App() {
             onSend={handleSend}
             onInterrupt={handleInterrupt}
             onCompact={handleCompact}
+            slashActive={slashActive}
+            filteredSlashCommands={filteredSlashCommands}
+            slashIndex={slashIndex}
+            handleSlashSelect={handleSlashSelect}
             docSources={docsAPI.sources}
             queuedMessages={messageQueue.queue}
             onRemoveQueued={messageQueue.remove}

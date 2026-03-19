@@ -34,6 +34,12 @@ type DocCrawlProgress = import('@codr-works/types').DocCrawlProgress
 
 // Client-only types
 
+interface SlashCommand {
+  name: string
+  description: string
+  hint?: string
+}
+
 interface TokenUsage {
   inputTokens: number
   outputTokens: number
@@ -56,6 +62,7 @@ interface ConversationStatePayload {
   planReview: import('./types').PlanReviewState | null
   querySessionId: string | null
   tokenUsage: TokenUsage | null
+  availableCommands?: SlashCommand[]
 }
 
 interface StateSyncPayload {
@@ -147,6 +154,7 @@ interface CodrAPI {
   selectFolder: () => Promise<string | null>
   listSessions: () => Promise<{ sessions: SessionInfo[]; titlesLoaded: boolean }>
   getSessionMessages: (sessionId: string) => Promise<RawSessionMessage[]>
+  getSessionRawMessages?: (sessionId: string) => Promise<unknown[]>
   getAccountInfo: () => Promise<AccountInfo | null>
   listFiles: (dir?: string) => Promise<string[]>
   regenTitle?: (sessionId: string, firstPrompt: string) => Promise<void>
@@ -193,6 +201,7 @@ interface CodrAPI {
   // Provider capabilities — runtime-mutable capability discovery (desktop only)
   getProviderCapabilities?: () => Promise<Record<AgentProviderId, string[]>>
   onCapabilitiesChanged?: (callback: (data: { providerId: AgentProviderId; capabilities: string[] }) => void) => () => void
+  onProviderStatusChanged?: (callback: (status: Record<AgentProviderId, { installed: boolean; loggedIn: boolean; detail?: string; email?: string; org?: string }>) => void) => () => void
 
   // Docs feature
   addDocSource?: (source: { url: string; name: string; crawlDepth?: number; prefix?: string }) => Promise<DocSource | { error: string }>

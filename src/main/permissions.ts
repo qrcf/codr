@@ -91,6 +91,131 @@ function isBashWhitelisted(command: string): boolean {
   return settings.bashWhitelist.includes(firstWord)
 }
 
+// ---------------------------------------------------------------------------
+// Shared permission evaluation — used by both Claude SDK and ACP providers
+// ---------------------------------------------------------------------------
+
+/** Provider-agnostic permission categories */
+export type PermissionCategory =
+  | 'read_only'     // Always auto-approved
+  | 'edit'          // Gated by autoApproveEdits setting
+  | 'command'       // Bash/execute — checked against read-only patterns and whitelist
+  | 'switch_mode'   // Plan exit — special flow (handled by caller before evaluatePermission)
+  | 'ask_question'  // User question intercept (handled by caller before evaluatePermission)
+  | 'unknown'       // Prompt user
+
+/** Result of evaluating a tool permission */
+export type PermissionDecision =
+  | { action: 'allow' }
+  | { action: 'deny'; message: string }
+  | { action: 'prompt' }
+
+/** Classify a Claude SDK tool name into a permission category */
+export function classifySdkTool(toolName: string): PermissionCategory {
+  if (toolName === 'AskUserQuestion') return 'ask_question'
+  if (toolName === 'ExitPlanMode') return 'switch_mode'
+  if (READ_ONLY_TOOLS.has(toolName)) return 'read_only'
+  if (EDIT_TOOLS.has(toolName)) return 'edit'
+  if (toolName === 'Bash') return 'command'
+  return 'unknown'
+}
+
+/** Classify an ACP tool kind into a permission category */
+export function classifyAcpTool(kind: string | null | undefined): PermissionCategory {
+  switch (kind) {
+    case 'read':
+    case 'search':
+    case 'think':
+    case 'fetch':
+      return 'read_only'
+    case 'edit':
+    case 'delete':
+    case 'move':
+      return 'edit'
+    case 'execute':
+      return 'command'
+    case 'switch_mode':
+      return 'switch_mode'
+    default:
+      return 'unknown'
+  }
+}
+
+/** Compute effective ask mode accounting for remote query policy */
+export function getEffectiveAskMode(askMode: boolean, origin: MessageOrigin): boolean {
+  return askMode || (origin === 'remote' && settings.remoteQueryPolicy === 'ask-mode')
+}
+
+/** Check if remote ask-all policy is active */
+export function isAskAll(origin: MessageOrigin): boolean {
+  return origin === 'remote' && settings.remoteQueryPolicy === 'ask-all'
+}
+
+/**
+ * Core permission evaluation — provider-agnostic.
+ * Callers must handle 'switch_mode' and 'ask_question' categories BEFORE calling this.
+ *
+ * @param category  - The PermissionCategory of the tool
+ * @param toolName  - Display name used for session "always allow" cache lookup
+ * @param command   - For 'command' category: the raw command string (null if not extractable)
+ * @param askMode   - Whether ask mode is active (use getEffectiveAskMode)
+ * @param askAll    - Whether remote ask-all policy is active (use isAskAll)
+ */
+export function evaluatePermission(
+  category: PermissionCategory,
+  toolName: string,
+  command: string | null,
+  askMode: boolean,
+  askAll: boolean,
+): PermissionDecision {
+  // Ask mode: block mutations
+  if (askMode) {
+    if (category === 'edit') {
+      return { action: 'deny', message: 'Edits are not allowed in Ask mode' }
+    }
+    if (category === 'command') {
+      if (command && isBashReadOnly(command)) {
+        return { action: 'allow' }
+      }
+      return { action: 'deny', message: 'Edits are not allowed in Ask mode' }
+    }
+  }
+
+  // Read-only: always auto-approve
+  if (category === 'read_only') {
+    return { action: 'allow' }
+  }
+
+  // Per-session "always allow" cache (skip for remote ask-all)
+  if (sessionApprovedTools.has(toolName) && !askAll) {
+    return { action: 'allow' }
+  }
+
+  // Edit tools: gated by setting
+  if (category === 'edit') {
+    if (settings.autoApproveEdits && !askAll) {
+      return { action: 'allow' }
+    }
+    return { action: 'prompt' }
+  }
+
+  // Command execution: check read-only patterns, then whitelist, then prompt
+  if (category === 'command') {
+    if (command) {
+      if (isBashReadOnly(command)) {
+        return { action: 'allow' }
+      }
+      if (isBashWhitelisted(command) && !askAll) {
+        return { action: 'allow' }
+      }
+    }
+    return { action: 'prompt' }
+  }
+
+  // Unknown: prompt
+  return { action: 'prompt' }
+}
+
 /**
  * Resolve a pending permission request.
  * When origin is 'remote' and trustRemotePermissions is false, the response
@@ -202,11 +327,8 @@ export function createCanUseTool(
   askMode?: boolean,
   origin: MessageOrigin = 'local',
 ): CanUseTool {
-  const ASK_MODE_DENY: PermissionResult = { behavior: 'deny', message: 'Edits are not allowed in Ask mode' }
-
-  // Apply remote query policy — force ask-mode or ask-all for remote queries
-  const effectiveAskMode = askMode || (origin === 'remote' && settings.remoteQueryPolicy === 'ask-mode')
-  const askAll = origin === 'remote' && settings.remoteQueryPolicy === 'ask-all'
+  const effectiveAskMode = getEffectiveAskMode(askMode || false, origin)
+  const askAll = isAskAll(origin)
 
   return async (toolName, input, options) => {
     void options
@@ -234,50 +356,19 @@ export function createCanUseTool(
       })
     }
 
-    // Ask mode: block all edit/write tools
-    if (effectiveAskMode) {
-      if (EDIT_TOOLS.has(toolName)) return ASK_MODE_DENY
-      if (toolName === 'Bash') {
-        const command = extractBashCommand(input as Record<string, unknown>)
-        if (!isBashReadOnly(command)) return ASK_MODE_DENY
+    // Classify and evaluate using shared logic
+    const category = classifySdkTool(toolName)
+    const command = toolName === 'Bash' ? extractBashCommand(input as Record<string, unknown>) : null
+    const decision = evaluatePermission(category, toolName, command, effectiveAskMode, askAll)
+
+    switch (decision.action) {
+      case 'allow':
         return allow(input)
-      }
+      case 'deny':
+        return { behavior: 'deny', message: decision.message }
+      case 'prompt':
+        return promptUser(broadcaster, toolName, input as Record<string, unknown>, qsid)
     }
-
-    // Auto-approve read-only tools
-    if (READ_ONLY_TOOLS.has(toolName)) {
-      return allow(input)
-    }
-
-    // Per-query "always allow" cache (skip for remote ask-all queries)
-    if (sessionApprovedTools.has(toolName) && !askAll) {
-      return allow(input)
-    }
-
-    // Edit tools: gated by setting
-    if (EDIT_TOOLS.has(toolName)) {
-      // Remote ask-all: always prompt, ignore autoApproveEdits
-      if (settings.autoApproveEdits && !askAll) {
-        return allow(input)
-      }
-      return promptUser(broadcaster, toolName, input as Record<string, unknown>, qsid)
-    }
-
-    // Bash: check read-only patterns, then whitelist, then prompt
-    if (toolName === 'Bash') {
-      const command = extractBashCommand(input as Record<string, unknown>)
-      if (isBashReadOnly(command)) {
-        return allow(input)
-      }
-      // Remote ask-all: skip whitelist auto-approve, always prompt
-      if (isBashWhitelisted(command) && !askAll) {
-        return allow(input)
-      }
-      return promptUser(broadcaster, toolName, input as Record<string, unknown>, qsid)
-    }
-
-    // Unknown tools: prompt
-    return promptUser(broadcaster, toolName, input as Record<string, unknown>, qsid)
   }
 }
 

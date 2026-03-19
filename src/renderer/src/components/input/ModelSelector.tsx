@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { ChevronDown, Check } from 'lucide-react'
 import { useCodr } from '../../hooks/useCodr'
 
@@ -20,26 +20,53 @@ export function ModelSelector({ provider, selectedModel, onModelChange, disabled
   const [open, setOpen] = useState(false)
   const [models, setModels] = useState<ModelOption[]>([])
   const [loading, setLoading] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
 
-  const fetchModels = useCallback(async (p: AgentProviderId) => {
-    setLoading(true)
-    try {
-      const result = await codr.getModels?.(p)
-      if (result?.models) {
-        setModels(result.models)
-      }
-    } catch {
-      // Silent failure — models will be empty
-    } finally {
-      setLoading(false)
-    }
-  }, [codr])
-
-  // Fetch models when provider changes
+  // Fetch models when provider changes — cancel stale in-flight fetches
   useEffect(() => {
-    fetchModels(provider)
-  }, [provider, fetchModels])
+    let cancelled = false
+    const fetchModels = async () => {
+      try {
+        const result = await codr.getModels?.(provider)
+        if (!cancelled && result?.models) setModels(result.models)
+      } catch { /* ignore */ } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    setModels([])
+    setLoading(true)
+    // Defer state-dependent fetch to avoid synchronous setState in effect
+    void fetchModels()
+    return () => { cancelled = true }
+  }, [provider, codr])
+
+  // Auto-refresh when cursor/ACP connects and model-selection capability becomes available
+  useEffect(() => {
+    return codr.onCapabilitiesChanged?.((data) => {
+      if (data.providerId === provider && data.capabilities.includes('model-selection')) {
+        codr.getModels?.(provider)
+          .then(result => { if (result?.models.length) setModels(result.models) })
+          .catch(() => {})
+      }
+    })
+  }, [provider, codr])
+
+  // Auto-focus search when dropdown opens with many models
+  useEffect(() => {
+    if (open && models.length > 4) {
+      searchRef.current?.focus()
+    }
+  }, [open, models.length])
+
+  // Clear search when dropdown closes
+  useEffect(() => {
+    if (!open) {
+      // Use microtask to avoid synchronous setState in effect body
+      queueMicrotask(() => setSearchQuery(''))
+    }
+  }, [open])
 
   // Close on outside click
   useEffect(() => {
@@ -68,6 +95,12 @@ export function ModelSelector({ provider, selectedModel, onModelChange, disabled
   }
   const currentModel = resolveModel(selectedModel)
   const displayLabel = currentModel?.displayName || (loading ? '...' : 'Model')
+  const filteredModels = searchQuery
+    ? models.filter(m =>
+        m.displayName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        m.value.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : models
 
   if (models.length === 0 && !loading) return null
 
@@ -83,23 +116,40 @@ export function ModelSelector({ provider, selectedModel, onModelChange, disabled
         <ChevronDown size={12} className={`transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div className="absolute bottom-full left-0 mb-1 min-w-45 bg-bg-card border border-border rounded-md py-1 z-10 shadow-[0_4px_12px_rgba(0,0,0,0.4)]">
-          {models.map((m) => (
-            <button
-              key={m.value}
-              className={`w-full flex items-center gap-2 px-3 py-1.5 text-[0.82em] bg-transparent border-none cursor-pointer hover:bg-[#2a2a3e] text-left ${currentModel?.value === m.value ? 'text-accent' : 'text-[#ccc] hover:text-white'}`}
-              onClick={() => {
-                onModelChange(m.value)
-                setOpen(false)
-              }}
-            >
-              <span className="w-3 shrink-0">
-                {currentModel?.value === m.value && <Check size={12} />}
-              </span>
-              <span>{m.displayName}</span>
-              {m.has1MContext && <span className="text-[0.7em] px-1 py-px rounded bg-border text-text-muted leading-none">1M</span>}
-            </button>
-          ))}
+        <div className="absolute bottom-full left-0 mb-1 min-w-45 bg-bg-card border border-border rounded-md z-10 shadow-[0_4px_12px_rgba(0,0,0,0.4)]">
+          {models.length > 4 && (
+            <div className="px-2 pt-1.5 pb-1 border-b border-border">
+              <input
+                ref={searchRef}
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search models..."
+                className="w-full bg-transparent text-[0.82em] text-text-primary placeholder:text-text-faint outline-none px-1"
+              />
+            </div>
+          )}
+          <div className="max-h-52 overflow-y-auto py-1">
+            {filteredModels.map((m) => (
+              <button
+                key={m.value}
+                className={`w-full flex items-center gap-2 px-3 py-1.5 text-[0.82em] bg-transparent border-none cursor-pointer hover:bg-[#2a2a3e] text-left ${currentModel?.value === m.value ? 'text-accent' : 'text-[#ccc] hover:text-white'}`}
+                onClick={() => {
+                  onModelChange(m.value)
+                  setOpen(false)
+                }}
+              >
+                <span className="w-3 shrink-0">
+                  {currentModel?.value === m.value && <Check size={12} />}
+                </span>
+                <span>{m.displayName}</span>
+                {m.has1MContext && <span className="text-[0.7em] px-1 py-px rounded bg-border text-text-muted leading-none">1M</span>}
+              </button>
+            ))}
+            {filteredModels.length === 0 && (
+              <div className="px-3 py-2 text-[0.82em] text-text-faint text-center">No matches</div>
+            )}
+          </div>
         </div>
       )}
     </div>

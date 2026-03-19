@@ -1,4 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import { appendFileSync, mkdirSync } from 'node:fs'
+import path from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import type {
   AgentProvider,
@@ -6,7 +8,8 @@ import type {
   AgentQueryRequest,
   ProviderRunCallbacks,
   ProviderRunResult,
-} from '../../provider'
+} from '../provider'
+import type { AgentProviderId } from '../../../shared/provider-types'
 import {
   ClientSideConnection,
   ndJsonStream,
@@ -26,37 +29,66 @@ import {
   type SessionNotification,
   type ListSessionsResponse,
 } from '@agentclientprotocol/sdk'
-import { CursorEventNormalizer, normalizeToolCall } from './normalizer'
-import { preprocessPromptFull, buildContextSummary } from '../../prompt-preprocessor'
-import { readAttachmentAsContentBlock } from '../../../attachments'
-import { beginTitleGeneration, completeTitleGeneration } from '../../../sessions'
-import { registerPendingPermission, registerPendingQuestion } from '../../../permissions'
-import { updateCapability } from '../../provider-capabilities'
+import { AcpStreamAdapter } from './stream-adapter'
+import type { AcpAgentConfig, AcpExtensionContext } from './agent-config'
+import { preprocessPromptFull, buildContextSummary } from '../prompt-preprocessor'
+import { readAttachmentAsContentBlock } from '../../attachments'
+import { beginTitleGeneration, completeTitleGeneration } from '../../sessions'
+import {
+  registerPendingPermission,
+  registerPendingQuestion,
+  classifyAcpTool,
+  evaluatePermission,
+  getEffectiveAskMode,
+  isAskAll,
+} from '../../permissions'
+import { updateCapability } from '../provider-capabilities'
+import { updateModelCacheFromConfigOptions } from '../models'
 
 const ACP_DEBUG = process.env.ACP_DEBUG === '1'
+
+// --- Per-session wire logging ---
+
+let _acpLogDir: string | null = null
+
+function getAcpLogDir(): string {
+  if (_acpLogDir) return _acpLogDir
+  // Lazy-resolve: electron app module may not be ready at import time
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { app } = require('electron')
+    _acpLogDir = path.join(app.getPath('userData'), 'acp-logs')
+  } catch {
+    _acpLogDir = path.join(process.cwd(), '.acp-logs')
+  }
+  mkdirSync(_acpLogDir, { recursive: true })
+  return _acpLogDir
+}
+
+function logAcpEvent(sessionId: string, event: string, data: unknown): void {
+  try {
+    const logPath = path.join(getAcpLogDir(), `${sessionId}.jsonl`)
+    const line = JSON.stringify({ ts: new Date().toISOString(), event, data }) + '\n'
+    appendFileSync(logPath, line)
+  } catch {
+    // Never crash on logging failure
+  }
+}
 
 type SessionUpdateHandler = (sessionId: string, update: SessionUpdate) => void
 
 interface ActiveSession {
-  normalizer: CursorEventNormalizer
+  adapter: AcpStreamAdapter
   unsubSessionUpdate: () => void
 }
 
-// Module-level provider reference for discovery/models access
-let sharedProvider: CursorProvider | null = null
-
-export function getCursorProvider(): CursorProvider | null {
-  return sharedProvider
-}
-
-export function setCursorProvider(provider: CursorProvider): void {
-  sharedProvider = provider
-}
-
-export class CursorProvider implements AgentProvider {
-  readonly id = 'cursor' as const
+export class AcpProvider implements AgentProvider {
+  readonly id: AgentProviderId
+  readonly handlesOwnStorage = true
+  private readonly config: AcpAgentConfig
   private readonly activeSessions = new Map<string, ActiveSession>()
   private readonly ctx: AgentProviderContext
+  private readonly tag: string
 
   // ACP connection state
   private connection: ClientSideConnection | null = null
@@ -71,8 +103,11 @@ export class CursorProvider implements AgentProvider {
   private activePermissionHandler: ((params: RequestPermissionRequest) => Promise<RequestPermissionResponse>) | null = null
   private activeExtMethodHandler: ((method: string, params: Record<string, unknown>) => Promise<Record<string, unknown>>) | null = null
 
-  constructor(ctx: AgentProviderContext) {
+  constructor(config: AcpAgentConfig, ctx: AgentProviderContext) {
+    this.id = config.providerId
+    this.config = config
     this.ctx = ctx
+    this.tag = config.logTag || config.providerId
   }
 
   // --- Connection lifecycle ---
@@ -80,14 +115,14 @@ export class CursorProvider implements AgentProvider {
   async connect(): Promise<void> {
     if (this._alive) return
 
-    this.child = spawn('cursor', ['agent', 'acp'], {
+    this.child = spawn(this.config.command, this.config.args, {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env },
+      env: { ...process.env, ...this.config.env },
     })
 
     if (ACP_DEBUG) {
       this.child.stderr?.on('data', (data: Buffer) => {
-        console.log('[cursor:stderr]', data.toString().trimEnd())
+        console.log(`[${this.tag}:stderr]`, data.toString().trimEnd())
       })
     }
 
@@ -97,11 +132,43 @@ export class CursorProvider implements AgentProvider {
     })
 
     this.child.on('error', (err) => {
-      console.error('[cursor] Process error:', err.message)
+      console.error(`[${this.tag}] Process error:`, err.message)
     })
 
     const input = Writable.toWeb(this.child.stdin!) as WritableStream<Uint8Array>
-    const output = Readable.toWeb(this.child.stdout!) as ReadableStream<Uint8Array>
+    const rawOutput = Readable.toWeb(this.child.stdout!) as ReadableStream<Uint8Array>
+
+    let output: ReadableStream<Uint8Array>
+    if (ACP_DEBUG) {
+      const rawLogPath = path.join(getAcpLogDir(), `${this.child.pid}-stdio.log`)
+      const [logBranch, sdkBranch] = rawOutput.tee()
+      output = sdkBranch
+
+      // Consume log branch in background — write raw bytes to file
+      void (async () => {
+        const reader = logBranch.getReader()
+        try {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            appendFileSync(rawLogPath, `[OUT ${new Date().toISOString()}] ${new TextDecoder().decode(value)}`)
+          }
+        } catch { /* never crash on logging */ }
+      })()
+
+      // Wrap stdin to log outbound messages
+      const stdinRef = this.child.stdin!
+      const origWrite = stdinRef.write.bind(stdinRef)
+      stdinRef.write = function (chunk: unknown, encodingOrCb?: unknown, cb?: unknown) {
+        try {
+          appendFileSync(rawLogPath, `[IN  ${new Date().toISOString()}] ${Buffer.isBuffer(chunk) ? chunk.toString() : chunk}\n`)
+        } catch { /* never crash on logging */ }
+        return origWrite(chunk as Uint8Array, encodingOrCb as BufferEncoding, cb as () => void)
+      } as typeof stdinRef.write
+    } else {
+      output = rawOutput
+    }
+
     const stream = ndJsonStream(input, output)
 
     this.connection = new ClientSideConnection(
@@ -117,15 +184,17 @@ export class CursorProvider implements AgentProvider {
 
     this._capabilities = initResult.agentCapabilities ?? { loadSession: false }
     if (this._capabilities.sessionCapabilities?.list) {
-      updateCapability('cursor', 'native-session-import', true)
+      updateCapability(this.id, 'native-session-import', true)
     }
 
-    try {
-      await this.connection.authenticate({ methodId: 'cursor_login' })
-      this._authFailed = false
-    } catch (err) {
-      this._authFailed = true
-      console.warn('[cursor] Authentication failed:', (err as Error).message)
+    if (this.config.authMethodId) {
+      try {
+        await this.connection.authenticate({ methodId: this.config.authMethodId })
+        this._authFailed = false
+      } catch (err) {
+        this._authFailed = true
+        console.warn(`[${this.tag}] Authentication failed:`, (err as Error).message)
+      }
     }
 
     this._alive = true
@@ -206,6 +275,11 @@ export class CursorProvider implements AgentProvider {
   // --- AgentProvider interface ---
 
   async runQuery(req: AgentQueryRequest, callbacks: ProviderRunCallbacks): Promise<ProviderRunResult> {
+    // Translate Claude's /compact to ACP's /summarize slash command
+    if (req.prompt === '/compact') {
+      req = { ...req, prompt: '/summarize' }
+    }
+
     const isResume = !!req.resumeSessionId
     const isNewSession = !isResume
     let sessionId = req.resumeSessionId || ''
@@ -215,8 +289,7 @@ export class CursorProvider implements AgentProvider {
     const eagerTitlePromise = isNewSession ? beginTitleGeneration(req.prompt) : null
 
     // Mode instruction — only for ask mode. Plan mode is handled entirely by the
-    // ACP mode config option (set to 'plan' via applyModeConfig), so no prompt
-    // instruction is needed — Cursor's native plan mode restricts the agent.
+    // ACP mode config option, so no prompt instruction is needed.
     const modeInstruction = req.askMode
       ? 'You are in ask mode. Answer the question without making edits or executing side effects. Only read, search, and explain.'
       : ''
@@ -232,15 +305,15 @@ export class CursorProvider implements AgentProvider {
     try {
       // Lazy-start ACP connection
       await this.connect().catch(err => {
-        throw new Error(`Cursor ACP failed to start: ${extractErrorMessage(err)}`)
+        throw new Error(`${this.tag} ACP failed to start: ${extractErrorMessage(err)}`)
       })
-      const authWarning = this._authFailed ? ' (authentication failed — check Cursor login)' : ''
+      const authWarning = this._authFailed ? ` (authentication failed — check ${this.tag} login)` : ''
 
       if (isResume) {
         await this.acpLoadSession(sessionId, req.cwd || process.cwd())
       } else {
         const result = await this.acpNewSession(req.cwd || process.cwd()).catch(err => {
-          throw new Error(`Failed to create Cursor session${authWarning}: ${extractErrorMessage(err)}`)
+          throw new Error(`Failed to create ${this.tag} session${authWarning}: ${extractErrorMessage(err)}`)
         })
         sessionId = result.sessionId
 
@@ -249,31 +322,37 @@ export class CursorProvider implements AgentProvider {
         if (result.configOptions) {
           if (req.model) {
             try { await this.applyModelConfig(sessionId, req.model, result.configOptions) }
-            catch (e) { console.warn('[cursor] Model config failed:', extractErrorMessage(e)) }
+            catch (e) { console.warn(`[${this.tag}] Model config failed:`, extractErrorMessage(e)) }
           }
           if (req.thinkingBudget) {
             try { await this.applyThinkingConfig(sessionId, req.thinkingBudget, result.configOptions) }
-            catch (e) { console.warn('[cursor] Thinking config failed:', extractErrorMessage(e)) }
+            catch (e) { console.warn(`[${this.tag}] Thinking config failed:`, extractErrorMessage(e)) }
           }
         }
         // Mode uses BOTH configOptions and legacy modes — run regardless
         try { await this.applyModeConfig(sessionId, req, result) }
-        catch (e) { console.warn('[cursor] Mode config failed:', extractErrorMessage(e)) }
+        catch (e) { console.warn(`[${this.tag}] Mode config failed:`, extractErrorMessage(e)) }
       }
 
-      // Create normalizer and register session update handler
-      const normalizer = new CursorEventNormalizer(sessionId, 'streaming', callbacks)
+      // Create stream adapter and register session update handler
+      const adapter = new AcpStreamAdapter(this.id, sessionId, callbacks)
       const unsubSessionUpdate = this.onSessionUpdate((sid, update) => {
         if (sid === sessionId) {
-          normalizer.handleUpdate(update)
+          adapter.handleUpdate(update)
+          // Store the raw ACP event
+          this.ctx.sessionStore.appendRawMessage(sessionId, this.id, update)
         }
       })
 
-      const active: ActiveSession = { normalizer, unsubSessionUpdate }
+      const active: ActiveSession = { adapter, unsubSessionUpdate }
       this.activeSessions.set(sessionId, active)
 
       // Set permission handler for this query — routes through shared permission system.
-      // Detects ACP-standard switch_mode (plan exit) and shows plan review dialog.
+      // Uses the same evaluatePermission() logic as the Claude SDK provider.
+      const origin = req.origin ?? 'local'
+      const effectiveAskMode = getEffectiveAskMode(req.askMode || false, origin)
+      const askAll = isAskAll(origin)
+
       this.activePermissionHandler = async (params: RequestPermissionRequest) => {
         if (params.sessionId && params.sessionId !== sessionId) {
           // Not for this session — auto-allow
@@ -282,96 +361,61 @@ export class CursorProvider implements AgentProvider {
         }
 
         const toolCall = params.toolCall
+        const findOption = (kind: string) => params.options.find(o => o.kind === kind)
 
         // ACP-standard plan exit: agent sends switch_mode permission when ready to leave architect mode
         if (toolCall.kind === 'switch_mode') {
-          return this.handlePlanExitPermission(sessionId, normalizer, params)
+          return this.handlePlanExitPermission(sessionId, adapter, params)
         }
 
-        // Normalize tool name/input for the permission dialog
-        const normalized = normalizeToolCall({
-          name: toolCall.title || 'unknown',
-          input: (toolCall.rawInput as Record<string, unknown>) || {},
-          kind: toolCall.kind,
-          content: toolCall.content as Array<{ type: string; [key: string]: unknown }>,
-          locations: toolCall.locations as Array<{ path: string; line?: number | null }>,
-        })
+        // Classify ACP tool kind and run through shared permission evaluation
+        const category = classifyAcpTool(toolCall.kind)
+        const displayName = toolCall.title || toolCall.kind || 'unknown'
+        const input = (toolCall.rawInput as Record<string, unknown>) || {}
+        const command = category === 'command' && input.command && typeof input.command === 'string'
+          ? input.command.trim()
+          : null
+        const decision = evaluatePermission(category, displayName, command, effectiveAskMode, askAll)
 
+        if (decision.action === 'allow') {
+          const optionId = (findOption('allow_once') || findOption('allow_always'))?.optionId || 'allow-once'
+          return { outcome: { outcome: 'selected' as const, optionId } }
+        }
+
+        if (decision.action === 'deny') {
+          const optionId = findOption('reject_once')?.optionId || 'reject-once'
+          return { outcome: { outcome: 'selected' as const, optionId }, feedback: decision.message }
+        }
+
+        // decision.action === 'prompt' — show permission dialog to user
         const { id: permId, promise } = registerPendingPermission(sessionId)
         this.ctx.broadcaster.send('agent:permission-request', {
           id: permId,
-          tool: normalized.name,
-          input: normalized.input,
+          tool: displayName,
+          input,
         }, sessionId)
 
         const { allowed } = await promise
-        const findOption = (kind: string) => params.options.find(o => o.kind === kind)
         const optionId = allowed
           ? (findOption('allow_once') || findOption('allow_always'))?.optionId || 'allow-once'
-          : (findOption('reject_once'))?.optionId || 'reject-once'
+          : findOption('reject_once')?.optionId || 'reject-once'
         return { outcome: { outcome: 'selected' as const, optionId } }
       }
 
-      // Set extension method handler — dispatches by method name.
+      // Set extension method handler — dispatches through config registry.
       this.activeExtMethodHandler = async (method: string, params: Record<string, unknown>) => {
-        switch (method) {
-          case 'cursor/create_plan': {
-            // Cursor-specific plan creation — show plan review dialog
-            // Prefer params.plan (full markdown) over sparse plan entries
-            const p = params as { name?: string; overview?: string; plan?: string }
-            const planContent = p.plan
-              || normalizer.getPendingPlanEntries().map(e => `- [${e.status}] ${e.content}`).join('\n')
-              || JSON.stringify(params, null, 2)
-
-            const { id: permId, promise } = registerPendingPermission(sessionId)
-            this.ctx.broadcaster.send('agent:permission-request', {
-              id: permId,
-              tool: 'ExitPlanMode',
-              input: {
-                plan: planContent,
-                planContent,
-                planFilePath: `cursor://plan/${sessionId}`,
-                planTitle: p.name || undefined,
-                provider: 'cursor',
-              },
-            }, sessionId)
-
-            const { allowed, message } = await promise
-            if (!allowed) return { feedback: message || 'User requested changes' }
-            return { approved: true }
+        const handler = this.config.extensionHandlers?.[method]
+        if (handler) {
+          const extContext: AcpExtensionContext = {
+            broadcaster: this.ctx.broadcaster,
+            registerPendingPermission,
+            registerPendingQuestion,
+            adapter,
+            callbacks,
           }
-
-          case 'cursor/ask_question': {
-            const qParams = params as { questions?: Array<{ id: string; text: string; options?: Array<{ id: string; text: string }> }> }
-            if (!qParams.questions || qParams.questions.length === 0) return {}
-
-            const { id, promise } = registerPendingQuestion(sessionId)
-            this.ctx.broadcaster.send('agent:question-request', {
-              id,
-              questions: qParams.questions,
-            }, sessionId)
-
-            const answers = await promise
-            return { answers }
-          }
-
-          case 'cursor/update_todos': {
-            const todoParams = params as { todos?: unknown[] }
-            if (todoParams.todos) {
-              callbacks.onMessage({
-                type: 'assistant',
-                session_id: sessionId,
-                message: {
-                  content: [{ type: 'tool_use', id: `cursor-todo-${Date.now()}`, name: 'TodoWrite', input: { todos: todoParams.todos } }],
-                },
-              }, sessionId)
-            }
-            return {}
-          }
-
-          default:
-            return {}
+          return handler(sessionId, params, extContext)
         }
+        return {}
       }
 
       // Notify session identified
@@ -383,9 +427,7 @@ export class CursorProvider implements AgentProvider {
         completeTitleGeneration(sessionId, eagerTitlePromise)
       }
 
-      // Emit injected context (also triggers draft→session adoption in the renderer
-      // via session_id; user message is NOT emitted here because agent.ts's
-      // onSessionIdentified already appends it to the index)
+      // Emit injected context (triggers draft->session adoption in the renderer)
       const injectedContext = {
         mode: (req.askMode ? 'ask' : req.planMode ? 'plan' : 'code') as 'ask' | 'plan' | 'code',
         ...(contextString ? { systemPrompt: contextString } : {}),
@@ -393,16 +435,29 @@ export class CursorProvider implements AgentProvider {
       }
       callbacks.onMessage({ type: 'injected_context', session_id: sessionId, injectedContext }, sessionId)
 
+      // Persist injected_context and user prompt for reload (agent.ts skips
+      // storage for handlesOwnStorage providers, so we write directly)
+      this.ctx.sessionStore.appendRawMessage(sessionId, this.id, {
+        type: 'injected_context',
+        session_id: sessionId,
+        injectedContext,
+      })
+      this.ctx.sessionStore.appendRawMessage(sessionId, this.id, {
+        type: 'user',
+        session_id: sessionId,
+        message: { content: [{ type: 'text', text: cleanedPrompt }] },
+      })
+
       // Send prompt and wait for turn completion
       try {
         await this.acpPrompt(sessionId, contentBlocks)
       } catch (err) {
         const message = extractErrorMessage(err)
-        callbacks.onError(`Cursor prompt failed${authWarning}: ${message}`, sessionId)
+        callbacks.onError(`${this.tag} prompt failed${authWarning}: ${message}`, sessionId)
       }
 
-      // Finalize turn — emit canonical assistant message
-      normalizer.finalizeTurn()
+      // Finalize turn — emit accumulated assistant message
+      adapter.finalizeTurn()
 
       // Cleanup
       unsubSessionUpdate()
@@ -414,10 +469,10 @@ export class CursorProvider implements AgentProvider {
       const message = extractErrorMessage(err)
       if (!sessionIdentified) {
         if (!sessionId) {
-          sessionId = `cursor-failed-${Date.now()}-${Math.random().toString(36).slice(2)}`
+          sessionId = `${this.tag}-failed-${Date.now()}-${Math.random().toString(36).slice(2)}`
         }
         callbacks.onSessionIdentified(sessionId)
-        // Emit injected_context to trigger draft→session adoption in renderer
+        // Emit injected_context to trigger draft->session adoption in renderer
         // (user message is handled by agent.ts onSessionIdentified)
         callbacks.onMessage({
           type: 'injected_context',
@@ -463,8 +518,11 @@ export class CursorProvider implements AgentProvider {
       sessionUpdate: async (params: SessionNotification) => {
         const { sessionId, update } = params
 
+        // Log EVERYTHING to per-session file — full raw JSON, no truncation
+        logAcpEvent(sessionId, 'session_update', params)
+
         if (ACP_DEBUG && !['agent_text_chunk', 'agent_thought_chunk'].includes(update.sessionUpdate)) {
-          console.log('[cursor:update]', update.sessionUpdate, JSON.stringify(params).slice(0, 500))
+          console.log(`[${this.tag}:update]`, update.sessionUpdate, JSON.stringify(params).slice(0, 500))
         }
 
         // Track config option changes
@@ -478,13 +536,15 @@ export class CursorProvider implements AgentProvider {
 
         for (const handler of this.sessionUpdateHandlers) {
           try { handler(sessionId, update) } catch (err) {
-            console.error('[cursor] Session update handler error:', err)
+            console.error(`[${this.tag}] Session update handler error:`, err)
           }
         }
       },
 
       requestPermission: async (params: RequestPermissionRequest): Promise<RequestPermissionResponse> => {
-        if (ACP_DEBUG) console.log('[cursor:permission]', JSON.stringify(params).slice(0, 500))
+        // Log permission requests to the session file too
+        logAcpEvent(params.sessionId || 'unknown', 'permission_request', params)
+        if (ACP_DEBUG) console.log(`[${this.tag}:permission]`, JSON.stringify(params).slice(0, 500))
 
         if (this.activePermissionHandler) {
           return this.activePermissionHandler(params)
@@ -500,7 +560,8 @@ export class CursorProvider implements AgentProvider {
       },
 
       extMethod: async (method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> => {
-        if (ACP_DEBUG) console.log('[cursor:ext]', method, JSON.stringify(params).slice(0, 500))
+        logAcpEvent(params.sessionId as string || 'unknown', 'ext_method', { method, params })
+        if (ACP_DEBUG) console.log(`[${this.tag}:ext]`, method, JSON.stringify(params).slice(0, 500))
 
         if (this.activeExtMethodHandler) {
           return this.activeExtMethodHandler(method, params)
@@ -514,12 +575,12 @@ export class CursorProvider implements AgentProvider {
 
   private async handlePlanExitPermission(
     sessionId: string,
-    normalizer: CursorEventNormalizer,
+    adapter: AcpStreamAdapter,
     params: RequestPermissionRequest,
   ): Promise<{ outcome: { outcome: 'selected'; optionId: string }; feedback?: string }> {
     const toolCall = params.toolCall
 
-    console.log('[cursor] switch_mode toolCall:', JSON.stringify(toolCall, null, 2))
+    console.log(`[${this.tag}] switch_mode toolCall:`, JSON.stringify(toolCall, null, 2))
 
     const permissionPlanText = (toolCall.content || [])
       .map((c: Record<string, unknown>) => {
@@ -533,7 +594,7 @@ export class CursorProvider implements AgentProvider {
       .filter(Boolean)
       .join('\n')
 
-    const planEntries = normalizer.getPendingPlanEntries()
+    const planEntries = adapter.getPendingPlanEntries()
     const entriesText = planEntries.length > 0
       ? planEntries.map(e => `- [${e.status}] ${e.content}`).join('\n')
       : ''
@@ -544,7 +605,7 @@ export class CursorProvider implements AgentProvider {
     this.ctx.broadcaster.send('agent:permission-request', {
       id: permId,
       tool: 'ExitPlanMode',
-      input: { plan: planContent, planContent, planFilePath: `cursor://plan/${sessionId}`, provider: 'cursor' },
+      input: { plan: planContent, planContent, planFilePath: `${this.tag}://plan/${sessionId}`, provider: this.id },
     }, sessionId)
 
     const { allowed, message } = await promise
@@ -615,8 +676,15 @@ export class CursorProvider implements AgentProvider {
 
   private async applyModelConfig(sessionId: string, model: string, configOptions: SessionConfigOption[]): Promise<void> {
     const modelOpt = configOptions.find(o => o.category === 'model')
-    if (modelOpt) {
-      await this.acpSetConfigOption(sessionId, modelOpt.id, model)
+    if (modelOpt && modelOpt.type === 'select') {
+      const flatOptions = flattenSelectOptions(modelOpt.options)
+      const match = flatOptions.find(o => o.value === model)
+        || flatOptions.find(o => o.value.includes(model) || model.includes(o.value))
+      if (match) {
+        await this.acpSetConfigOption(sessionId, modelOpt.id, match.value)
+      } else {
+        console.warn(`[${this.tag}] Model "${model}" not in allowed options [${flatOptions.map(o => o.value).join(', ')}]`)
+      }
     }
   }
 
@@ -625,11 +693,10 @@ export class CursorProvider implements AgentProvider {
    * 1. Try config option (preferred per ACP spec) — look for category: 'mode'
    * 2. Fall back to legacy session/set_mode
    *
-   * Cursor uses 'plan'/'agent'/'ask'; ACP spec examples use 'architect'/'code'/'ask'.
-   * We try Cursor's IDs first, then spec IDs as fallback.
+   * Different agents use different mode IDs. We try common candidates in order.
    */
   private async applyModeConfig(sessionId: string, req: AgentQueryRequest, result: NewSessionResponse): Promise<void> {
-    // Cursor: plan/agent/ask. ACP spec: architect/code/ask. Try both.
+    // Common candidates: agent-specific names first, then ACP spec names
     const candidates = req.askMode
       ? ['ask']
       : req.planMode
@@ -642,25 +709,25 @@ export class CursorProvider implements AgentProvider {
       const flatOptions = flattenSelectOptions(modeOpt.options)
       const match = candidates.find(c => flatOptions.some(o => o.value === c))
       if (match) {
-        console.log(`[cursor] Setting mode via config option: ${match}`)
+        console.log(`[${this.tag}] Setting mode via config option: ${match}`)
         await this.acpSetConfigOption(sessionId, modeOpt.id, match)
         return
       }
-      console.warn(`[cursor] No matching mode in config options [${flatOptions.map(o => o.value).join(', ')}]`)
+      console.warn(`[${this.tag}] No matching mode in config options [${flatOptions.map(o => o.value).join(', ')}]`)
     }
 
     // 2. Fall back to legacy session/set_mode
     if (result.modes?.availableModes) {
       const match = candidates.find(c => result.modes!.availableModes.some(m => m.id === c))
       if (match) {
-        console.log(`[cursor] Setting mode via legacy setSessionMode: ${match}`)
+        console.log(`[${this.tag}] Setting mode via legacy setSessionMode: ${match}`)
         await this.acpSetSessionMode(sessionId, match)
         return
       }
-      console.warn(`[cursor] No matching mode in available modes [${result.modes.availableModes.map(m => m.id).join(', ')}]`)
+      console.warn(`[${this.tag}] No matching mode in available modes [${result.modes.availableModes.map(m => m.id).join(', ')}]`)
     }
 
-    console.warn(`[cursor] Could not set mode — tried candidates [${candidates.join(', ')}]`)
+    console.warn(`[${this.tag}] Could not set mode — tried candidates [${candidates.join(', ')}]`)
   }
 
   private async applyThinkingConfig(sessionId: string, budget: 'low' | 'medium' | 'high', configOptions: SessionConfigOption[]): Promise<void> {
@@ -693,15 +760,16 @@ export class CursorProvider implements AgentProvider {
 
   private ensureConnected(): void {
     if (!this._alive || !this.connection) {
-      throw new Error('Cursor ACP not connected')
+      throw new Error(`${this.tag} ACP not connected`)
     }
   }
 
   private processConfigOptions(configOptions: SessionConfigOption[]): void {
+    updateModelCacheFromConfigOptions(this.id, configOptions)
     const hasModel = configOptions.some(opt => opt.category === 'model')
     const hasThoughtLevel = configOptions.some(opt => opt.category === 'thought_level')
-    updateCapability('cursor', 'model-selection', hasModel)
-    updateCapability('cursor', 'reasoning-control', hasThoughtLevel)
+    updateCapability(this.id, 'model-selection', hasModel)
+    updateCapability(this.id, 'reasoning-control', hasThoughtLevel)
   }
 }
 

@@ -25,4 +25,6 @@ export const toolRenderers: Record<string, ToolRenderer> = {
   EnterPlanMode: EnterPlanModeRenderer,
   ExitPlanMode: ExitPlanModeRenderer,
   AskUserQuestion: AskUserQuestionRenderer,
+  WebFetch: BashRenderer,
+  WebSearch: BashRenderer,
 }

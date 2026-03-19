@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import type { ChatMessage, ToolCallInfo, AgentMessage, StreamEvent, PlanReviewState, InjectedContext } from '../types'
+import type { ChatMessage, ToolCallInfo, StreamingSegment, AgentMessage, StreamEvent, PlanReviewState, InjectedContext } from '../types'
 import { parseSessionMessages, extractTokenUsageFromRaw } from '../utils/sessionParser'
 import { reconcileParsedMessages } from '../utils/message-reconciler'
 import { useCodr } from './useCodr'
@@ -109,15 +109,18 @@ export function useAgentConnection({
   const [streamingText, setStreamingText] = useState('')
   const [streamingThinking, setStreamingThinking] = useState('')
   const [streamingTools, setStreamingTools] = useState<ToolCallInfo[]>([])
+  const [streamingSegments, setStreamingSegments] = useState<StreamingSegment[]>([])
   const [hasMoreMessages, setHasMoreMessages] = useState(false)
   const [backgroundQuerySessionIds, setBackgroundQuerySessionIds] = useState<Set<string>>(new Set())
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null)
+  const [availableCommands, setAvailableCommands] = useState<SlashCommand[]>([])
 
   const allMessagesRef = useRef<ChatMessage[]>([])
   const isLoadingHistoryRef = useRef(false)
   const streamingTextRef = useRef('')
   const streamingThinkingRef = useRef('')
   const streamingToolsRef = useRef<ToolCallInfo[]>([])
+  const streamingSegmentsRef = useRef<StreamingSegment[]>([])
   const isLoadingRef = useRef(false)
   const errorSessionRef = useRef<string | null>(null)
 
@@ -180,9 +183,11 @@ export function useAgentConnection({
     streamingTextRef.current = ''
     streamingThinkingRef.current = ''
     streamingToolsRef.current = []
+    streamingSegmentsRef.current = []
     setStreamingText('')
     setStreamingThinking('')
     setStreamingTools([])
+    setStreamingSegments([])
   }, [])
 
   const addUserMessage = useCallback((msg: ChatMessage) => {
@@ -198,9 +203,11 @@ export function useAgentConnection({
     streamingTextRef.current = ''
     streamingThinkingRef.current = ''
     streamingToolsRef.current = []
+    streamingSegmentsRef.current = []
     setStreamingText('')
     setStreamingThinking('')
     setStreamingTools([])
+    setStreamingSegments([])
   }, [])
 
   const applyStreamingState = useCallback((state: {
@@ -217,6 +224,13 @@ export function useAgentConnection({
     setStreamingText(text)
     setStreamingThinking(thinking)
     setStreamingTools([...tools])
+    // Reconstruct segments from flat values (lossy but OK for sync recovery)
+    const segs: StreamingSegment[] = []
+    if (thinking) segs.push({ type: 'thinking', content: thinking })
+    if (tools.length) segs.push({ type: 'tools', tools: [...tools] })
+    if (text) segs.push({ type: 'text', content: text })
+    streamingSegmentsRef.current = segs
+    setStreamingSegments(segs)
   }, [])
 
   const loadMessages = useCallback((sessionMessages: ChatMessage[], initialTokenUsage?: TokenUsage | null) => {
@@ -225,6 +239,7 @@ export function useAgentConnection({
     isLoadingHistoryRef.current = sessionMessages.length > 0
     setMessages(initial)
     setTokenUsage(initialTokenUsage ?? null)
+    setAvailableCommands([])
     setHasMoreMessages(sessionMessages.length > PAGE_SIZE)
     if (sessionMessages.length > 0) {
       requestAnimationFrame(() => { isLoadingHistoryRef.current = false })
@@ -348,14 +363,18 @@ export function useAgentConnection({
         } else if (evt.event.type === 'content_block_delta' && evt.event.delta?.type === 'thinking_delta' && evt.event.delta.thinking) {
           cache.streamingThinking += evt.event.delta.thinking
         } else if (evt.event.type === 'content_block_start' && evt.event.content_block?.type === 'tool_use') {
-          const block = evt.event.content_block as { id?: string; name?: string }
+          const block = evt.event.content_block as { id?: string; name?: string; kind?: string; title?: string; input?: Record<string, unknown>; content?: Array<{ type: string; [key: string]: unknown }>; locations?: Array<{ path: string; line?: number | null }>; meta?: Record<string, unknown> }
           cache.streamingTools.push({
             id: block.id || `tool-${Date.now()}-${Math.random()}`,
-            name: block.name || 'Unknown',
-            input: {},
+            kind: block.kind || block.name || 'other',
+            title: block.title,
+            input: block.input || {},
             status: 'running',
+            content: block.content,
+            locations: block.locations,
+            meta: block.meta,
           })
-          if (block.name === 'ExitPlanMode') {
+          if (block.kind === 'ExitPlanMode' || block.name === 'ExitPlanMode') {
             dialogsRef.current.onExitPlanMode()
           }
         }
@@ -386,19 +405,30 @@ export function useAgentConnection({
         const content = assistantMsg.message?.content
         if (Array.isArray(content)) {
           for (const block of content) {
-            const b = block as { type: string; id?: string; name?: string; input?: Record<string, unknown> }
+            const b = block as { type: string; id?: string; name?: string; kind?: string; title?: string; input?: Record<string, unknown>; content?: Array<{ type: string; [key: string]: unknown }>; locations?: Array<{ path: string; line?: number | null }>; rawInput?: unknown; rawOutput?: unknown; meta?: Record<string, unknown> }
             if (b.type === 'tool_use' && b.id) {
               const idx = cache.streamingTools.findIndex((t) => t.id === b.id)
               if (idx >= 0) {
-                cache.streamingTools[idx] = { ...cache.streamingTools[idx], input: b.input || {} }
+                cache.streamingTools[idx] = {
+                  ...cache.streamingTools[idx],
+                  input: b.input || {},
+                  ...(b.kind && { kind: b.kind }),
+                  ...(b.title && { title: b.title }),
+                  ...(b.content && { content: b.content }),
+                  ...(b.locations && { locations: b.locations }),
+                  ...(b.rawInput !== undefined && { rawInput: b.rawInput }),
+                  ...(b.rawOutput !== undefined && { rawOutput: b.rawOutput }),
+                  ...(b.meta && { meta: b.meta }),
+                }
               }
-              if (b.name === 'Write') {
-                const filePath = b.input?.file_path as string
+              const toolKind = b.kind || b.name
+              if (toolKind === 'Edit' || toolKind === 'Write') {
+                const filePath = (b.input?.file_path as string) || b.locations?.[0]?.path
                 if (filePath?.includes('.claude/plans/')) {
                   dialogsRef.current.onPlanWrite(b.id, filePath, b.input?.content as string)
                 }
               }
-              if (b.name === 'ExitPlanMode') {
+              if (toolKind === 'ExitPlanMode') {
                 dialogsRef.current.onExitPlanMode(
                   b.input?.allowedPrompts as Array<{ tool: string; prompt: string }> | undefined
                 )
@@ -447,6 +477,10 @@ export function useAgentConnection({
           commitCacheTurn(cache)
           cache.messages.push({ id: nextId(), role: 'system', content: label, toolCalls: [] })
         }
+        break
+      }
+      case 'available_commands': {
+        // Handled at session level, not cache level
         break
       }
       case 'injected_context': {
@@ -524,22 +558,55 @@ export function useAgentConnection({
             if (streamingToolsRef.current.length > 0) {
               commitCurrentTurn()
             }
-            streamingTextRef.current += evt.event.delta.text
+            const delta = evt.event.delta.text
+            streamingTextRef.current += delta
             setStreamingText(streamingTextRef.current)
+            // Update segments
+            const segs = streamingSegmentsRef.current
+            const lastSeg = segs[segs.length - 1]
+            if (lastSeg?.type === 'text') {
+              lastSeg.content += delta
+            } else {
+              segs.push({ type: 'text', content: delta })
+            }
+            setStreamingSegments([...segs])
           } else if (evt.event.type === 'content_block_delta' && evt.event.delta?.type === 'thinking_delta' && evt.event.delta.thinking) {
-            streamingThinkingRef.current += evt.event.delta.thinking
+            const delta = evt.event.delta.thinking
+            streamingThinkingRef.current += delta
             setStreamingThinking(streamingThinkingRef.current)
+            // Update segments
+            const segs = streamingSegmentsRef.current
+            const lastSeg = segs[segs.length - 1]
+            if (lastSeg?.type === 'thinking') {
+              lastSeg.content += delta
+            } else {
+              segs.push({ type: 'thinking', content: delta })
+            }
+            setStreamingSegments([...segs])
           } else if (evt.event.type === 'content_block_start' && evt.event.content_block?.type === 'tool_use') {
-            const block = evt.event.content_block as { id?: string; name?: string }
+            const block = evt.event.content_block as { id?: string; name?: string; kind?: string; title?: string; input?: Record<string, unknown>; content?: Array<{ type: string; [key: string]: unknown }>; locations?: Array<{ path: string; line?: number | null }>; meta?: Record<string, unknown> }
             const toolInfo: ToolCallInfo = {
               id: block.id || `tool-${Date.now()}-${Math.random()}`,
-              name: block.name || 'Unknown',
-              input: {},
+              kind: block.kind || block.name || 'other',
+              title: block.title,
+              input: block.input || {},
               status: 'running',
+              content: block.content,
+              locations: block.locations,
+              meta: block.meta,
             }
             streamingToolsRef.current.push(toolInfo)
             setStreamingTools([...streamingToolsRef.current])
-            if (block.name === 'ExitPlanMode') {
+            // Update segments
+            const segs = streamingSegmentsRef.current
+            const lastSeg = segs[segs.length - 1]
+            if (lastSeg?.type === 'tools') {
+              lastSeg.tools.push(toolInfo)
+            } else {
+              segs.push({ type: 'tools', tools: [toolInfo] })
+            }
+            setStreamingSegments([...segs])
+            if (block.kind === 'ExitPlanMode' || block.name === 'ExitPlanMode') {
               dialogsRef.current.onExitPlanMode()
             }
           }
@@ -572,25 +639,32 @@ export function useAgentConnection({
           if (Array.isArray(content)) {
             let updated = false
             for (const block of content) {
-              const b = block as { type: string; id?: string; name?: string; input?: Record<string, unknown> }
+              const b = block as { type: string; id?: string; name?: string; kind?: string; title?: string; input?: Record<string, unknown>; content?: Array<{ type: string; [key: string]: unknown }>; locations?: Array<{ path: string; line?: number | null }>; rawInput?: unknown; rawOutput?: unknown; meta?: Record<string, unknown> }
               if (b.type === 'tool_use' && b.id) {
                 const idx = streamingToolsRef.current.findIndex((t) => t.id === b.id)
                 if (idx >= 0) {
-                  streamingToolsRef.current[idx] = {
-                    ...streamingToolsRef.current[idx],
+                  Object.assign(streamingToolsRef.current[idx], {
                     input: b.input || {},
-                  }
+                    ...(b.kind && { kind: b.kind }),
+                    ...(b.title && { title: b.title }),
+                    ...(b.content && { content: b.content }),
+                    ...(b.locations && { locations: b.locations }),
+                    ...(b.rawInput !== undefined && { rawInput: b.rawInput }),
+                    ...(b.rawOutput !== undefined && { rawOutput: b.rawOutput }),
+                    ...(b.meta && { meta: b.meta }),
+                  })
                   updated = true
                 }
 
-                if (b.name === 'Write') {
-                  const filePath = b.input?.file_path as string
+                const toolKind = b.kind || b.name
+                if (toolKind === 'Edit' || toolKind === 'Write') {
+                  const filePath = (b.input?.file_path as string) || b.locations?.[0]?.path
                   if (filePath?.includes('.claude/plans/')) {
                     dialogsRef.current.onPlanWrite(b.id, filePath, b.input?.content as string)
                   }
                 }
 
-                if (b.name === 'ExitPlanMode') {
+                if (toolKind === 'ExitPlanMode') {
                   dialogsRef.current.onExitPlanMode(
                     b.input?.allowedPrompts as Array<{ tool: string; prompt: string }> | undefined
                   )
@@ -599,6 +673,7 @@ export function useAgentConnection({
             }
             if (updated) {
               setStreamingTools([...streamingToolsRef.current])
+              setStreamingSegments([...streamingSegmentsRef.current])
             }
           }
           break
@@ -621,18 +696,18 @@ export function useAgentConnection({
                         .map((c) => c.text || '')
                         .join('\n')
                       : ''
-                  streamingToolsRef.current[idx] = {
-                    ...streamingToolsRef.current[idx],
+                  Object.assign(streamingToolsRef.current[idx], {
                     result: resultText,
                     isError: b.is_error === true,
                     status: b.is_error ? 'error' : 'done',
-                  }
+                  })
                   updated = true
                 }
               }
             }
             if (updated) {
               setStreamingTools([...streamingToolsRef.current])
+              setStreamingSegments([...streamingSegmentsRef.current])
             }
           }
           break
@@ -648,6 +723,13 @@ export function useAgentConnection({
             const sysMessage: ChatMessage = { id: nextId(), role: 'system', content: label, toolCalls: [] }
             allMessagesRef.current = [...allMessagesRef.current, sysMessage]
             setMessages((prev) => [...prev, sysMessage])
+          }
+          break
+        }
+        case 'available_commands': {
+          const cmdsMsg = msg as { commands?: SlashCommand[] }
+          if (cmdsMsg.commands) {
+            setAvailableCommands(cmdsMsg.commands)
           }
           break
         }
@@ -885,6 +967,14 @@ export function useAgentConnection({
             setStreamingThinking(activeState.streamingThinking || '')
             setStreamingTools(activeState.streamingTools)
             if (activeState.tokenUsage) setTokenUsage(activeState.tokenUsage)
+            if (activeState.availableCommands) setAvailableCommands(activeState.availableCommands)
+            // Reconstruct segments from flat values
+            const segs: StreamingSegment[] = []
+            if (activeState.streamingThinking) segs.push({ type: 'thinking', content: activeState.streamingThinking })
+            if (activeState.streamingTools?.length) segs.push({ type: 'tools', tools: [...activeState.streamingTools] })
+            if (activeState.streamingText) segs.push({ type: 'text', content: activeState.streamingText })
+            streamingSegmentsRef.current = segs
+            setStreamingSegments(segs)
           }
 
           // Populate cache for non-active sessions
@@ -972,9 +1062,11 @@ export function useAgentConnection({
     streamingText,
     streamingThinking,
     streamingTools,
+    streamingSegments,
     hasMoreMessages,
     backgroundQuerySessionIds,
     tokenUsage,
+    availableCommands,
     allMessagesRef,
     isLoadingHistoryRef,
     isLoadingRef,

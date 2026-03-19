@@ -1,4 +1,4 @@
-import { AlertTriangle, ClipboardList } from 'lucide-react'
+import { AlertTriangle } from 'lucide-react'
 import { CollapsibleDialog } from '../dialogs/CollapsibleDialog'
 import { PermissionDialog } from '../dialogs/PermissionDialog'
 import { PlanReviewDialog } from '../dialogs/PlanReviewDialog'
@@ -18,9 +18,8 @@ interface DialogsPanelProps {
   currentProvider: AgentProviderId
   selectedModel: string | undefined
   onModelChange: (model: string | undefined) => void
-  onPlanBuild: (permissionId: number, userNotes?: string) => void
-  onPlanClearContextBuild: (permissionId: number, userNotes?: string) => void
-  onPlanRequestChanges: (permissionId: number, feedback: string) => void
+  onPlanBuild: (permissionId: number) => void
+  onPlanClearContextBuild: (permissionId: number) => void
 }
 
 export function DialogsPanel({
@@ -37,7 +36,6 @@ export function DialogsPanel({
   onModelChange,
   onPlanBuild,
   onPlanClearContextBuild,
-  onPlanRequestChanges,
 }: DialogsPanelProps) {
   const key = activeSessionId || '_unknown'
   const permRequest = permissionRequests[key]
@@ -51,21 +49,14 @@ export function DialogsPanel({
   return (
     <div className="flex flex-col gap-2 px-6 py-2 max-h-[70vh] overflow-y-auto max-[768px]:px-2">
       {hasPermission && isPlanPermission && (
-        <CollapsibleDialog
-          title="Plan Review"
-          icon={<ClipboardList size={14} />}
-          variant="plan"
-        >
-          <PlanReviewDialog
-            request={permRequest}
-            currentProvider={currentProvider}
-            selectedModel={selectedModel}
-            onModelChange={onModelChange}
-            onRequestChanges={onPlanRequestChanges}
-            onBuild={onPlanBuild}
-            onClearContextBuild={onPlanClearContextBuild}
-          />
-        </CollapsibleDialog>
+        <PlanReviewDialog
+          request={permRequest}
+          currentProvider={currentProvider}
+          selectedModel={selectedModel}
+          onModelChange={onModelChange}
+          onBuild={onPlanBuild}
+          onClearContextBuild={onPlanClearContextBuild}
+        />
       )}
       {hasPermission && !isPlanPermission && (
         <CollapsibleDialog

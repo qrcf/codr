@@ -5,6 +5,7 @@ import path from 'node:path'
 // It writes directly to disk and handles WAL mode natively.
 import { DatabaseSync } from 'node:sqlite'
 import type { AgentProviderId } from './provider'
+import type { ProviderStatusInfo } from './provider-discovery'
 import {
   appendIndexedSessionMessage,
   getIndexedSessionMessagesFromDb,
@@ -66,6 +67,17 @@ function getDb(): DatabaseSync {
       status TEXT,
       hasPlan INTEGER DEFAULT 0,
       archived INTEGER DEFAULT 0
+    )
+  `)
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS provider_status (
+      providerId TEXT PRIMARY KEY,
+      installed INTEGER NOT NULL,
+      loggedIn INTEGER NOT NULL,
+      detail TEXT,
+      email TEXT,
+      org TEXT,
+      updatedAt INTEGER NOT NULL
     )
   `)
   initSessionIndexStorage(_db)
@@ -139,6 +151,41 @@ export async function appendIndexedRawMessage(sessionId: string, provider: Agent
     appendIndexedSessionMessage(db, sessionId, provider, rawMessage)
     upsertIndexedSessionSync(sessionId, { provider, updatedAt: Date.now() })
   })
+}
+
+// --- Provider status cache (persisted) ---
+
+export function getPersistedProviderStatus(): Record<string, ProviderStatusInfo> | null {
+  const db = getDb()
+  const rows = db.prepare('SELECT * FROM provider_status').all() as Array<Record<string, unknown>>
+  if (rows.length === 0) return null
+  const result: Record<string, ProviderStatusInfo> = {}
+  for (const row of rows) {
+    result[row.providerId as string] = {
+      installed: row.installed === 1,
+      loggedIn: row.loggedIn === 1,
+      detail: (row.detail as string | null) ?? undefined,
+      email: (row.email as string | null) ?? undefined,
+      org: (row.org as string | null) ?? undefined,
+    }
+  }
+  return result
+}
+
+export function persistProviderStatus(providerId: string, status: ProviderStatusInfo): void {
+  const db = getDb()
+  db.prepare(
+    `INSERT OR REPLACE INTO provider_status (providerId, installed, loggedIn, detail, email, org, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    providerId,
+    status.installed ? 1 : 0,
+    status.loggedIn ? 1 : 0,
+    status.detail ?? null,
+    status.email ?? null,
+    status.org ?? null,
+    Date.now(),
+  )
 }
 
 // --- Internal sync helpers ---

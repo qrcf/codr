@@ -54,6 +54,7 @@ export function createWebSocketAgentAPI(relayUrl: string, getToken: () => Promis
   const desktopStatusCallbacks: Array<(online: boolean) => void> = []
   const docCrawlProgressCallbacks: Array<(progress: { sourceId: number; status: string; pagesCrawled: number; currentUrl?: string; error?: string }) => void> = []
   const docsSetupProgressCallbacks: Array<(progress: { step: string; detail?: string; stepIndex: number; totalSteps: number }) => void> = []
+  const capabilitiesChangedCallbacks: Array<(data: { providerId: AgentProviderId; capabilities: string[] }) => void> = []
   const authFailedCallbacks: Array<() => void> = []
   const pendingRequests = new Map<string, PendingRequest>()
 
@@ -144,6 +145,11 @@ export function createWebSocketAgentAPI(relayUrl: string, getToken: () => Promis
       case 'setup_progress':
         for (const cb of docsSetupProgressCallbacks) {
           cb(data as unknown as { step: string; detail?: string; stepIndex: number; totalSteps: number })
+        }
+        break
+      case 'providers_capabilities_changed':
+        for (const cb of capabilitiesChangedCallbacks) {
+          cb(data as unknown as { providerId: AgentProviderId; capabilities: string[] })
         }
         break
       case 'desktop_status':
@@ -299,6 +305,8 @@ export function createWebSocketAgentAPI(relayUrl: string, getToken: () => Promis
     listSessions: () => request('list_sessions') as Promise<{ sessions: unknown[]; titlesLoaded: boolean }>,
     getSessionMessages: (sessionId: string) =>
       request('get_session_messages', { sessionId }) as Promise<unknown[]>,
+    getSessionRawMessages: (sessionId: string) =>
+      request('get_session_raw_messages', { sessionId }) as Promise<unknown[]>,
     getAccountInfo: () => request('get_account_info'),
     onAccountInfoUpdate: () => () => {}, // Account info push is desktop-only (IPC)
     listFiles: (dir?: string) => request('list_files', { dir }) as Promise<string[]>,
@@ -340,6 +348,10 @@ export function createWebSocketAgentAPI(relayUrl: string, getToken: () => Promis
       request('indexer_rebuild', { projectDir }) as Promise<{ ok: boolean }>,
     reinstallIndexer: () =>
       request('indexer_reinstall', {}) as Promise<{ ok: boolean }>,
+    getProviderCapabilities: () =>
+      request('get_provider_capabilities') as Promise<Record<AgentProviderId, string[]>>,
+    onCapabilitiesChanged: (cb: (data: { providerId: AgentProviderId; capabilities: string[] }) => void) =>
+      subscribe(capabilitiesChangedCallbacks, cb),
     onIndexerSetupProgress: () => () => {}, // Setup progress is desktop-only
 
     // Web-only extensions

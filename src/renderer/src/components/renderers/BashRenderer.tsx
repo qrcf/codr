@@ -5,7 +5,6 @@ import type { ToolCallInfo } from '../../types'
 export function BashRenderer({ tool }: { tool: ToolCallInfo }) {
   const [outputExpanded, setOutputExpanded] = useState(false)
   const command = tool.input.command as string | undefined
-  if (!command) return null
   const description = tool.input.description as string | undefined
   const result = tool.result || ''
 
@@ -14,7 +13,7 @@ export function BashRenderer({ tool }: { tool: ToolCallInfo }) {
       {description && <div className="px-[10px] pt-[6px] text-[#777] text-[0.9em] font-[system-ui,-apple-system,sans-serif]">{description}</div>}
       <div className="flex gap-2 px-[10px] py-[6px] text-[#e0e0e0] leading-[1.4]">
         <span className="text-[#4caf50] flex-shrink-0 select-none">$</span>
-        <span className="whitespace-pre-wrap break-all">{command}</span>
+        <span className="whitespace-pre-wrap break-all">{command || tool.title || 'command'}</span>
       </div>
       {result && (
         <>

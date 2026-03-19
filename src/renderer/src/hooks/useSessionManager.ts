@@ -177,6 +177,19 @@ export function useSessionManager({
               streamingTools: state.streamingTools,
             })
           }
+          // Enrich ExitPlanMode permission with plan content for PlanReviewDialog
+          if (state.permissionRequest?.tool === 'ExitPlanMode' && state.planReview) {
+            state.permissionRequest = {
+              ...state.permissionRequest,
+              input: {
+                ...(state.permissionRequest.input as Record<string, unknown> || {}),
+                plan: state.planReview.planContent,
+                planTitle: state.planReview.planFilePath.split('/').pop()?.replace('.md', ''),
+              },
+            }
+            setPlanReady(true)
+          }
+
           restoreDialogState(capturedSessionId, {
             permissionRequest: state.permissionRequest,
             questionRequest: state.questionRequest,
@@ -189,21 +202,34 @@ export function useSessionManager({
     // Restore plan review from message history (for completed plan-mode sessions)
     if (sessionId && sessionMessages.length > 0) {
       const allAssistants = [...sessionMessages].reverse().filter(m => m.role === 'assistant')
-      const exitPlanMsg = allAssistants.find(m => m.toolCalls.some(t => t.name === 'ExitPlanMode'))
-      const exitPlanTool = exitPlanMsg?.toolCalls.find(t => t.name === 'ExitPlanMode')
+      const exitPlanMsg = allAssistants.find(m => m.toolCalls.some(t => t.kind === 'ExitPlanMode'))
+      const exitPlanTool = exitPlanMsg?.toolCalls.find(t => t.kind === 'ExitPlanMode')
       const writePlanMsg = allAssistants.find(m =>
-        m.toolCalls.some(t => t.name === 'Write' && (t.input.file_path as string)?.includes('.claude/plans/'))
+        m.toolCalls.some(t => (t.kind === 'Edit' || t.kind === 'Write') && (t.input.file_path as string || t.locations?.[0]?.path || '')?.includes('.claude/plans/'))
       )
       const writePlanTool = writePlanMsg?.toolCalls.find(
-        t => t.name === 'Write' && (t.input.file_path as string)?.includes('.claude/plans/')
+        t => (t.kind === 'Edit' || t.kind === 'Write') && (t.input.file_path as string || t.locations?.[0]?.path || '')?.includes('.claude/plans/')
       )
       if (exitPlanTool && writePlanTool && exitPlanTool.status === 'running') {
-        setPlanReview({
-          planFilePath: writePlanTool.input.file_path as string,
-          planContent: writePlanTool.input.content as string,
-          allowedPrompts: exitPlanTool.input.allowedPrompts as Array<{ tool: string; prompt: string }> | undefined,
-        })
+        const planFilePath = writePlanTool.input.file_path as string
+        const planContent = writePlanTool.input.content as string
+        const allowedPrompts = exitPlanTool.input.allowedPrompts as Array<{ tool: string; prompt: string }> | undefined
+
+        setPlanReview({ planFilePath, planContent, allowedPrompts })
         setPlanReady(true)
+
+        // Create synthetic permission request so PlanReviewDialog renders
+        restoreDialogState(sessionId, {
+          permissionRequest: {
+            id: -1,
+            tool: 'ExitPlanMode',
+            input: {
+              plan: planContent,
+              planTitle: planFilePath.split('/').pop()?.replace('.md', ''),
+              allowedPrompts,
+            },
+          },
+        })
       }
     }
   }, [codr, activeSessionIdRef, awaitingNewSessionRef, setActiveSessionId, agent, resetPlan, restoreDialogState, setPlanReview, setPlanReady, restoreApprovedPlan, clearApprovedPlan, draftActions])

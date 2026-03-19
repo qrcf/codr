@@ -8,6 +8,7 @@ export function LabPanel() {
   const [selectedSession, setSelectedSession] = useState<string | null>(null)
   const [sessionDetail, setSessionDetail] = useState<string | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
+  const [viewMode, setViewMode] = useState<'raw' | 'parsed'>('raw')
 
   const handleListSessions = async () => {
     setSessionsLoading(true)
@@ -31,7 +32,7 @@ export function LabPanel() {
     setSessionDetail(null)
     setDetailLoading(true)
     try {
-      const messages = await codr.getSessionMessages(sessionId)
+      const messages = await fetchMessages(sessionId, viewMode)
       setSessionDetail(JSON.stringify(messages, null, 2))
     } catch (err) {
       setSessionDetail(JSON.stringify({ error: String(err) }, null, 2))
@@ -40,12 +41,41 @@ export function LabPanel() {
     }
   }
 
-  const sectionTitleClass = 'm-0 mb-3 text-[13px] font-semibold text-[#888] uppercase tracking-[0.05em]'
+  async function fetchMessages(sessionId: string, mode: 'raw' | 'parsed'): Promise<unknown[]> {
+    if (mode === 'raw' && codr.getSessionRawMessages) {
+      const raw = await codr.getSessionRawMessages(sessionId)
+      if (Array.isArray(raw) && raw.length > 0) return raw
+    }
+    return codr.getSessionMessages(sessionId)
+  }
+
+  const handleToggleViewMode = async () => {
+    const next = viewMode === 'raw' ? 'parsed' : 'raw'
+    setViewMode(next)
+    if (selectedSession) {
+      setDetailLoading(true)
+      try {
+        const messages = await fetchMessages(selectedSession, next)
+        setSessionDetail(JSON.stringify(messages, null, 2))
+      } catch (err) {
+        setSessionDetail(JSON.stringify({ error: String(err) }, null, 2))
+      } finally {
+        setDetailLoading(false)
+      }
+    }
+  }
+
+  const toggleBtnClass = 'bg-[#2a2a3d] border border-[#3a3a5a] text-[#ccc] px-3 py-1 rounded-md cursor-pointer text-[11px] transition-colors duration-150 hover:bg-[#3a3a5a] hover:text-[#e0e0e0]'
 
   return (
     <div>
       <section className="mb-8">
-        <h3 className={sectionTitleClass}>Sessions</h3>
+        <div className="flex items-center gap-3 mb-3">
+          <h3 className="m-0 text-[13px] font-semibold text-[#888] uppercase tracking-[0.05em]">Sessions</h3>
+          <button className={toggleBtnClass} onClick={handleToggleViewMode}>
+            {viewMode === 'raw' ? 'Raw' : 'Parsed'}
+          </button>
+        </div>
         <button
           className="bg-[#2a2a3d] border border-[#3a3a5a] text-[#ccc] px-4 py-2 rounded-md cursor-pointer text-[13px] transition-colors duration-150 mb-4 hover:bg-[#3a3a5a] hover:text-[#e0e0e0]"
           onClick={handleListSessions}

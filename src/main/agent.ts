@@ -8,7 +8,9 @@ import { getModelsForProvider } from './runtime/models'
 import { appendIndexedRawMessage, getIndexedSessionMeta, putIndexedRawMessages, upsertIndexedSession } from './runtime/session-index'
 import { shouldPersistIndexedMessage } from './runtime/session-index-storage'
 import { ClaudeProvider, getClaudeCliPath } from './runtime/providers/claude/provider'
-import { CursorProvider } from './runtime/providers/cursor/provider'
+import { AcpProvider } from './runtime/acp/provider'
+import { registerAcpProvider } from './runtime/acp/registry'
+import { createCursorConfig } from './runtime/acp/configs/cursor'
 import type { AgentProvider, AgentProviderId, AgentProviderContext } from './runtime/provider'
 import { isValidProviderId } from './runtime/provider'
 import { resolveSessionProvider } from './runtime/session-records'
@@ -50,9 +52,11 @@ export function registerAgentHandlers(
       },
     },
   }
+  const cursorProvider = new AcpProvider(createCursorConfig(), providerContext)
+  registerAcpProvider(cursorProvider)
   const providers: Record<AgentProviderId, AgentProvider> = {
     claude: new ClaudeProvider(providerContext),
-    cursor: new CursorProvider(providerContext),
+    cursor: cursorProvider,
   }
 
   // Run a query (used by both IPC and relay-forwarded commands)
@@ -78,8 +82,8 @@ export function registerAgentHandlers(
       { prompt, resumeSessionId, planMode, cwd: resolvedCwd, askMode, origin, model: resolvedModel, thinkingBudget, attachments },
       {
         onSessionIdentified: (sessionId) => {
+          const providerStores = provider.handlesOwnStorage === true
           if (sessionId === currentKey) {
-            // Resume — still update model + reasoning for this query
             void upsertIndexedSession(sessionId, {
               provider: providerId,
               model: resolvedModel,
@@ -97,22 +101,21 @@ export function registerAgentHandlers(
               model: resolvedModel,
               thinkingBudget: thinkingBudget || null,
             })
-            // Do NOT send refresh-hint here — it races with draft promotion in the renderer.
-            // The onDone callback sends it after the session is fully complete.
           }
-          // Index the user's prompt so it survives reload (the SDK iterator
-          // does not emit it — only assistant responses and tool_result blocks).
-          void appendIndexedRawMessage(sessionId, providerId, {
-            type: 'user',
-            message: { role: 'user', content: [{ type: 'text', text: prompt }] },
-            session_id: sessionId,
-            parent_tool_use_id: null,
-            uuid: `synth-user-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-          })
+          // Index the user's prompt so it survives reload — skip if provider stores its own data.
+          if (!providerStores) {
+            void appendIndexedRawMessage(sessionId, providerId, {
+              type: 'user',
+              message: { role: 'user', content: [{ type: 'text', text: prompt }] },
+              session_id: sessionId,
+              parent_tool_use_id: null,
+              uuid: `synth-user-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            })
+          }
         },
         onMessage: (message, querySessionId) => {
           broadcaster.send('agent:message', message, querySessionId)
-          if (shouldPersistIndexedMessage(message)) {
+          if (provider.handlesOwnStorage !== true && shouldPersistIndexedMessage(message)) {
             void appendIndexedRawMessage(querySessionId, providerId, message)
           }
         },

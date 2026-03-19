@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect, lazy, Suspense } from 'react'
 import { Plus, Square, ChevronDown, Minimize2, CircleCheck, Circle, CircleX, Lightbulb, Code2, MessageCircle } from 'lucide-react'
 import { FileMentionDropdown } from '../input/FileMentionDropdown'
+import { SlashCommandDropdown } from '../input/SlashCommandDropdown'
 import { ModelSelector } from '../input/ModelSelector'
+import { useCodr } from '../../hooks/useCodr'
 
 const ReferenceFinderDialog = lazy(() => import('../dialogs/ReferenceFinderDialog').then(m => ({ default: m.ReferenceFinderDialog })))
 import { ReasoningSelector, type ReasoningLevel } from '../input/ReasoningSelector'
@@ -63,6 +65,11 @@ interface InputAreaProps {
   onSend: () => void
   onInterrupt: () => void
   onCompact: () => void
+  // Slash commands
+  slashActive: boolean
+  filteredSlashCommands: SlashCommand[]
+  slashIndex: number
+  handleSlashSelect: (cmd: SlashCommand) => void
   // Docs
   docSources: DocSource[]
   // Queue
@@ -124,15 +131,39 @@ export function InputArea({
   onSend,
   onInterrupt,
   onCompact,
+  slashActive,
+  filteredSlashCommands,
+  slashIndex,
+  handleSlashSelect,
   docSources,
   queuedMessages,
   onRemoveQueued,
   onSendQueued,
   onEditQueued,
 }: InputAreaProps) {
+  const codr = useCodr()
   const [modeOpen, setModeOpen] = useState(false)
   const modeRef = useRef<HTMLDivElement>(null)
   const [compactConfirmOpen, setCompactConfirmOpen] = useState(false)
+  const [hasReasoningControl, setHasReasoningControl] = useState(true)
+
+  useEffect(() => {
+    codr.getProviderCapabilities?.()
+      .then(caps => {
+        if (caps?.[currentProvider]) {
+          setHasReasoningControl(caps[currentProvider].includes('reasoning-control'))
+        }
+      })
+      .catch(() => {})
+  }, [currentProvider, codr])
+
+  useEffect(() => {
+    return codr.onCapabilitiesChanged?.((data) => {
+      if (data.providerId === currentProvider) {
+        setHasReasoningControl(data.capabilities.includes('reasoning-control'))
+      }
+    })
+  }, [currentProvider, codr])
   const compactRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -160,6 +191,13 @@ export function InputArea({
       className="px-4 py-3 shrink-0 max-w-205 w-full mx-auto box-border max-[768px]:max-w-full max-[768px]:px-3 max-[768px]:py-2"
       style={{ position: 'relative' }}
     >
+      {slashActive && filteredSlashCommands.length > 0 && (
+        <SlashCommandDropdown
+          commands={filteredSlashCommands}
+          activeIndex={slashIndex}
+          onSelect={handleSlashSelect}
+        />
+      )}
       {mentionActive && (
         <FileMentionDropdown
           files={fileCache}
@@ -308,11 +346,13 @@ export function InputArea({
             />
 
             {/* Reasoning */}
-            <ReasoningSelector
-              value={reasoning}
-              onChange={onReasoningChange}
-              disabled={isLoading}
-            />
+            {hasReasoningControl && (
+              <ReasoningSelector
+                value={reasoning}
+                onChange={onReasoningChange}
+                disabled={isLoading}
+              />
+            )}
 
             {/* Send / Stop */}
             {isLoading ? (

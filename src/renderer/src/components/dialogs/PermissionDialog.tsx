@@ -29,7 +29,7 @@ function PermissionToolView({ request }: { request: PermissionRequest }) {
     case 'Bash': {
       const toolInfo: ToolCallInfo = {
         id: `perm-${request.id}`,
-        name: 'Bash',
+        kind: 'Bash',
         input,
         status: 'running',
       }
@@ -38,7 +38,7 @@ function PermissionToolView({ request }: { request: PermissionRequest }) {
     case 'Write': {
       const toolInfo: ToolCallInfo = {
         id: `perm-${request.id}`,
-        name: 'Write',
+        kind: 'Write',
         input,
         status: 'running',
       }

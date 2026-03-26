@@ -33,6 +33,9 @@ class IndexerWorker:
         self.embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
         self.embedding_mode = "sentence-transformers"
         self.backend_name = "hnsw"
+        # Docs index (separate from code index)
+        self.docs_searcher = None
+        self.docs_index_path = None
 
     def init(self, config: dict):
         self.index_path = config.get("index_path")
@@ -192,6 +195,104 @@ class IndexerWorker:
             })
         return output
 
+    # -- Docs index methods (separate HNSW index for documentation) --
+
+    def docs_init(self, config: dict):
+        """Initialize the docs index with a separate index path."""
+        self.docs_index_path = config.get("index_path")
+        if self.docs_index_path and os.path.exists(self.docs_index_path):
+            self._load_docs_searcher()
+
+    def _load_docs_searcher(self):
+        """Load or reload the docs searcher."""
+        if self.docs_searcher:
+            try:
+                self.docs_searcher.cleanup()
+            except Exception:
+                pass
+            self.docs_searcher = None
+
+        try:
+            from leann import LeannSearcher
+
+            self.docs_searcher = LeannSearcher(self.docs_index_path)
+            print(
+                f"[docs-indexer] Loaded docs index from {self.docs_index_path}",
+                file=sys.stderr,
+                flush=True,
+            )
+        except Exception as e:
+            print(
+                f"[docs-indexer] Failed to load docs index: {e}",
+                file=sys.stderr,
+                flush=True,
+            )
+
+    def docs_build_index(self, chunks: list[dict], msg_id: str = "") -> int:
+        """Build the docs index from pre-chunked documents (no AST chunking needed)."""
+        from leann import LeannBuilder
+
+        if self.docs_searcher:
+            try:
+                self.docs_searcher.cleanup()
+            except Exception:
+                pass
+            self.docs_searcher = None
+
+        builder = LeannBuilder(
+            backend_name=self.backend_name,
+            embedding_model=self.embedding_model,
+            embedding_mode=self.embedding_mode,
+            compact=True,
+        )
+
+        total = len(chunks)
+        for i, chunk in enumerate(chunks):
+            text = chunk.get("text", "")
+            metadata = chunk.get("metadata", {})
+            builder.add_text(text, metadata)
+            if msg_id and (i + 1) % 50 == 0:
+                emit({"id": msg_id, "type": "progress", "phase": "embedding_docs", "current": i + 1, "total": total})
+
+        if msg_id:
+            emit({"id": msg_id, "type": "progress", "phase": "building_docs", "current": total, "total": total})
+
+        if self.docs_index_path:
+            os.makedirs(self.docs_index_path, exist_ok=True)
+            builder.build_index(self.docs_index_path)
+
+        if self.docs_index_path:
+            self._load_docs_searcher()
+
+        return len(chunks)
+
+    def docs_search(self, query: str, limit: int = 15, source_ids: list[int] | None = None) -> list[dict]:
+        """Search the docs index. Optionally filter by source_id."""
+        if not self.docs_searcher:
+            if self.docs_index_path and os.path.exists(self.docs_index_path):
+                self._load_docs_searcher()
+            if not self.docs_searcher:
+                return []
+
+        results = self.docs_searcher.search(query, top_k=limit * 3 if source_ids else limit)
+
+        output = []
+        for i, r in enumerate(results):
+            metadata = r.metadata if hasattr(r, "metadata") else {}
+            # Filter by source_id if specified
+            if source_ids and metadata.get("source_id") not in source_ids:
+                continue
+            output.append({
+                "id": getattr(r, "id", str(i)),
+                "score": float(r.score),
+                "text": r.text,
+                "metadata": metadata,
+            })
+            if len(output) >= limit:
+                break
+
+        return output
+
     def cleanup(self):
         """Clean up resources."""
         if self.searcher:
@@ -200,13 +301,19 @@ class IndexerWorker:
             except Exception:
                 pass
             self.searcher = None
+        if self.docs_searcher:
+            try:
+                self.docs_searcher.cleanup()
+            except Exception:
+                pass
+            self.docs_searcher = None
 
 
 async def main():
     worker = IndexerWorker()
 
     loop = asyncio.get_event_loop()
-    reader = asyncio.StreamReader(limit=10 * 1024 * 1024)  # 10 MB to handle large chunk_files payloads
+    reader = asyncio.StreamReader(limit=200 * 1024 * 1024)  # 200 MB to handle large project payloads
     protocol = asyncio.StreamReaderProtocol(reader)
     await loop.connect_read_pipe(lambda: protocol, sys.stdin)
 
@@ -262,6 +369,23 @@ async def main():
                 results = worker.search(
                     msg.get("query", ""),
                     msg.get("limit", 15),
+                )
+                emit({"id": msg_id, "ok": True, "results": results})
+
+            elif cmd == "docs_init":
+                worker.docs_init(msg.get("config", {}))
+                emit({"id": msg_id, "ok": True, "status": "ready"})
+
+            elif cmd == "docs_build_index":
+                chunks = msg.get("chunks", [])
+                count = worker.docs_build_index(chunks, msg_id=msg_id)
+                emit({"id": msg_id, "ok": True, "count": count})
+
+            elif cmd == "docs_search":
+                results = worker.docs_search(
+                    msg.get("query", ""),
+                    msg.get("limit", 15),
+                    msg.get("source_ids"),
                 )
                 emit({"id": msg_id, "ok": True, "results": results})
 

@@ -16,7 +16,7 @@
     "lint": "eslint .",
     "web:dev": "pnpm --filter @codr/web dev",
     "web:build": "pnpm --filter @codr/web build",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "electron-builder install-app-deps && tsx scripts/patch-electron-plist.ts",
     "dist": "tsx scripts/deploy.ts",
     "deploy": "tsx scripts/deploy.ts --upload",
     "release": "tsx scripts/release.ts",

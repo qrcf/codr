@@ -117,6 +117,8 @@ export function classifySdkTool(toolName: string): PermissionCategory {
   if (READ_ONLY_TOOLS.has(toolName)) return 'read_only'
   if (EDIT_TOOLS.has(toolName)) return 'edit'
   if (toolName === 'Bash') return 'command'
+  // Auto-approve our own read-only MCP tools (docs_search, codebase_search)
+  if (toolName.startsWith('mcp__codr-tools__')) return 'read_only'
   return 'unknown'
 }
 

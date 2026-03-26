@@ -15,6 +15,7 @@ import type { AgentProvider, AgentProviderId, AgentProviderContext } from './run
 import { isValidProviderId } from './runtime/provider'
 import { resolveSessionProvider } from './runtime/session-records'
 import type { IndexerManager } from './indexer/manager'
+import type { DocsIndexer } from './docs/docs-indexer'
 import type { AttachmentMeta } from '../shared/attachments'
 
 export function getCliPath(): string | undefined {
@@ -27,11 +28,13 @@ export function registerAgentHandlers(
   relayClient: RelayClient,
   getAuthToken: () => Promise<string>,
   indexerManager?: IndexerManager,
+  docsIndexer?: DocsIndexer,
 ) {
   registerPermissionHandlers(broadcaster)
   const providerContext: AgentProviderContext = {
     broadcaster,
     indexerManager,
+    docsIndexer,
     relayClient,
     getAuthToken,
     sessionStore: {
@@ -60,7 +63,7 @@ export function registerAgentHandlers(
   }
 
   // Run a query (used by both IPC and relay-forwarded commands)
-  async function runQuery(prompt: string, resumeSessionId?: string, planMode?: boolean, cwd?: string, askMode?: boolean, origin: MessageOrigin = 'local', model?: string, thinkingBudget?: 'low' | 'medium' | 'high', attachments?: AttachmentMeta[]) {
+  async function runQuery(prompt: string, resumeSessionId?: string, planMode?: boolean, cwd?: string, askMode?: boolean, origin: MessageOrigin = 'local', model?: string, thinkingBudget?: 'low' | 'medium' | 'high', attachments?: AttachmentMeta[], docNames?: string[], filePaths?: string[]) {
     const selectedProvider = await getSelectedProvider()
     const storedSession = resumeSessionId ? await getIndexedSessionMeta(resumeSessionId) : null
     const providerId = resolveSessionProvider(selectedProvider, storedSession?.provider)
@@ -79,7 +82,7 @@ export function registerAgentHandlers(
     let errorOccurred = false
 
     await provider.runQuery(
-      { prompt, resumeSessionId, planMode, cwd: resolvedCwd, askMode, origin, model: resolvedModel, thinkingBudget, attachments },
+      { prompt, resumeSessionId, planMode, cwd: resolvedCwd, askMode, origin, model: resolvedModel, thinkingBudget, attachments, docNames, filePaths },
       {
         onSessionIdentified: (sessionId) => {
           const providerStores = provider.handlesOwnStorage === true
@@ -149,11 +152,11 @@ export function registerAgentHandlers(
   }
 
   // IPC handlers (Electron renderer)
-  ipcMain.handle('agent:query', async (_event, prompt: string, opts?: { resumeSessionId?: string; planMode?: boolean; cwd?: string; askMode?: boolean; model?: string; thinkingBudget?: 'low' | 'medium' | 'high'; attachments?: AttachmentMeta[] }) => {
+  ipcMain.handle('agent:query', async (_event, prompt: string, opts?: { resumeSessionId?: string; planMode?: boolean; cwd?: string; askMode?: boolean; model?: string; thinkingBudget?: 'low' | 'medium' | 'high'; attachments?: AttachmentMeta[]; docNames?: string[]; filePaths?: string[] }) => {
     const win = getMainWindow()
     if (!win) return
     try {
-      await runQuery(prompt, opts?.resumeSessionId, opts?.planMode, opts?.cwd, opts?.askMode, 'local', opts?.model, opts?.thinkingBudget, opts?.attachments)
+      await runQuery(prompt, opts?.resumeSessionId, opts?.planMode, opts?.cwd, opts?.askMode, 'local', opts?.model, opts?.thinkingBudget, opts?.attachments, opts?.docNames, opts?.filePaths)
     } catch (err) {
       const errorText = err instanceof Error ? err.message : String(err)
       const fallbackKey = opts?.resumeSessionId || null

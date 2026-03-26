@@ -46,7 +46,7 @@ export function ContextChunksRenderer({ context }: { context: InjectedContext })
 
   const hasContent =
     mode || systemPrompt || developerInstructions ||
-    ctx?.codebase?.length || ctx?.documentation?.length || ctx?.files?.length
+    ctx?.codebase?.length || ctx?.documentation?.names?.length || ctx?.files?.length
 
   return (
     <div className="mt-1">
@@ -84,14 +84,10 @@ export function ContextChunksRenderer({ context }: { context: InjectedContext })
               </Section>
             )}
 
-            {ctx?.documentation && ctx.documentation.length > 0 && (
-              <Section title="Docs">
-                {ctx.documentation.map((item, i) => (
-                  <SourceRow
-                    key={i}
-                    source={item.source}
-                    right={item.heading ?? undefined}
-                  />
+            {ctx?.documentation && ctx.documentation.names?.length > 0 && (
+              <Section title="Docs (TOC injected)">
+                {ctx.documentation.names.map((name, i) => (
+                  <SourceRow key={i} source={name} />
                 ))}
               </Section>
             )}

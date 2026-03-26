@@ -146,19 +146,17 @@ export function useSessionManager({
     // Clear plan state
     resetPlan()
 
-    // Restore approved plan state from localStorage
-    if (sessionId) {
-      try {
-        const saved = localStorage.getItem(`codr:approved-plans:${sessionId}`)
-        if (saved) {
-          const { toolIds, plan } = JSON.parse(saved)
-          restoreApprovedPlan(toolIds, plan)
+    // Restore approved plan state from SQLite
+    if (sessionId && codr.getApprovedPlan) {
+      const capturedId = sessionId
+      codr.getApprovedPlan(sessionId).then((plan) => {
+        if (activeSessionIdRef.current !== capturedId) return // session changed while loading
+        if (plan) {
+          restoreApprovedPlan(plan.toolIds, { content: plan.content, filePath: plan.filePath })
         } else {
           clearApprovedPlan()
         }
-      } catch {
-        clearApprovedPlan()
-      }
+      }).catch(() => clearApprovedPlan())
     } else {
       clearApprovedPlan()
     }
@@ -210,7 +208,7 @@ export function useSessionManager({
       const writePlanTool = writePlanMsg?.toolCalls.find(
         t => (t.kind === 'Edit' || t.kind === 'Write') && (t.input.file_path as string || t.locations?.[0]?.path || '')?.includes('.claude/plans/')
       )
-      if (exitPlanTool && writePlanTool && exitPlanTool.status === 'running') {
+      if (exitPlanTool && writePlanTool && exitPlanTool.result === undefined) {
         const planFilePath = writePlanTool.input.file_path as string
         const planContent = writePlanTool.input.content as string
         const allowedPrompts = exitPlanTool.input.allowedPrompts as Array<{ tool: string; prompt: string }> | undefined

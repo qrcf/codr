@@ -13,7 +13,7 @@ interface SettingsPanelProps {
   docsAPI?: DocsAPI
   userProfile?: { email: string | null; fullName: string | null; imageUrl: string | null } | null
   onAddDocSource?: (url: string, name: string, crawlDepth?: number, prefix?: string) => Promise<void>
-  onRecrawlDocSource?: (sourceId: number, url: string, crawlDepth: number, prefix?: string) => Promise<void>
+  onRecrawlDocSource?: (sourceId: number, name: string, url: string, crawlDepth: number, prefix?: string) => Promise<void>
 }
 
 type Tab = 'general' | 'docs' | 'files' | 'lab'

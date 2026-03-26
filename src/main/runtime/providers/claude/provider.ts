@@ -13,8 +13,21 @@ import type {
   ProviderRunCallbacks,
   ProviderRunResult,
 } from '../../provider'
-import { preprocessPromptFull, buildContextSummary } from '../../prompt-preprocessor'
+import { preprocessPromptFull, buildContextSummary, buildDocsTOC } from '../../prompt-preprocessor'
 import { readAttachmentAsContentBlock } from '../../../attachments'
+import { hasPages, searchPages } from '../../../docs/doc-cache'
+import { chunkMarkdown } from '../../../docs/chunker'
+
+/** Merge structured req.docNames with regex-parsed doc names, deduplicating. */
+function mergeDocNames(structured: string[] | undefined, parsed: string[]): string[] {
+  if (!structured?.length && !parsed.length) return []
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const n of [...(structured ?? []), ...parsed]) {
+    if (!seen.has(n)) { seen.add(n); result.push(n) }
+  }
+  return result
+}
 
 /**
  * In packaged builds the SDK can't resolve cli.js via import.meta.url because
@@ -42,44 +55,106 @@ export class ClaudeProvider implements AgentProvider {
   }
 
   /**
-   * Create an SDK MCP server with a codebase_search tool if the indexer is available.
+   * Create an SDK MCP server with codebase_search and docs_search tools.
    */
-  private createCodebaseSearchServer(cwd?: string) {
+  private createToolsServer(cwd?: string) {
+    const tools: ReturnType<typeof tool>[] = []
+
+    // Codebase search tool (existing)
     const indexer = this.ctx.indexerManager
-    if (!indexer || !cwd) return null
+    if (indexer && cwd) {
+      const status = indexer.getStatus()
+      const projectStatus = status.status === 'ready' ? indexer.getProjectStatus(cwd) : null
+      if (projectStatus?.status === 'indexed') {
+        tools.push(
+          tool(
+            'codebase_search',
+            'Search the project codebase using semantic search. Returns relevant code chunks matching a natural language query. Use this to find files and code related to a concept, feature, or implementation detail.',
+            { query: z.string().describe('Natural language search query describing what code to find'), limit: z.number().optional().default(10).describe('Maximum number of results to return (default: 10)') },
+            async (args) => {
+              try {
+                const results = await indexer.search(args.query, cwd, args.limit)
+                if (!results.length) {
+                  return { content: [{ type: 'text' as const, text: 'No matching code found in the project index.' }] }
+                }
+                const formatted = results.map(r => {
+                  const score = (r.score * 100).toFixed(0)
+                  return `--- ${r.path} (${score}% match) ---\n${r.text}`
+                }).join('\n\n')
+                return { content: [{ type: 'text' as const, text: formatted }] }
+              } catch (err) {
+                return { content: [{ type: 'text' as const, text: `Search failed: ${err instanceof Error ? err.message : String(err)}` }], isError: true }
+              }
+            },
+            { annotations: { readOnlyHint: true } }
+          ),
+        )
+      }
+    }
 
-    const status = indexer.getStatus()
-    if (status.status !== 'ready') return null
-
-    const projectStatus = indexer.getProjectStatus(cwd)
-    if (projectStatus.status !== 'indexed') return null
-
-    return createSdkMcpServer({
-      name: 'codebase-search',
-      tools: [
+    // Docs search tool — available whenever crawled pages exist in the doc-cache.
+    // Uses LEANN semantic search when available, falls back to text search.
+    const docsIndexer = this.ctx.docsIndexer
+    if (hasPages()) {
+      tools.push(
         tool(
-          'codebase_search',
-          'Search the project codebase using semantic search. Returns relevant code chunks matching a natural language query. Use this to find files and code related to a concept, feature, or implementation detail.',
-          { query: z.string().describe('Natural language search query describing what code to find'), limit: z.number().optional().default(10).describe('Maximum number of results to return (default: 10)') },
+          'docs_search',
+          'Search indexed documentation for specific information. Returns relevant doc chunks matching a query. Use this to look up API details, usage examples, or concepts from referenced documentation sources.',
+          {
+            query: z.string().describe('Search query describing what documentation to find'),
+            source: z.string().optional().describe('Name of a specific doc source to search within'),
+            limit: z.number().optional().default(8).describe('Maximum number of results (default: 8)'),
+          },
           async (args) => {
             try {
-              const results = await indexer.search(args.query, cwd, args.limit)
-              if (!results.length) {
-                return { content: [{ type: 'text' as const, text: 'No matching code found in the project index.' }] }
+              // Try LEANN semantic search first
+              if (docsIndexer?.isReady()) {
+                const results = await docsIndexer.search(
+                  args.query,
+                  args.source ? [args.source] : undefined,
+                  args.limit,
+                )
+                if (results.length) {
+                  const formatted = results.map(r => {
+                    const heading = r.heading ? `## ${r.heading}\n` : ''
+                    return `--- ${r.sourceName}: ${r.title || r.url} (${r.url}) ---\n${heading}${r.content}`
+                  }).join('\n\n')
+                  return { content: [{ type: 'text' as const, text: formatted }] }
+                }
               }
-              const formatted = results.map(r => {
-                const score = (r.score * 100).toFixed(0)
-                return `--- ${r.path} (${score}% match) ---\n${r.text}`
+
+              // Fallback: text search over doc-cache
+              const pages = searchPages(
+                args.query,
+                args.source ? [args.source] : undefined,
+                args.limit,
+              )
+              if (!pages.length) {
+                return { content: [{ type: 'text' as const, text: 'No matching documentation found.' }] }
+              }
+              const formatted = pages.map(p => {
+                const chunked = chunkMarkdown(p.markdown, p.url, p.title || p.url)
+                // Find the most relevant chunk (first one containing a query term)
+                const queryTerms = args.query.toLowerCase().split(/\s+/)
+                const match = chunked.chunks.find(c =>
+                  queryTerms.some(t => c.content.toLowerCase().includes(t)),
+                ) || chunked.chunks[0]
+                const heading = match?.heading ? `## ${match.heading}\n` : ''
+                const content = match?.content || p.markdown.slice(0, 2000)
+                return `--- ${p.sourceName}: ${p.title || p.url} (${p.url}) ---\n${heading}${content}`
               }).join('\n\n')
               return { content: [{ type: 'text' as const, text: formatted }] }
             } catch (err) {
-              return { content: [{ type: 'text' as const, text: `Search failed: ${err instanceof Error ? err.message : String(err)}` }], isError: true }
+              return { content: [{ type: 'text' as const, text: `Docs search failed: ${err instanceof Error ? err.message : String(err)}` }], isError: true }
             }
           },
           { annotations: { readOnlyHint: true } }
         ),
-      ],
-    })
+      )
+    }
+
+    if (!tools.length) return null
+    return createSdkMcpServer({ name: 'codr-tools', tools })
   }
 
   /**
@@ -149,12 +224,18 @@ export class ClaudeProvider implements AgentProvider {
       })
     }
 
-    const { prompt: cleanedPrompt, contextChunks, contextString } = await preprocessPromptFull(this.ctx, finalPrompt, req.cwd, { includeCodebaseContext: isNewSession })
+    const { prompt: cleanedPrompt, contextChunks, contextString, docNames: parsedDocNames } = await preprocessPromptFull(this.ctx, finalPrompt, req.cwd, { includeCodebaseContext: isNewSession, filePaths: req.filePaths })
     finalPrompt = cleanedPrompt
 
-    // Create codebase search MCP server if indexer is available
-    const searchServer = this.createCodebaseSearchServer(req.cwd)
-    const mcpServers = searchServer ? { 'codebase-search': searchServer } : undefined
+    // Merge structured docNames from request with any manually typed @docs: tokens in the prompt
+    const docNames = mergeDocNames(req.docNames, parsedDocNames)
+
+    // Build docs TOC if doc sources were referenced
+    const docsTOC = docNames.length > 0 ? buildDocsTOC(docNames) : ''
+
+    // Create MCP server with codebase_search and docs_search tools
+    const toolsServer = this.createToolsServer(req.cwd)
+    const mcpServers = toolsServer ? { 'codr-tools': toolsServer } : undefined
 
     // Build prompt: multimodal (AsyncIterable<SDKUserMessage>) if attachments, string otherwise
     const hasAttachments = req.attachments && req.attachments.length > 0
@@ -162,8 +243,8 @@ export class ClaudeProvider implements AgentProvider {
       ? await this.buildMultimodalPrompt(finalPrompt, req)
       : finalPrompt
 
-    // Combine mode instructions and context into the system prompt append
-    const systemAppendParts = [modeInstruction, contextString].filter(Boolean).join('\n\n')
+    // Combine mode instructions, context, and docs TOC into the system prompt append
+    const systemAppendParts = [modeInstruction, contextString, docsTOC].filter(Boolean).join('\n\n')
 
     const cliPath = getClaudeCliPath()
     const q = query({
@@ -186,7 +267,7 @@ export class ClaudeProvider implements AgentProvider {
     const injectedContext = {
       mode: (req.askMode ? 'ask' : req.planMode ? 'plan' : 'code') as 'ask' | 'plan' | 'code',
       ...(systemAppendParts ? { systemPrompt: { preset: 'claude_code', append: systemAppendParts } } : {}),
-      context: buildContextSummary(contextChunks),
+      context: buildContextSummary(contextChunks, docNames.length > 0 ? docNames : undefined),
     }
     let injectedContextEmitted = false
     if (!isNewSession) {

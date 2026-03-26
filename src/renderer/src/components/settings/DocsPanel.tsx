@@ -33,7 +33,7 @@ export interface DocsAPI {
 interface DocsPanelProps {
   docsAPI?: DocsAPI
   onAddDocSource?: (url: string, name: string, crawlDepth?: number, prefix?: string) => Promise<void>
-  onRecrawlDocSource?: (sourceId: number, url: string, crawlDepth: number, prefix?: string) => Promise<void>
+  onRecrawlDocSource?: (sourceId: number, name: string, url: string, crawlDepth: number, prefix?: string) => Promise<void>
 }
 
 function derivePrefix(url: string): string {
@@ -151,7 +151,7 @@ export function DocsPanel({ docsAPI, onAddDocSource, onRecrawlDocSource }: DocsP
   const handleRecrawlDoc = async (source: DocSourceInfo) => {
     if (!onRecrawlDocSource) return
     try {
-      await onRecrawlDocSource(source.id, source.url, source.crawlDepth, source.prefix || undefined)
+      await onRecrawlDocSource(source.id, source.name, source.url, source.crawlDepth, source.prefix || undefined)
       docsAPI?.refresh()
     } catch (err) {
       setDocError(err instanceof Error ? err.message : 'Failed to recrawl')

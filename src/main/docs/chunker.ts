@@ -114,3 +114,30 @@ export function chunkMarkdown(markdown: string, url: string, title: string): Chu
     chunks: filteredChunks,
   }
 }
+
+/**
+ * Extract unique heading breadcrumbs from markdown (for TOC generation).
+ * Returns deduplicated heading strings like ["API Reference > useState", "Getting Started"].
+ */
+export function extractHeadings(markdown: string): string[] {
+  const lines = markdown.split('\n')
+  const headingStack: string[] = []
+  const headings = new Set<string>()
+
+  for (const line of lines) {
+    const headingMatch = line.match(/^(#{1,3})\s+(.+)$/)
+    if (headingMatch) {
+      const level = headingMatch[1].length
+      const text = headingMatch[2].trim()
+
+      while (headingStack.length >= level) {
+        headingStack.pop()
+      }
+      headingStack.push(text)
+
+      headings.add(headingStack.join(' > '))
+    }
+  }
+
+  return [...headings]
+}

@@ -1,5 +1,6 @@
 import type {AgentProviderId} from "./runtime/provider.ts";
 import {isValidProviderId} from "./runtime/provider.ts";
+import type { AttachmentMeta } from '../shared/attachments'
 
 declare const __WEB_URL__: string
 declare const __API_URL__: string
@@ -32,10 +33,13 @@ import {createDocsManager, type DocsManager, fetchPageTitle} from './docs/manage
 import { loadWindowState, trackWindowState } from './window-state'
 import { initAutoUpdater, checkForUpdates, quitAndInstall, getUpdateState } from './auto-updater'
 import { IndexerManager } from './indexer/manager'
+import { DocsIndexer } from './docs/docs-indexer'
+import { initDocCache } from './docs/doc-cache'
 import { storeAttachment, storeAttachmentFromBuffer } from './attachments'
 
 let mainWindow: BrowserWindow | null = null
 const indexerManager = new IndexerManager()
+const docsIndexer = new DocsIndexer(indexerManager)
 let initialized = false
 let sessionWatcherInterval: ReturnType<typeof setInterval> | null = null
 let docsManager: DocsManager | null = null
@@ -231,13 +235,14 @@ function ensureDocsManager(): DocsManager {
       apiUrl: relayClient.getApiBaseUrl() || '',
       getAuthToken: () => getAuthToken(),
       broadcaster,
+      docsIndexer,
     })
   }
   return docsManager
 }
 
 // Handle relay-forwarded messages from web clients
-let agentHandlers: { runQuery: (prompt: string, resumeSessionId?: string, planMode?: boolean, cwd?: string, askMode?: boolean, origin?: MessageOrigin, model?: string, thinkingBudget?: 'low' | 'medium' | 'high') => Promise<void>; interruptQuery: (sessionId?: string) => Promise<void>; forceCleanupAll: (errorMessage: string) => void } | null = null
+let agentHandlers: { runQuery: (prompt: string, resumeSessionId?: string, planMode?: boolean, cwd?: string, askMode?: boolean, origin?: MessageOrigin, model?: string, thinkingBudget?: 'low' | 'medium' | 'high', attachments?: AttachmentMeta[], docNames?: string[], filePaths?: string[]) => Promise<void>; interruptQuery: (sessionId?: string) => Promise<void>; forceCleanupAll: (errorMessage: string) => void } | null = null
 
 relayClient.onMessage(async (msg) => {
   switch (msg.type) {
@@ -249,8 +254,10 @@ relayClient.onMessage(async (msg) => {
       const askMode = msg.askMode as boolean | undefined
       const model = msg.model as string | undefined
       const thinkingBudget = msg.thinkingBudget as 'low' | 'medium' | 'high' | undefined
+      const docNames = msg.docNames as string[] | undefined
+      const filePaths = msg.filePaths as string[] | undefined
       if (agentHandlers && prompt) {
-        await agentHandlers.runQuery(prompt, resumeSessionId, planMode, cwd, askMode, 'remote', model, thinkingBudget)
+        await agentHandlers.runQuery(prompt, resumeSessionId, planMode, cwd, askMode, 'remote', model, thinkingBudget, undefined, docNames, filePaths)
       }
       break
     }
@@ -367,6 +374,7 @@ relayClient.onMessage(async (msg) => {
             const mgr = ensureDocsManager()
             await mgr.recrawlSource(
               params?.sourceId as number,
+              params?.name as string,
               params?.url as string,
               params?.crawlDepth as number,
               params?.prefix as string | undefined
@@ -486,7 +494,8 @@ app.whenReady().then(() => {
 
   buildAppMenu()
 
-  agentHandlers = registerAgentHandlers(() => mainWindow, broadcaster, relayClient, getAuthToken, indexerManager)
+  initDocCache()
+  agentHandlers = registerAgentHandlers(() => mainWindow, broadcaster, relayClient, getAuthToken, indexerManager, docsIndexer)
   registerSessionHandlers(relayClient, broadcaster, getAuthToken)
   sessionWatcherInterval = startSessionWatcher(broadcaster)
   setAuthFailureHandler(handleAuthFailure)
@@ -647,6 +656,30 @@ app.whenReady().then(() => {
     }
   })
 
+  // ── Plan persistence (SQLite) ──────────────────────────────────────
+
+  ipcMain.handle('plan:get', async (_event, sessionId: string) => {
+    const { getSessionPlan } = await import('./runtime/session-index')
+    return await getSessionPlan(sessionId)
+  })
+
+  ipcMain.handle('plan:get-approved', async (_event, sessionId: string) => {
+    const { getApprovedPlan } = await import('./runtime/session-index')
+    return await getApprovedPlan(sessionId)
+  })
+
+  ipcMain.handle('plan:upsert', async (_event, sessionId: string, data: { content: string; filePath: string; toolIds: string[]; status?: string }) => {
+    const { upsertSessionPlan } = await import('./runtime/session-index')
+    await upsertSessionPlan(sessionId, data as Parameters<typeof upsertSessionPlan>[1])
+    return { ok: true }
+  })
+
+  ipcMain.handle('plan:update-status', async (_event, sessionId: string, status: string) => {
+    const { updatePlanStatus } = await import('./runtime/session-index')
+    await updatePlanStatus(sessionId, status as 'pending' | 'approved' | 'rejected')
+    return { ok: true }
+  })
+
   // ── Docs feature IPC handlers ──────────────────────────────────────
 
   ipcMain.handle('docs:add-source', async (_event, source: { url: string; name: string; crawlDepth?: number; prefix?: string }) => {
@@ -668,10 +701,10 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle('docs:recrawl', async (_event, sourceId: number, url: string, crawlDepth: number, prefix?: string) => {
+  ipcMain.handle('docs:recrawl', async (_event, sourceId: number, name: string, url: string, crawlDepth: number, prefix?: string) => {
     try {
       const mgr = ensureDocsManager()
-      await mgr.recrawlSource(sourceId, url, crawlDepth, prefix)
+      await mgr.recrawlSource(sourceId, name, url, crawlDepth, prefix)
       return { ok: true }
     } catch (err) {
       return { error: String(err) }
@@ -782,5 +815,6 @@ app.on('before-quit', () => {
   }
   void agentHandlers?.forceCleanupAll('Application shutting down.')
   indexerManager.shutdown().catch(() => {})
+  docsIndexer.shutdown().catch(() => {})
   relayClient.disconnect()
 })

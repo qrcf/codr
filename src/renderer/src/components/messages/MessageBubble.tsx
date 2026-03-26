@@ -62,6 +62,10 @@ export const MessageBubble = memo(function MessageBubble({ message, approvedPlan
   const [expanded, setExpanded] = useState(false)
   const formatted = useMemo(() => message.content ? formatMessageContent(message.content) : null, [message.content])
 
+  // Resolve file/doc references: prefer structured data, fall back to injectedContext
+  const refFiles = message.files ?? message.injectedContext?.context?.files?.map(f => f.source)
+  const refDocs = message.docs ?? message.injectedContext?.context?.documentation?.names
+
   if (message.role === 'system') {
     return (
       <div className="message-system flex items-center gap-3 px-4 py-1.5 my-3">
@@ -121,6 +125,21 @@ export const MessageBubble = memo(function MessageBubble({ message, approvedPlan
           )}
         </div>
       )}
+      {/* File/doc reference chips */}
+      {isUser && (refFiles?.length || refDocs?.length) && (
+        <div className="flex flex-wrap gap-1 mb-1">
+          {refDocs?.map((name, i) => (
+            <span key={`doc-${i}`} className="inline-flex items-center gap-1 bg-[#3a5a44] text-[#ccc] px-2 py-0.5 rounded text-[0.78em]">
+              <span title={name}>📄 {name}</span>
+            </span>
+          ))}
+          {refFiles?.map((file, i) => (
+            <span key={`file-${i}`} className="inline-flex items-center gap-1 bg-[#444460] text-[#ccc] px-2 py-0.5 rounded text-[0.78em] font-['SF_Mono','Fira_Code',monospace]">
+              <span title={file}>{file.startsWith('/') ? file.split('/').pop() : file}</span>
+            </span>
+          ))}
+        </div>
+      )}
       {message.content && (
         <div>
           <div
@@ -166,7 +185,7 @@ export const MessageBubble = memo(function MessageBubble({ message, approvedPlan
       )}
       {message.injectedContext && (
         message.injectedContext.systemPrompt || message.injectedContext.developerInstructions ||
-        message.injectedContext.context?.codebase?.length || message.injectedContext.context?.documentation?.length || message.injectedContext.context?.files?.length
+        message.injectedContext.context?.codebase?.length || message.injectedContext.context?.documentation?.names?.length || message.injectedContext.context?.files?.length
       ) && (
         <ContextChunksRenderer context={message.injectedContext} />
       )}

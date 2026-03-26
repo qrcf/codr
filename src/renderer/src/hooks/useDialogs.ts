@@ -70,7 +70,12 @@ export function useDialogs({ activeSessionIdRef }: UseDialogsParams) {
     const state: PlanReviewState = { planFilePath, planContent, ...(provider ? { provider } : {}) }
     planReviewRef.current = state
     setPlanReview(state)
-  }, [])
+    // Persist pending plan to SQLite
+    const sessionId = activeSessionIdRef.current
+    if (sessionId) {
+      codr.upsertSessionPlan?.(sessionId, { content: planContent, filePath: planFilePath, toolIds: [toolId] })?.catch(() => {})
+    }
+  }, [activeSessionIdRef, codr])
 
   const onExitPlanMode = useCallback((allowedPrompts?: Array<{ tool: string; prompt: string }>) => {
     exitPlanModeDetectedRef.current = true
@@ -142,18 +147,15 @@ export function useDialogs({ activeSessionIdRef }: UseDialogsParams) {
       })
     }
     setApprovedPlan({ content, filePath })
-    // Persist to localStorage
+    // Persist to SQLite via IPC (fire-and-forget)
     const sessionId = activeSessionIdRef.current
     if (sessionId) {
       const currentIds = toolId
         ? [...Array.from(approvedPlanToolIds), toolId]
         : Array.from(approvedPlanToolIds)
-      localStorage.setItem(`codr:approved-plans:${sessionId}`, JSON.stringify({
-        toolIds: currentIds,
-        plan: { content, filePath },
-      }))
+      codr.upsertSessionPlan?.(sessionId, { content, filePath, toolIds: currentIds, status: 'approved' })?.catch(() => {})
     }
-  }, [activeSessionIdRef, approvedPlanToolIds])
+  }, [activeSessionIdRef, approvedPlanToolIds, codr])
 
   const restoreApprovedPlan = useCallback((toolIds: string[], plan: { content: string; filePath: string } | null) => {
     setApprovedPlanToolIds(new Set(toolIds))

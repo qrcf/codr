@@ -86,6 +86,21 @@ function getDb(): DatabaseSync {
   try { _db.exec('ALTER TABLE sessions ADD COLUMN model TEXT') } catch { /* column already exists */ }
   try { _db.exec('ALTER TABLE sessions ADD COLUMN thinkingBudget TEXT') } catch { /* column already exists */ }
 
+  // Plans table (per-session plan history with status tracking)
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS plans (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sessionId TEXT NOT NULL,
+      content TEXT NOT NULL,
+      filePath TEXT NOT NULL,
+      toolIds TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'pending',
+      createdAt INTEGER NOT NULL,
+      updatedAt INTEGER NOT NULL
+    )
+  `)
+  _db.exec('CREATE INDEX IF NOT EXISTS idx_plans_session ON plans (sessionId, updatedAt DESC)')
+
   return _db
 }
 
@@ -151,6 +166,87 @@ export async function appendIndexedRawMessage(sessionId: string, provider: Agent
     appendIndexedSessionMessage(db, sessionId, provider, rawMessage)
     upsertIndexedSessionSync(sessionId, { provider, updatedAt: Date.now() })
   })
+}
+
+// --- Plan storage ---
+
+export interface SessionPlan {
+  id: number
+  sessionId: string
+  content: string
+  filePath: string
+  toolIds: string[]
+  status: 'pending' | 'approved' | 'rejected'
+  createdAt: number
+  updatedAt: number
+}
+
+export async function upsertSessionPlan(
+  sessionId: string,
+  data: { content: string; filePath: string; toolIds: string[]; status?: 'pending' | 'approved' | 'rejected' },
+): Promise<void> {
+  return withWriteLock(async () => {
+    const db = getDb()
+    const now = Date.now()
+    const status = data.status ?? 'pending'
+    // Update existing pending plan for this session, or insert new
+    const existing = db.prepare(
+      "SELECT id FROM plans WHERE sessionId = ? AND status = 'pending' ORDER BY updatedAt DESC LIMIT 1",
+    ).get(sessionId) as { id: number } | undefined
+    if (existing) {
+      db.prepare(
+        'UPDATE plans SET content = ?, filePath = ?, toolIds = ?, status = ?, updatedAt = ? WHERE id = ?',
+      ).run(data.content, data.filePath, JSON.stringify(data.toolIds), status, now, existing.id)
+    } else {
+      db.prepare(
+        'INSERT INTO plans (sessionId, content, filePath, toolIds, status, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ).run(sessionId, data.content, data.filePath, JSON.stringify(data.toolIds), status, now, now)
+    }
+  })
+}
+
+export async function updatePlanStatus(
+  sessionId: string,
+  status: 'pending' | 'approved' | 'rejected',
+): Promise<void> {
+  return withWriteLock(async () => {
+    const db = getDb()
+    const now = Date.now()
+    db.prepare(
+      'UPDATE plans SET status = ?, updatedAt = ? WHERE id = (SELECT id FROM plans WHERE sessionId = ? ORDER BY updatedAt DESC LIMIT 1)',
+    ).run(status, now, sessionId)
+  })
+}
+
+export async function getSessionPlan(sessionId: string): Promise<SessionPlan | null> {
+  const db = getDb()
+  const row = db.prepare(
+    'SELECT * FROM plans WHERE sessionId = ? ORDER BY updatedAt DESC LIMIT 1',
+  ).get(sessionId) as Record<string, unknown> | undefined
+  return row ? rowToPlan(row) : null
+}
+
+export async function getApprovedPlan(sessionId: string): Promise<SessionPlan | null> {
+  const db = getDb()
+  const row = db.prepare(
+    "SELECT * FROM plans WHERE sessionId = ? AND status = 'approved' ORDER BY updatedAt DESC LIMIT 1",
+  ).get(sessionId) as Record<string, unknown> | undefined
+  return row ? rowToPlan(row) : null
+}
+
+function rowToPlan(row: Record<string, unknown>): SessionPlan {
+  let toolIds: string[] = []
+  try { toolIds = JSON.parse(row.toolIds as string) } catch { /* ignore */ }
+  return {
+    id: row.id as number,
+    sessionId: row.sessionId as string,
+    content: row.content as string,
+    filePath: row.filePath as string,
+    toolIds,
+    status: row.status as 'pending' | 'approved' | 'rejected',
+    createdAt: row.createdAt as number,
+    updatedAt: row.updatedAt as number,
+  }
 }
 
 // --- Provider status cache (persisted) ---

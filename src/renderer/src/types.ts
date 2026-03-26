@@ -52,7 +52,7 @@ export interface InjectedContext {
   developerInstructions?: string
   context?: {
     codebase?: { source: string; score?: number }[]
-    documentation?: { source: string; url?: string; heading?: string }[]
+    documentation?: { names: string[] }
     files?: { source: string }[]
   }
 }
@@ -66,6 +66,10 @@ export interface ChatMessage {
   thinking?: string
   attachments?: AttachmentMeta[]
   injectedContext?: InjectedContext
+  /** Structured file paths referenced via @ mention UI */
+  files?: string[]
+  /** Structured doc source names referenced via @ mention UI */
+  docs?: string[]
 }
 
 export interface ToolCallInfo {

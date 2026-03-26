@@ -1,5 +1,8 @@
+import { createHash } from 'node:crypto'
 import { Crawl4AIBridge } from './crawl4ai-bridge.js'
-import { chunkMarkdown } from './chunker.js'
+import { extractHeadings } from './chunker.js'
+import { upsertPage, deleteSourcePages } from './doc-cache.js'
+import type { DocsIndexer } from './docs-indexer.js'
 import type { EventBroadcaster } from '../event-broadcaster.js'
 import type { SetupProgress } from './python-runtime.js'
 
@@ -22,6 +25,7 @@ interface DocsManagerOptions {
   apiUrl: string
   getAuthToken: () => Promise<string> | string | null
   broadcaster: EventBroadcaster
+  docsIndexer?: DocsIndexer
 }
 
 // In-memory map of active crawl source IDs → bridge instance
@@ -66,7 +70,7 @@ export async function fetchPageTitle(url: string): Promise<string | null> {
 }
 
 export function createDocsManager(options: DocsManagerOptions) {
-  const { apiUrl, getAuthToken, broadcaster } = options
+  const { apiUrl, getAuthToken, broadcaster, docsIndexer } = options
 
   async function getToken(): Promise<string> {
     const token = await getAuthToken()
@@ -99,7 +103,7 @@ export function createDocsManager(options: DocsManagerOptions) {
     const source = await createRes.json() as DocSource
 
     // 2. Start crawl in background (don't await)
-    startCrawl(source.id, url, crawlDepth, prefix).catch(err => {
+    startCrawl(source.id, name, url, crawlDepth, prefix).catch(err => {
       console.error(`[docs] Background crawl failed for source ${source.id}:`, err)
     })
 
@@ -114,26 +118,29 @@ export function createDocsManager(options: DocsManagerOptions) {
       method: 'DELETE',
     })
     if (!res.ok) throw new Error(`Failed to delete doc source: ${res.status}`)
+
+    // Clean up local cache and re-index
+    await deleteSourcePages(sourceId)
+    docsIndexer?.removeSource(sourceId).catch(err => {
+      console.error(`[docs] Failed to remove source ${sourceId} from index:`, err)
+    })
   }
 
   /**
    * Re-crawl a doc source
    */
-  async function recrawlSource(sourceId: number, url: string, crawlDepth: number, prefix?: string): Promise<void> {
-    // Clear existing chunks
-    const deleteRes = await apiFetch(apiUrl, `/api/docs/${sourceId}/chunks`, await getToken(), {
-      method: 'DELETE',
-    })
-    if (!deleteRes.ok) throw new Error(`Failed to clear chunks: ${deleteRes.status}`)
+  async function recrawlSource(sourceId: number, name: string, url: string, crawlDepth: number, prefix?: string): Promise<void> {
+    // Clear local page cache
+    await deleteSourcePages(sourceId)
 
     // Start new crawl
-    await startCrawl(sourceId, url, crawlDepth, prefix)
+    await startCrawl(sourceId, name, url, crawlDepth, prefix)
   }
 
   /**
    * Start a crawl job for a source using Crawl4AI
    */
-  async function startCrawl(sourceId: number, baseUrl: string, maxDepth: number, prefix?: string): Promise<void> {
+  async function startCrawl(sourceId: number, sourceName: string, baseUrl: string, maxDepth: number, prefix?: string): Promise<void> {
     if (activeCrawls.has(sourceId)) {
       console.warn(`[docs] Crawl already active for source ${sourceId}`)
       return
@@ -144,7 +151,6 @@ export function createDocsManager(options: DocsManagerOptions) {
     console.log(`[docs] Starting crawl for source ${sourceId}: ${baseUrl} (depth=${maxDepth})`)
 
     let pagesCrawled = 0
-    let totalChunks = 0
 
     try {
       // Update status to crawling
@@ -171,35 +177,24 @@ export function createDocsManager(options: DocsManagerOptions) {
 
       // Run the crawl — Crawl4AI handles BFS, link discovery, JS rendering
       console.log(`[docs] Beginning Crawl4AI site crawl: ${baseUrl}`)
+      let pagesChanged = 0
       const total = await bridge.crawlSite(baseUrl, maxDepth, 500, prefix || undefined, async (page) => {
-        // Chunk the markdown
-        const chunked = chunkMarkdown(page.markdown, page.url, page.title)
-        const chunkCount = chunked.chunks.length
-        console.log(`[docs] Page ${pagesCrawled + 1}: ${page.url} → ${chunkCount} chunks`)
+        // Compute content hash for deduplication
+        const contentHash = createHash('sha256').update(page.markdown).digest('hex').slice(0, 16)
 
-        // Upload chunks to relay (getToken() fetches a fresh Clerk JWT on each call)
-        if (chunkCount > 0) {
-          const payload = [{
-            url: chunked.url,
-            title: chunked.title,
-            chunks: chunked.chunks.map((c, idx) => ({
-              heading: c.heading,
-              content: c.content,
-              chunkIndex: idx,
-            })),
-          }]
-          const uploadRes = await apiFetch(apiUrl, `/api/docs/${sourceId}/chunks`, await getToken(), {
-            method: 'POST',
-            body: JSON.stringify({ pages: payload }),
-          })
-          if (!uploadRes.ok) {
-            const body = await uploadRes.text().catch(() => '')
-            throw new Error(`Failed to upload page ${page.url}: ${uploadRes.status} ${body}`)
-          }
-        }
+        // Extract heading breadcrumbs for TOC
+        const headings = extractHeadings(page.markdown)
+
+        // Cache page locally in SQLite
+        const { changed } = await upsertPage(
+          sourceId, sourceName, page.url, page.title,
+          page.markdown, contentHash, headings,
+        )
+
+        if (changed) pagesChanged++
+        console.log(`[docs] Page ${pagesCrawled + 1}: ${page.url} (${changed ? 'changed' : 'unchanged'}, ${headings.length} headings)`)
 
         pagesCrawled++
-        totalChunks += chunkCount
 
         // Broadcast progress after each page
         broadcaster.send('docs:crawl-progress', {
@@ -210,7 +205,15 @@ export function createDocsManager(options: DocsManagerOptions) {
         })
       })
 
-      console.log(`[docs] Crawl fetched ${total} pages from ${baseUrl}`)
+      console.log(`[docs] Crawl fetched ${total} pages from ${baseUrl} (${pagesChanged} changed)`)
+
+      // Trigger LEANN re-indexing if any pages changed
+      if (pagesChanged > 0 && docsIndexer) {
+        console.log(`[docs] Triggering LEANN re-index for source ${sourceId}`)
+        await docsIndexer.rebuildAfterCrawl(sourceId).catch(err => {
+          console.error(`[docs] LEANN re-index failed for source ${sourceId}:`, err)
+        })
+      }
 
       // Update source status to ready
       const readyRes = await apiFetch(apiUrl, `/api/docs/${sourceId}`, await getToken(), {
@@ -229,7 +232,7 @@ export function createDocsManager(options: DocsManagerOptions) {
         pagesCrawled,
       })
 
-      console.log(`[docs] Crawl complete for source ${sourceId}: ${pagesCrawled} pages, ${totalChunks} chunks`)
+      console.log(`[docs] Crawl complete for source ${sourceId}: ${pagesCrawled} pages (${pagesChanged} changed)`)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
 
@@ -275,18 +278,6 @@ export function createDocsManager(options: DocsManagerOptions) {
       try { await bridge.stop() } catch { /* ignore */ }
       activeCrawls.delete(sourceId)
     }
-  }
-
-  /**
-   * Search docs via relay
-   */
-  async function searchDocs(query: string, sourceIds?: number[], limit?: number) {
-    const res = await apiFetch(apiUrl, '/api/docs/search', await getToken(), {
-      method: 'POST',
-      body: JSON.stringify({ query, sourceIds, limit }),
-    })
-    if (!res.ok) throw new Error(`Doc search failed: ${res.status}`)
-    return res.json()
   }
 
   /**
@@ -349,7 +340,6 @@ export function createDocsManager(options: DocsManagerOptions) {
     removeSource,
     recrawlSource,
     cancelCrawl,
-    searchDocs,
   }
 }
 

@@ -157,6 +157,42 @@ export class IndexerBridge {
     return result.results || []
   }
 
+  // -- Docs index methods (separate HNSW index managed by the same Python worker) --
+
+  /**
+   * Initialize the docs index at a given path.
+   */
+  async docsInit(indexPath: string): Promise<void> {
+    if (!this.ready) throw new Error('Indexer bridge not started')
+    const result = await this.sendRequest({ cmd: 'docs_init', config: { index_path: indexPath } })
+    if (!result.ok) throw new Error(result.error || 'docs_init failed')
+  }
+
+  /**
+   * Build the docs index from pre-chunked documents (no AST chunking needed).
+   */
+  async docsBuildIndex(chunks: ChunkResult[], onProgress?: (p: ProgressInfo) => void): Promise<{ count: number }> {
+    if (!this.ready) throw new Error('Indexer bridge not started')
+    const result = await this.sendRequest({ cmd: 'docs_build_index', chunks }, 300000, onProgress)
+    if (!result.ok) throw new Error(result.error || 'docs_build_index failed')
+    return { count: result.count || 0 }
+  }
+
+  /**
+   * Search the docs index. Optionally filter by source IDs.
+   */
+  async docsSearch(query: string, limit = 15, sourceIds?: number[]): Promise<SearchResult[]> {
+    if (!this.ready) throw new Error('Indexer bridge not started')
+    const result = await this.sendRequest({
+      cmd: 'docs_search',
+      query,
+      limit,
+      ...(sourceIds ? { source_ids: sourceIds } : {}),
+    })
+    if (!result.ok) throw new Error(result.error || 'docs_search failed')
+    return result.results || []
+  }
+
   /**
    * Graceful shutdown.
    */

@@ -90,7 +90,13 @@ function ConnectedApp() {
   return isElectron ? <App /> : <WebConnectedApp />
 }
 
-const isElectronAuth = new URLSearchParams(window.location.search).get('mode') === 'electron-auth'
+// Persist electron-auth mode in sessionStorage so it survives Clerk OAuth redirects
+// (e.g., Google/GitHub sign-in navigates away and back, losing URL params)
+const params = new URLSearchParams(window.location.search)
+if (params.get('mode') === 'electron-auth') {
+  sessionStorage.setItem('electron-auth', '1')
+}
+const isElectronAuth = params.get('mode') === 'electron-auth' || sessionStorage.getItem('electron-auth') === '1'
 
 // Sign-in UI for the Electron shell — opens system browser instead of inline Clerk form
 function ElectronSignIn() {
@@ -174,6 +180,10 @@ function ElectronAuthCallback() {
         if (cancelled) return
 
         setStatus('redirecting')
+
+        // Clean up sessionStorage now that token exchange is done
+        sessionStorage.removeItem('electron-auth')
+
         window.location.href = `codr://auth/callback?token=${data.token}`
 
         setTimeout(() => {

@@ -1,8 +1,15 @@
 packages:
-  - 'packages/*'
+  - packages/*
 
 allowBuilds:
   '@swc/core': true
   electron: true
   electron-winstaller: true
   esbuild: true
+
+onlyBuiltDependencies:
+  - '@clerk/shared'
+  - '@swc/core'
+  - electron
+  - electron-winstaller
+  - esbuild

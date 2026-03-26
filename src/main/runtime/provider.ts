@@ -2,6 +2,7 @@ import type { RelayClient } from '../relay-client'
 import type { EventBroadcaster } from '../event-broadcaster'
 import type { MessageOrigin } from '../permissions'
 import type { IndexerManager } from '../indexer/manager'
+import type { DocsIndexer } from '../docs/docs-indexer'
 import type { AttachmentMeta } from '../../shared/attachments'
 
 export type { AgentProviderId } from '../../shared/provider-types'
@@ -18,6 +19,10 @@ export interface AgentQueryRequest {
   model?: string
   thinkingBudget?: 'low' | 'medium' | 'high'
   attachments?: AttachmentMeta[]
+  /** Structured doc source names referenced via @docs mention UI (bypasses text serialization) */
+  docNames?: string[]
+  /** Structured file paths referenced via @ mention UI (bypasses text serialization) */
+  filePaths?: string[]
 }
 
 export interface ProviderRunCallbacks {
@@ -50,6 +55,7 @@ export interface AgentProviderContext {
   sessionStore: ProviderSessionStore
   getAuthToken: () => Promise<string>
   indexerManager?: IndexerManager
+  docsIndexer?: DocsIndexer
 }
 
 export interface AgentProvider {

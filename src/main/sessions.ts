@@ -110,16 +110,21 @@ async function runDiscovery(context: DiscoveryContext): Promise<{
     discoveries.map(d => d.discoverSessions(context).catch(() => []))
   )
 
+  // Only update sessions already tracked by Codr — don't import external ones
+  const existingIds = new Set((await listIndexedSessions()).map(s => s.sessionId))
+
   await Promise.all(
-    allDiscovered.flat().map(async (session) => {
-      await upsertIndexedSession(session.sessionId, {
-        provider: session.provider,
-        title: session.title || undefined,
-        firstPrompt: session.firstPrompt || null,
-        workspaceDir: session.workspaceDir || null,
-        updatedAt: session.updatedAt || null,
-      })
-    }),
+    allDiscovered.flat()
+      .filter(session => existingIds.has(session.sessionId))
+      .map(async (session) => {
+        await upsertIndexedSession(session.sessionId, {
+          provider: session.provider,
+          title: session.title || undefined,
+          firstPrompt: session.firstPrompt || null,
+          workspaceDir: session.workspaceDir || null,
+          updatedAt: session.updatedAt || null,
+        })
+      }),
   )
 
   const refreshedIndexed = await listIndexedSessions()

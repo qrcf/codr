@@ -273,8 +273,8 @@ export function createWebSocketAgentAPI(relayUrl: string, getToken: () => Promis
     setModel: async (provider: AgentProviderId, model: string | undefined) => {
       return request('set_model', { provider, model }) as Promise<{ model?: string }>
     },
-    query: async (prompt: string, options?: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; cwd?: string; model?: string; thinkingBudget?: 'low' | 'medium' | 'high' }) => {
-      sendJson({ type: 'query', prompt, resumeSessionId: options?.resumeSessionId, planMode: options?.planMode, askMode: options?.askMode, cwd: options?.cwd, model: options?.model, thinkingBudget: options?.thinkingBudget })
+    query: async (prompt: string, options?: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; cwd?: string; model?: string; thinkingBudget?: 'low' | 'medium' | 'high'; docNames?: string[]; filePaths?: string[] }) => {
+      sendJson({ type: 'query', prompt, resumeSessionId: options?.resumeSessionId, planMode: options?.planMode, askMode: options?.askMode, cwd: options?.cwd, model: options?.model, thinkingBudget: options?.thinkingBudget, docNames: options?.docNames, filePaths: options?.filePaths })
     },
     interrupt: async (sessionId?: string) => {
       sendJson({ type: 'interrupt', sessionId })
@@ -324,8 +324,8 @@ export function createWebSocketAgentAPI(relayUrl: string, getToken: () => Promis
       request('add_doc_source', source as Record<string, unknown>),
     removeDocSource: (sourceId: number) =>
       request('remove_doc_source', { sourceId }),
-    recrawlDocSource: (sourceId: number, url: string, crawlDepth: number, prefix?: string) =>
-      request('recrawl_doc_source', { sourceId, url, crawlDepth, prefix }),
+    recrawlDocSource: (sourceId: number, name: string, url: string, crawlDepth: number, prefix?: string) =>
+      request('recrawl_doc_source', { sourceId, name, url, crawlDepth, prefix }),
     cancelDocCrawl: (sourceId: number) =>
       request('cancel_doc_crawl', { sourceId }),
     onDocsCrawlProgress: (cb: (progress: { sourceId: number; status: string; pagesCrawled: number; currentUrl?: string; error?: string }) => void) =>

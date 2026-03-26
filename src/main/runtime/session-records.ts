@@ -81,18 +81,6 @@ export function buildSessionList(input: SessionListInput): {
     }
   })
 
-  for (const sdkSession of input.claudeSessions) {
-    if (merged.some((session) => session.sessionId === sdkSession.sessionId)) continue
-    const dbSession = dbMap.get(sdkSession.sessionId)
-    merged.push({
-      ...sdkSession,
-      summary: normalizeSummary(sdkSession.summary),
-      generatedTitle: dbSession?.name || sdkSession.generatedTitle,
-      firstPrompt: dbSession?.firstPrompt || sdkSession.firstPrompt,
-      provider: 'claude',
-    })
-  }
-
   merged.sort((a, b) => b.lastModified - a.lastModified)
   return {
     sessions: merged,

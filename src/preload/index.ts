@@ -13,7 +13,7 @@ const agentApi = {
   storeAttachmentBuffer: (buffer: Uint8Array, filename: string) =>
     ipcRenderer.invoke('attachments:store-buffer', buffer, filename) as Promise<AttachmentMeta>,
 
-  query: (prompt: string, opts?: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; model?: string; thinkingBudget?: 'low' | 'medium' | 'high'; attachments?: AttachmentMeta[] }) =>
+  query: (prompt: string, opts?: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; model?: string; thinkingBudget?: 'low' | 'medium' | 'high'; attachments?: AttachmentMeta[]; docNames?: string[]; filePaths?: string[] }) =>
     ipcRenderer.invoke('agent:query', prompt, opts),
   interrupt: (sessionId?: string) => ipcRenderer.invoke('agent:interrupt', sessionId),
   getAgentState: (sessionId?: string) => ipcRenderer.invoke('agent:get-state', sessionId),
@@ -148,6 +148,16 @@ const agentApi = {
   readPlanFile: (filePath: string) =>
     ipcRenderer.invoke('plan:read-file', filePath),
 
+  // Plan persistence (SQLite)
+  getSessionPlan: (sessionId: string) =>
+    ipcRenderer.invoke('plan:get', sessionId),
+  getApprovedPlan: (sessionId: string) =>
+    ipcRenderer.invoke('plan:get-approved', sessionId),
+  upsertSessionPlan: (sessionId: string, data: { content: string; filePath: string; toolIds: string[]; status?: string }) =>
+    ipcRenderer.invoke('plan:upsert', sessionId, data),
+  updatePlanStatus: (sessionId: string, status: string) =>
+    ipcRenderer.invoke('plan:update-status', sessionId, status),
+
   // Remote access
   connectRemote: () =>
     ipcRenderer.invoke('remote:connect'),
@@ -215,8 +225,8 @@ const agentApi = {
     ipcRenderer.invoke('docs:add-source', source),
   removeDocSource: (sourceId: number) =>
     ipcRenderer.invoke('docs:remove-source', sourceId),
-  recrawlDocSource: (sourceId: number, url: string, crawlDepth: number, prefix?: string) =>
-    ipcRenderer.invoke('docs:recrawl', sourceId, url, crawlDepth, prefix),
+  recrawlDocSource: (sourceId: number, name: string, url: string, crawlDepth: number, prefix?: string) =>
+    ipcRenderer.invoke('docs:recrawl', sourceId, name, url, crawlDepth, prefix),
   cancelDocCrawl: (sourceId: number) =>
     ipcRenderer.invoke('docs:cancel-crawl', sourceId),
   onDocsCrawlProgress: (callback: (progress: { sourceId: number; status: string; pagesCrawled: number; currentUrl?: string; error?: string }) => void) => {

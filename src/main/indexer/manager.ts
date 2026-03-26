@@ -548,27 +548,60 @@ export class IndexerManager {
         progress: { current: Math.round(totalFiles * 0.3), total: totalFiles },
       })
 
-      // Patch rebuild: chunk new files + rebuild HNSW from cached + new
-      const { count, newChunks } = await bridge.patchRebuild({
-        newFiles: newFileContents,
-        cachedChunks,
-      }, (progress) => {
-        let detail: string
-        let pct: number
-        if (progress.phase === 'chunking') {
-          detail = `Chunking files...`; pct = 0.3
-        } else if (progress.phase === 'embedding') {
-          detail = `Embedding chunks (${progress.current}/${progress.total})...`
-          pct = 0.3 + (progress.current / progress.total) * 0.6 // 30% → 90%
-        } else if (progress.phase === 'building') {
-          detail = 'Building search index...'; pct = 0.92
-        } else return
+      // Batch threshold: if payload would be too large, chunk files in batches then build index separately
+      const BATCH_SIZE = 50
+      let count: number
+      let newChunks: { id: string; text: string; metadata: Record<string, unknown> }[]
 
+      if (newFileContents.length > BATCH_SIZE) {
+        // Batch chunking to avoid exceeding stdin buffer limits
+        newChunks = []
+        for (let i = 0; i < newFileContents.length; i += BATCH_SIZE) {
+          const batch = newFileContents.slice(i, i + BATCH_SIZE)
+          this.onProgress?.({
+            step: 'indexing',
+            detail: `Chunking files (${Math.min(i + BATCH_SIZE, newFileContents.length)}/${newFileContents.length})...`,
+            projectDir,
+            progress: { current: Math.round(totalFiles * (0.3 + (i / newFileContents.length) * 0.2)), total: totalFiles },
+          })
+          const batchChunks = await bridge.chunkFiles(batch)
+          newChunks.push(...batchChunks)
+        }
+
+        // Build index from all chunks (cached + new)
         this.onProgress?.({
-          step: 'indexing', detail, projectDir,
-          progress: { current: Math.round(totalFiles * pct), total: totalFiles },
+          step: 'indexing',
+          detail: `Building search index from ${cachedChunks.length + newChunks.length} chunks...`,
+          projectDir,
+          progress: { current: Math.round(totalFiles * 0.6), total: totalFiles },
         })
-      })
+        const result = await bridge.buildIndex([...cachedChunks, ...newChunks])
+        count = result.count
+      } else {
+        // Small payload — use single patchRebuild call
+        const result = await bridge.patchRebuild({
+          newFiles: newFileContents,
+          cachedChunks,
+        }, (progress) => {
+          let detail: string
+          let pct: number
+          if (progress.phase === 'chunking') {
+            detail = `Chunking files...`; pct = 0.3
+          } else if (progress.phase === 'embedding') {
+            detail = `Embedding chunks (${progress.current}/${progress.total})...`
+            pct = 0.3 + (progress.current / progress.total) * 0.6 // 30% → 90%
+          } else if (progress.phase === 'building') {
+            detail = 'Building search index...'; pct = 0.92
+          } else return
+
+          this.onProgress?.({
+            step: 'indexing', detail, projectDir,
+            progress: { current: Math.round(totalFiles * pct), total: totalFiles },
+          })
+        })
+        count = result.count
+        newChunks = result.newChunks
+      }
 
       // Update chunk cache: remove old entries, add new ones
       const updatedCache: ChunkCache = {}

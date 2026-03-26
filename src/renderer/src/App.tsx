@@ -21,6 +21,8 @@ import { useDraftSessions } from './hooks/useDraftSessions'
 import { useArchivedSessions } from './hooks/useArchivedSessions'
 import { useMessageQueue, type QueuedMessage } from './hooks/useMessageQueue'
 import { hasStableSessionTitle } from './utils/session-title'
+import { ContextPanel } from './components/layout/ContextPanel'
+import { useLatestTodos } from './hooks/useLatestTodos'
 
 export default function App() {
   const codr = useCodr()
@@ -71,6 +73,9 @@ export default function App() {
   const [manageProjectFolder, setManageProjectFolder] = useState<string | null>(null)
   const [allProjects, setAllProjects] = useState<ProjectInfo[]>([])
   const [showPlanOverlay, setShowPlanOverlay] = useState(false)
+  const [contextPanelNarrow, setContextPanelNarrow] = useState(false)
+  const [contextPanelExpanded, setContextPanelExpanded] = useState(false)
+  const mainContentRef = useRef<HTMLDivElement>(null)
 
   // Scroll refs
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -88,6 +93,8 @@ export default function App() {
   const onDraftPromotedRef = useRef<(draftId: string, realSessionId?: string) => void>(() => {})
   const resetInputRef = useRef<() => void>(() => {})
   const invalidatedSessionsRef = useRef<Set<string>>(new Set())
+  // Docs that have been injected into the current session — persists across turns
+  const sessionDocsRef = useRef<string[]>([])
 
   // --- Hook: Message Queue ---
   const messageQueue = useMessageQueue()
@@ -280,15 +287,26 @@ export default function App() {
     const usePlanMode = dialogs.mode === 'plan'
     const useAskMode = dialogs.mode === 'ask'
     const currentAttachments = msg.attachments.length > 0 ? msg.attachments : undefined
+    const currentFiles = msg.selectedFiles.length > 0 ? [...msg.selectedFiles] : undefined
+    // Merge queued docs into session-level ref
+    if (msg.selectedDocs.length > 0) {
+      const existing = new Set(sessionDocsRef.current)
+      for (const d of msg.selectedDocs) {
+        if (!existing.has(d.name)) sessionDocsRef.current.push(d.name)
+      }
+    }
+    const currentDocs = sessionDocsRef.current.length > 0 ? [...sessionDocsRef.current] : undefined
 
     // addUserMessage pushes to both allMessagesRef and setMessages, sets isLoading
     // synchronously on the ref so in-flight reconciliation from prior onDone skips
     agent.addUserMessage({
       id: agent.nextId(),
       role: 'user',
-      content: msg.prompt || '(attachments)',
+      content: msg.rawInput || '(attachments)',
       toolCalls: [],
       attachments: currentAttachments,
+      files: currentFiles,
+      docs: currentDocs,
     })
     agent.resetStreaming()
 
@@ -305,7 +323,7 @@ export default function App() {
       invalidatedSessionsRef.current.delete(session.activeSessionId!)
     }
 
-    const opts: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; cwd?: string; model?: string; thinkingBudget?: 'low' | 'medium' | 'high'; attachments?: AttachmentMeta[] } = {}
+    const opts: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; cwd?: string; model?: string; thinkingBudget?: 'low' | 'medium' | 'high'; attachments?: AttachmentMeta[]; docNames?: string[]; filePaths?: string[] } = {}
     if (!isNewSession) opts.resumeSessionId = session.activeSessionId!
     if (usePlanMode) opts.planMode = true
     if (useAskMode) opts.askMode = true
@@ -313,12 +331,14 @@ export default function App() {
     if (selectedModel) opts.model = selectedModel
     if (reasoning !== 'auto') opts.thinkingBudget = reasoning
     if (currentAttachments) opts.attachments = currentAttachments
+    if (currentDocs) opts.docNames = currentDocs
+    if (currentFiles) opts.filePaths = currentFiles
 
     if (isNewSession) {
       awaitingNewSessionRef.current = true
     }
 
-    await codr.query(msg.prompt || '', Object.keys(opts).length > 0 ? opts : undefined)
+    await codr.query(msg.rawInput || '', Object.keys(opts).length > 0 ? opts : undefined)
   }
 
   // Wire the bridge refs now that all hooks exist.
@@ -406,6 +426,28 @@ export default function App() {
     isLoadingHistoryRef,
   } = agent
 
+  // --- Derived: latest todos for context panel ---
+  const latestTodos = useLatestTodos(messages, streamingTools)
+  const showContextPanel = !!(latestTodos || dialogs.approvedPlan || dialogs.planReview)
+
+  // --- ResizeObserver: collapse context panel when main content is narrow ---
+  useEffect(() => {
+    const el = mainContentRef.current
+    if (!el) return
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContextPanelNarrow(entry.contentRect.width < 900)
+      }
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  // Reset context panel expanded state on session switch
+  useEffect(() => {
+    setContextPanelExpanded(false)
+  }, [session.activeSessionId])
+
   useEffect(() => {
     if (!isLoadingHistoryRef.current) requestAnimationFrame(scrollToBottom)
   }, [messages, isLoading, streamingText, streamingThinking, streamingTools, streamingSegments,
@@ -446,18 +488,26 @@ export default function App() {
 
   // --- Send handler (orchestrates all hooks) ---
   const handleSend = async () => {
-    const fileRefs = selectedFiles.map(f => `@${f}`).join(' ')
-    const docRefs = selectedDocs.map(d => `@docs:${d.name}`).join(' ')
     const rawInput = input.trim()
-    const prompt = [docRefs, fileRefs, rawInput].filter(Boolean).join(' ')
+    const prompt = rawInput
     const currentAttachments = attachments.length > 0 ? [...attachments] : undefined
+    const currentFiles = selectedFiles.length > 0 ? [...selectedFiles] : undefined
+    // Merge newly selected docs into the session-level ref
+    if (selectedDocs.length > 0) {
+      const existing = new Set(sessionDocsRef.current)
+      for (const d of selectedDocs) {
+        if (!existing.has(d.name)) sessionDocsRef.current.push(d.name)
+      }
+    }
+    const currentDocs = sessionDocsRef.current.length > 0 ? [...sessionDocsRef.current] : undefined
+    const hasContent = prompt || currentAttachments || currentFiles
 
     // If plan review is active, intercept and route through request-changes flow
     const planKey = session.activeSessionId || '_unknown'
     const planPermRequest = dialogs.permissionRequests[planKey]
     const isPlanReviewActive = planPermRequest?.tool === 'ExitPlanMode' && dialogs.planReady
 
-    if (isPlanReviewActive && (prompt || currentAttachments)) {
+    if (isPlanReviewActive && hasContent) {
       resetInput()
       setInput('')
       await handlePlanRequestChanges(planPermRequest.id, prompt || '(attachments)')
@@ -465,7 +515,7 @@ export default function App() {
     }
 
     // Empty input: if queued messages exist, stop AI (or send first queued)
-    if (!prompt && !currentAttachments) {
+    if (!hasContent) {
       if (messageQueue.queueRef.current.length > 0) {
         if (agent.isLoading) {
           handleInterrupt()
@@ -512,6 +562,8 @@ export default function App() {
         content: prompt || '(attachments)',
         toolCalls: [],
         attachments: currentAttachments,
+        files: currentFiles,
+        docs: currentDocs,
       },
     ])
     agent.setIsLoading(true)
@@ -531,7 +583,7 @@ export default function App() {
       invalidatedSessionsRef.current.delete(session.activeSessionId!)
     }
 
-    const opts: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; cwd?: string; model?: string; thinkingBudget?: 'low' | 'medium' | 'high'; attachments?: AttachmentMeta[] } = {}
+    const opts: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; cwd?: string; model?: string; thinkingBudget?: 'low' | 'medium' | 'high'; attachments?: AttachmentMeta[]; docNames?: string[]; filePaths?: string[] } = {}
     if (!isNewSession) opts.resumeSessionId = session.activeSessionId!
     if (usePlanMode) opts.planMode = true
     if (useAskMode) opts.askMode = true
@@ -539,6 +591,8 @@ export default function App() {
     if (selectedModel) opts.model = selectedModel
     if (reasoning !== 'auto') opts.thinkingBudget = reasoning
     if (currentAttachments) opts.attachments = currentAttachments
+    if (currentDocs) opts.docNames = currentDocs
+    if (currentFiles) opts.filePaths = currentFiles
 
     // Signal that we're expecting a new session ID from the agent
     if (isNewSession) {
@@ -557,9 +611,17 @@ export default function App() {
 
   // --- Plan handlers ---
   const handlePlanBuild = async (permissionId: number) => {
-    const plan = dialogs.planReview
-    if (plan) {
-      dialogs.markPlanApproved(plan.planContent, plan.planFilePath)
+    // Get plan content — prefer permission request input (what user actually reviewed),
+    // fall back to planReview state
+    const permKey = session.activeSessionId || '_unknown'
+    const permRequest = dialogs.permissionRequests[permKey]
+    const permInput = permRequest?.input as Record<string, unknown> | undefined
+
+    const planContent = (permInput?.planContent || permInput?.plan || dialogs.planReview?.planContent) as string | undefined
+    const planFilePath = (permInput?.planFilePath || dialogs.planReview?.planFilePath || 'plan') as string
+
+    if (planContent) {
+      dialogs.markPlanApproved(planContent, planFilePath)
     }
 
     // Capture any notes typed in the main input area
@@ -581,8 +643,8 @@ export default function App() {
     ])
 
     const notesClause = userNotes ? `\n\nUser notes: ${userNotes}` : ''
-    const approvalMessage = plan
-      ? `User has approved your plan. You can now start coding.\n\nYour plan has been saved to: ${plan.planFilePath}\n\n## Approved Plan:\n${plan.planContent}${notesClause}`
+    const approvalMessage = planContent
+      ? `User has approved your plan. You can now start coding.\n\nYour plan has been saved to: ${planFilePath}\n\n## Approved Plan:\n${planContent}${notesClause}`
       : `User has approved your plan. You can now start coding.${notesClause}`
 
     agent.setIsLoading(true)
@@ -597,10 +659,19 @@ export default function App() {
   }
 
   const handlePlanClearContextBuild = async (permissionId: number) => {
-    const plan = dialogs.planReview
     const cwd = session.activeSession?.cwd
-    if (plan) {
-      dialogs.markPlanApproved(plan.planContent, plan.planFilePath)
+
+    // Get plan content — prefer permission request input (what user actually reviewed),
+    // fall back to planReview state
+    const permKey = session.activeSessionId || '_unknown'
+    const permRequest = dialogs.permissionRequests[permKey]
+    const permInput = permRequest?.input as Record<string, unknown> | undefined
+
+    const planContent = (permInput?.planContent || permInput?.plan || dialogs.planReview?.planContent) as string | undefined
+    const planFilePath = (permInput?.planFilePath || dialogs.planReview?.planFilePath || 'plan') as string
+
+    if (planContent) {
+      dialogs.markPlanApproved(planContent, planFilePath)
     }
 
     // Capture any notes typed in the main input area
@@ -615,12 +686,16 @@ export default function App() {
     dialogs.resetPlan()
     dialogs.setMode('code')
 
-    // Start a fresh session
+    // Start a fresh session — this clears approvedPlan, so re-apply after
+    sessionDocsRef.current = []
     session.handleNewChat(currentProvider, cwd)
+    if (planContent) {
+      dialogs.markPlanApproved(planContent, planFilePath)
+    }
 
     const notesClause = userNotes ? `\n\nAdditional user notes: ${userNotes}` : ''
-    const planPrompt = plan
-      ? `The user has approved the following implementation plan and wants you to implement it.${notesClause}\n\n## Plan\n${plan.planContent}`
+    const planPrompt = planContent
+      ? `The user has approved the following implementation plan and wants you to implement it.${notesClause}\n\n## Plan\n${planContent}`
       : `Implement the previously approved plan.${notesClause}`
 
     const displayMessage = userNotes
@@ -693,6 +768,7 @@ export default function App() {
         activeSessionId={session.activeSessionId}
         onLoadSession={(id, msgs, usage, model) => {
           session.handleLoadSession(id, msgs, usage)
+          sessionDocsRef.current = []
           sessionLoadHadModelRef.current = !!model
           userChangedModelRef.current = false
           if (model) setSelectedModel(model)
@@ -710,6 +786,7 @@ export default function App() {
           }
           const resolvedCwd = cwd || session.activeSession?.cwd || allProjects[0]?.path || storedProject
           session.handleNewChat(provider, resolvedCwd)
+          sessionDocsRef.current = []
           setCurrentProvider(p)
           userChangedModelRef.current = false
           codr.getModels?.(p).then(result => { setSelectedModel(result?.selectedModel) })
@@ -775,16 +852,16 @@ export default function App() {
                 if ('error' in result) throw new Error(result.error)
               }
             }}
-            onRecrawlDocSource={async (sourceId, url, crawlDepth, prefix) => {
+            onRecrawlDocSource={async (sourceId, name, url, crawlDepth, prefix) => {
               if (codr.recrawlDocSource) {
-                const result = await codr.recrawlDocSource(sourceId, url, crawlDepth, prefix)
+                const result = await codr.recrawlDocSource(sourceId, name, url, crawlDepth, prefix)
                 if (result?.error) throw new Error(result.error)
               }
             }}
           />
         </Suspense>
       ) : (
-      <div className="flex flex-col h-screen flex-1 min-w-0 overflow-clip font-[system-ui,-apple-system,sans-serif] text-[14px] relative">
+      <div ref={mainContentRef} className="flex flex-col h-screen flex-1 min-w-0 overflow-clip font-[system-ui,-apple-system,sans-serif] text-[14px] relative">
         {manageProjectOpen && manageProjectFolder && (
           <div className="absolute inset-0 z-50">
             <Suspense fallback={null}>
@@ -813,30 +890,43 @@ export default function App() {
           canChangeProvider={isDraft && agent.messages.length === 0 && !agent.isLoading}
         />
 
-        <div className="flex-1 min-h-0 relative overflow-hidden">
-          {showFolderPrompt ? (
-            <FolderEmptyState onSelectFolder={handleSelectFolder} />
-          ) : (
-            <MessageList
-              messages={agent.messages}
-              isLoading={agent.isLoading}
-              streamingText={agent.streamingText}
-              streamingTools={agent.streamingTools}
-              streamingThinking={agent.streamingThinking}
-              streamingSegments={agent.streamingSegments}
-              isCompacting={agent.isCompacting}
-              hasMoreMessages={agent.hasMoreMessages}
-              onInterrupt={handleInterrupt}
-              messagesContainerRef={messagesContainerRef}
-              messagesEndRef={messagesEndRef}
-              approvedPlanToolIds={dialogs.approvedPlanToolIds}
-              shouldAutoScrollRef={shouldAutoScrollRef}
-            />
-          )}
-          {showPlanOverlay && dialogs.approvedPlan && (
-            <PlanOverlay
-              plan={dialogs.approvedPlan}
-              onClose={() => setShowPlanOverlay(false)}
+        <div className="flex-1 min-h-0 relative overflow-hidden flex">
+          <div className="flex-1 min-w-0 relative overflow-hidden">
+            {showFolderPrompt ? (
+              <FolderEmptyState onSelectFolder={handleSelectFolder} />
+            ) : (
+              <MessageList
+                messages={agent.messages}
+                isLoading={agent.isLoading}
+                streamingText={agent.streamingText}
+                streamingTools={agent.streamingTools}
+                streamingThinking={agent.streamingThinking}
+                streamingSegments={agent.streamingSegments}
+                isCompacting={agent.isCompacting}
+                hasMoreMessages={agent.hasMoreMessages}
+                onInterrupt={handleInterrupt}
+                messagesContainerRef={messagesContainerRef}
+                messagesEndRef={messagesEndRef}
+                approvedPlanToolIds={dialogs.approvedPlanToolIds}
+                shouldAutoScrollRef={shouldAutoScrollRef}
+              />
+            )}
+            {showPlanOverlay && dialogs.approvedPlan && (
+              <PlanOverlay
+                plan={dialogs.approvedPlan}
+                onClose={() => setShowPlanOverlay(false)}
+              />
+            )}
+          </div>
+          {showContextPanel && (
+            <ContextPanel
+              todos={latestTodos}
+              approvedPlan={dialogs.approvedPlan}
+              pendingPlan={dialogs.planReview}
+              onShowPlan={() => setShowPlanOverlay(true)}
+              isNarrow={contextPanelNarrow}
+              isExpanded={contextPanelExpanded}
+              onToggleExpand={() => setContextPanelExpanded(p => !p)}
             />
           )}
         </div>

@@ -68,9 +68,6 @@ export function formatMessageContent(content: string): { text: string; tags: Ext
     return args.trim() ? ` ${args.trim()}` : ''
   })
 
-  // Wrap @file/path references in backticks for styled rendering
-  result = result.replace(/(?<!`)(@(?:[a-zA-Z0-9_-]+\/)+[a-zA-Z0-9_./-]*|@[a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9]{1,10})+)(?!`)/g, '`$1`')
-
   // Convert <local-command-stdout>...</local-command-stdout> to a subtle output
   result = result.replace(/<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/g, (_match, output: string) => {
     const trimmed = output.trim()

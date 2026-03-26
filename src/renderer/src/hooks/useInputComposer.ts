@@ -108,7 +108,7 @@ export function useInputComposer({
 
     if (mentionActive) {
       const textAfterAt = value.slice(mentionStart + 1, cursor)
-      if (textAfterAt.includes(' ') || textAfterAt.includes('\n') || cursor <= mentionStart) {
+      if (textAfterAt.includes('\n') || cursor <= mentionStart) {
         setMentionActive(false)
         setMentionQuery('')
         setMentionIndex(0)
@@ -117,14 +117,22 @@ export function useInputComposer({
         setMentionIndex(0)
       }
     } else if (!slashActive) {
-      const charBeforeCursor = value[cursor - 1]
-      const charBeforeAt = value[cursor - 2]
-      if (charBeforeCursor === '@' && (cursor === 1 || charBeforeAt === ' ' || charBeforeAt === '\n' || charBeforeAt === undefined)) {
+      // Scan backward from cursor to find @ at a valid position.
+      // Handles both fresh @ typed AND backspacing into an existing @word.
+      let atPos = -1
+      for (let i = cursor - 1; i >= 0; i--) {
+        const ch = value[i]
+        if (ch === '\n') break
+        if (ch === '@') {
+          if (i === 0 || value[i - 1] === ' ' || value[i - 1] === '\n') atPos = i
+          break
+        }
+      }
+      if (atPos !== -1) {
         setMentionActive(true)
-        setMentionStart(cursor - 1)
-        setMentionQuery('')
+        setMentionStart(atPos)
+        setMentionQuery(value.slice(atPos + 1, cursor))
         setMentionIndex(0)
-        // Always re-fetch so the cache stays current when switching projects
         codr.listFiles(projectFolderRef.current || undefined).then(setFileCache).catch(() => {})
         docsAPI.refresh()
       }
@@ -226,7 +234,7 @@ export function useInputComposer({
     let atPos = -1
     for (let i = cursor - 1; i >= 0; i--) {
       const ch = value[i]
-      if (ch === ' ' || ch === '\n') break
+      if (ch === '\n') break
       if (ch === '@') {
         if (i === 0 || value[i - 1] === ' ' || value[i - 1] === '\n') atPos = i
         break
@@ -234,7 +242,7 @@ export function useInputComposer({
     }
     if (atPos === -1) return
     const query = value.slice(atPos + 1, cursor)
-    if (query.includes(' ') || query.includes('\n')) return
+    if (query.includes('\n')) return
     setMentionActive(true)
     setMentionStart(atPos)
     setMentionQuery(query)

@@ -31,7 +31,7 @@ import {
 } from '@agentclientprotocol/sdk'
 import { AcpStreamAdapter } from './stream-adapter'
 import type { AcpAgentConfig, AcpExtensionContext } from './agent-config'
-import { preprocessPromptFull, buildContextSummary } from '../prompt-preprocessor'
+import { preprocessPromptFull, buildContextSummary, buildDocsTOC } from '../prompt-preprocessor'
 import { readAttachmentAsContentBlock } from '../../attachments'
 import { beginTitleGeneration, completeTitleGeneration } from '../../sessions'
 import {
@@ -44,6 +44,17 @@ import {
 } from '../../permissions'
 import { updateCapability } from '../provider-capabilities'
 import { updateModelCacheFromConfigOptions } from '../models'
+
+/** Merge structured req.docNames with regex-parsed doc names, deduplicating. */
+function mergeDocNames(structured: string[] | undefined, parsed: string[]): string[] {
+  if (!structured?.length && !parsed.length) return []
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const n of [...(structured ?? []), ...parsed]) {
+    if (!seen.has(n)) { seen.add(n); result.push(n) }
+  }
+  return result
+}
 
 const ACP_DEBUG = process.env.ACP_DEBUG === '1'
 
@@ -295,12 +306,16 @@ export class AcpProvider implements AgentProvider {
       : ''
 
     // Preprocess prompt (resolve @docs: and @file references)
-    const { prompt: cleanedPrompt, contextChunks, contextString } = await preprocessPromptFull(
+    const { prompt: cleanedPrompt, contextChunks, contextString, docNames: parsedDocNames } = await preprocessPromptFull(
       this.ctx, req.prompt, req.cwd, { includeCodebaseContext: !isResume }
     )
 
+    // Merge structured docNames from request with any manually typed @docs: tokens in the prompt
+    const docNames = mergeDocNames(req.docNames, parsedDocNames)
+    const docsTOC = docNames.length > 0 ? buildDocsTOC(docNames) : ''
+
     // Build ACP content blocks
-    const contentBlocks = await this.buildContentBlocks(cleanedPrompt, modeInstruction, contextString, req)
+    const contentBlocks = await this.buildContentBlocks(cleanedPrompt, modeInstruction, [contextString, docsTOC].filter(Boolean).join('\n\n'), req)
 
     try {
       // Lazy-start ACP connection
@@ -431,7 +446,7 @@ export class AcpProvider implements AgentProvider {
       const injectedContext = {
         mode: (req.askMode ? 'ask' : req.planMode ? 'plan' : 'code') as 'ask' | 'plan' | 'code',
         ...(contextString ? { systemPrompt: contextString } : {}),
-        context: buildContextSummary(contextChunks),
+        context: buildContextSummary(contextChunks, docNames.length > 0 ? docNames : undefined),
       }
       callbacks.onMessage({ type: 'injected_context', session_id: sessionId, injectedContext }, sessionId)
 

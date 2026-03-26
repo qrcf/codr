@@ -1,13 +1,12 @@
 import { readFile } from 'node:fs/promises'
 import { resolve, isAbsolute } from 'node:path'
 import type { AgentProviderContext } from './provider'
+import { getSourceTOCByName, getAllSourceTOCs, type SourceTOC } from '../docs/doc-cache'
 
 export interface ContextChunk {
-  type: 'codebase' | 'documentation' | 'file'
+  type: 'codebase' | 'file'
   source: string
   score?: number
-  url?: string
-  heading?: string
   content: string
 }
 
@@ -15,15 +14,8 @@ export interface PreprocessedPrompt {
   prompt: string
   contextChunks: ContextChunk[]
   contextString: string
-}
-
-interface DocSearchResult {
-  sourceName: string
-  sourceUrl: string
-  pageUrl: string
-  pageTitle: string | null
-  heading: string | null
-  content: string
+  /** Doc source names that were referenced via @docs: tokens */
+  docNames: string[]
 }
 
 export function parseDocRefs(prompt: string): { cleanedPrompt: string; docNames: string[] } {
@@ -46,78 +38,91 @@ export function parseFileRefs(prompt: string): { cleanedPrompt: string; filePath
   return { cleanedPrompt: cleaned, filePaths }
 }
 
-export function buildContextSummary(chunks: ContextChunk[]): {
+export function buildContextSummary(chunks: ContextChunk[], docNames?: string[]): {
   codebase?: { source: string; score?: number }[]
-  documentation?: { source: string; url?: string; heading?: string }[]
+  documentation?: { names: string[] }
   files?: { source: string }[]
 } | undefined {
   const codebase = chunks.filter(c => c.type === 'codebase').map(c => ({ source: c.source, score: c.score }))
-  const documentation = chunks.filter(c => c.type === 'documentation').map(c => ({ source: c.source, url: c.url, heading: c.heading }))
   const files = chunks.filter(c => c.type === 'file').map(c => ({ source: c.source }))
-  if (!codebase.length && !documentation.length && !files.length) return undefined
+  const hasDocs = docNames && docNames.length > 0
+  if (!codebase.length && !hasDocs && !files.length) return undefined
   return {
     ...(codebase.length ? { codebase } : {}),
-    ...(documentation.length ? { documentation } : {}),
+    ...(hasDocs ? { documentation: { names: docNames! } } : {}),
     ...(files.length ? { files } : {}),
   }
 }
 
 export function serializeContextChunks(chunks: ContextChunk[]): string {
-  const groups: Record<string, string[]> = { codebase: [], documentation: [], file: [] }
+  const groups: Record<string, string[]> = { codebase: [], file: [] }
   for (const c of chunks) {
     const score = c.score != null ? ` (${c.score.toFixed(0)}% match)` : ''
-    const heading = c.heading ? `## ${c.heading}\n` : ''
-    groups[c.type].push(`--- ${c.source}${score} ---\n${heading}${c.content}`)
+    groups[c.type].push(`--- ${c.source}${score} ---\n${c.content}`)
   }
   const parts: string[] = []
   if (groups.codebase.length) parts.push(`<codebase_context>\nRelevant code from the project index:\n\n${groups.codebase.join('\n\n')}\n</codebase_context>`)
-  if (groups.documentation.length) parts.push(`<documentation_context>\n${groups.documentation.join('\n\n')}\n</documentation_context>`)
   if (groups.file.length) parts.push(`<file_context>\n${groups.file.join('\n\n')}\n</file_context>`)
   return parts.join('\n\n')
 }
 
-export async function retrieveDocsContext(
-  ctx: AgentProviderContext,
-  searchQuery: string,
-  docNames: string[],
-): Promise<ContextChunk[]> {
-  const apiBaseUrl = ctx.relayClient.getApiBaseUrl()
-  if (!apiBaseUrl) return []
-  const token = await ctx.getAuthToken()
+// -- Docs TOC injection --
 
-  try {
-    const res = await fetch(`${apiBaseUrl}/api/docs/search`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        query: searchQuery,
-        limit: 8,
-      }),
-    })
-    if (!res.ok) return []
+const MAX_TOC_CHARS_PER_SOURCE = 4000
 
-    const results = await res.json() as DocSearchResult[]
-    if (!results.length) return []
+function formatTOC(toc: SourceTOC): string {
+  let result = `<docs_toc source="${toc.sourceName}" url="${toc.sourceUrl}">\n`
+  let charCount = result.length
+  let pageCount = 0
 
-    const filtered = docNames.length > 0
-      ? results.filter(r => docNames.some(name => r.sourceName.toLowerCase() === name.toLowerCase()))
-      : results
-    if (!filtered.length) return []
+  for (const page of toc.pages) {
+    const title = page.title || page.url
+    let pageBlock = `- ${title}\n`
 
-    return filtered.map(r => ({
-      type: 'documentation' as const,
-      source: `${r.sourceName} (${r.pageUrl})`,
-      url: r.pageUrl,
-      heading: r.heading || undefined,
-      content: r.content,
-    }))
-  } catch (err) {
-    console.error('[docs] Failed to retrieve docs context:', err)
-    return []
+    // Include only top-level headings (h1/h2 — those without " > " in the breadcrumb, or with exactly one level)
+    const topHeadings = page.headings.filter(h => !h.includes(' > ') || h.split(' > ').length <= 2)
+    for (const h of topHeadings) {
+      pageBlock += `  - ${h}\n`
+    }
+
+    if (charCount + pageBlock.length > MAX_TOC_CHARS_PER_SOURCE) {
+      const remaining = toc.pages.length - pageCount
+      if (remaining > 0) {
+        result += `... and ${remaining} more pages\n`
+      }
+      break
+    }
+
+    result += pageBlock
+    charCount += pageBlock.length
+    pageCount++
   }
+
+  result += `</docs_toc>`
+  return result
+}
+
+/**
+ * Build a Table of Contents string for referenced doc sources.
+ * Injected into the system prompt so the AI knows what docs are available
+ * and can search them with the docs_search tool.
+ */
+export function buildDocsTOC(docNames: string[]): string {
+  const tocs: SourceTOC[] = []
+
+  if (docNames.length > 0) {
+    for (const name of docNames) {
+      const toc = getSourceTOCByName(name)
+      if (toc) tocs.push(toc)
+    }
+  } else {
+    tocs.push(...getAllSourceTOCs())
+  }
+
+  if (!tocs.length) return ''
+
+  const formatted = tocs.map(formatTOC).join('\n\n')
+  return `<documentation_sources>\nThe following documentation sources have been injected into this conversation. To look up details from these docs, use ToolSearch to find the docs_search tool, then search with it. Do NOT search the filesystem for this documentation.\n\n${formatted}\n</documentation_sources>`
 }
 
 const MAX_FILE_SIZE = 50 * 1024 // 50KB per file
@@ -173,10 +178,7 @@ export async function getCodebaseContextChunks(
     if (!results.length) return []
 
     const excludeSet = excludePaths?.length
-      ? new Set(excludePaths.map(p => {
-          const abs = isAbsolute(p) ? p : resolve(cwd, p)
-          return abs
-        }))
+      ? new Set(excludePaths.map(p => isAbsolute(p) ? p : resolve(cwd, p)))
       : null
 
     return results
@@ -224,15 +226,11 @@ export async function preprocessPromptForDocs(
     allChunks.push(...codebaseChunks)
   }
 
-  if (docNames.length > 0) {
-    const docChunks = await retrieveDocsContext(ctx, searchPrompt, docNames)
-    allChunks.push(...docChunks)
-  }
-
   return {
     prompt: finalPrompt,
     contextChunks: allChunks,
     contextString: serializeContextChunks(allChunks),
+    docNames,
   }
 }
 
@@ -244,21 +242,28 @@ export async function preprocessPromptFull(
   ctx: AgentProviderContext,
   prompt: string,
   cwd?: string,
-  opts?: { includeCodebaseContext?: boolean },
+  opts?: { includeCodebaseContext?: boolean; filePaths?: string[] },
 ): Promise<PreprocessedPrompt> {
   const { cleanedPrompt: afterDocs, docNames } = parseDocRefs(prompt)
-  const { cleanedPrompt: afterFiles, filePaths } = parseFileRefs(afterDocs)
+  const { cleanedPrompt: afterFiles, filePaths: parsedFilePaths } = parseFileRefs(afterDocs)
+
+  // Merge structured file paths from request with any manually typed @file tokens in the prompt
+  const seen = new Set(parsedFilePaths)
+  const filePaths = [...parsedFilePaths]
+  if (opts?.filePaths) {
+    for (const fp of opts.filePaths) {
+      if (!seen.has(fp)) {
+        seen.add(fp)
+        filePaths.push(fp)
+      }
+    }
+  }
 
   const allChunks: ContextChunk[] = []
 
   if (opts?.includeCodebaseContext !== false) {
     const codebaseChunks = await getCodebaseContextChunks(ctx, afterFiles, cwd, filePaths)
     allChunks.push(...codebaseChunks)
-  }
-
-  if (docNames.length > 0) {
-    const docChunks = await retrieveDocsContext(ctx, afterFiles, docNames)
-    allChunks.push(...docChunks)
   }
 
   if (filePaths.length > 0) {
@@ -270,5 +275,6 @@ export async function preprocessPromptFull(
     prompt: afterFiles,
     contextChunks: allChunks,
     contextString: serializeContextChunks(allChunks),
+    docNames,
   }
 }

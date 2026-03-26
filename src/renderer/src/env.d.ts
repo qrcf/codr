@@ -34,6 +34,17 @@ type DocCrawlProgress = import('@codr-works/types').DocCrawlProgress
 
 // Client-only types
 
+interface SessionPlan {
+  id: number
+  sessionId: string
+  content: string
+  filePath: string
+  toolIds: string[]
+  status: 'pending' | 'approved' | 'rejected'
+  createdAt: number
+  updatedAt: number
+}
+
 interface SlashCommand {
   name: string
   description: string
@@ -119,7 +130,7 @@ interface CodrAPI {
   readClipboardFilePaths?: () => Promise<string[]>
   storeAttachments?: (filePaths: string[]) => Promise<AttachmentMeta[]>
   storeAttachmentBuffer?: (buffer: Uint8Array, filename: string) => Promise<AttachmentMeta>
-  query: (prompt: string, options?: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; cwd?: string; model?: string; thinkingBudget?: 'low' | 'medium' | 'high'; attachments?: AttachmentMeta[] }) => Promise<void>
+  query: (prompt: string, options?: { resumeSessionId?: string; planMode?: boolean; askMode?: boolean; cwd?: string; model?: string; thinkingBudget?: 'low' | 'medium' | 'high'; attachments?: AttachmentMeta[]; docNames?: string[]; filePaths?: string[] }) => Promise<void>
   interrupt: (sessionId?: string) => Promise<void>
   getProvider?: () => Promise<AgentProviderId>
   setProvider?: (provider: AgentProviderId) => Promise<{ provider?: AgentProviderId; error?: string }>
@@ -162,6 +173,13 @@ interface CodrAPI {
   readClaudeMd?: (folderPath: string) => Promise<{ content?: string | null; error?: string }>
   writeClaudeMd?: (folderPath: string, content: string) => Promise<{ ok?: boolean; error?: string }>
   readPlanFile?: (filePath: string) => Promise<{ content?: string; error?: string }>
+
+  // Plan persistence (desktop only)
+  getSessionPlan?: (sessionId: string) => Promise<SessionPlan | null>
+  getApprovedPlan?: (sessionId: string) => Promise<SessionPlan | null>
+  upsertSessionPlan?: (sessionId: string, data: { content: string; filePath: string; toolIds: string[]; status?: string }) => Promise<{ ok: boolean }>
+  updatePlanStatus?: (sessionId: string, status: 'pending' | 'approved' | 'rejected') => Promise<{ ok: boolean }>
+
   onAccountInfoUpdate?: (callback: (info: AccountInfo) => void) => () => void
   onSessionRefreshHint: (callback: () => void) => () => void
   onSessionUpdated?: (callback: (data: { sessionId: string }) => void) => () => void
@@ -206,7 +224,7 @@ interface CodrAPI {
   // Docs feature
   addDocSource?: (source: { url: string; name: string; crawlDepth?: number; prefix?: string }) => Promise<DocSource | { error: string }>
   removeDocSource?: (sourceId: number) => Promise<{ ok?: boolean; error?: string }>
-  recrawlDocSource?: (sourceId: number, url: string, crawlDepth: number, prefix?: string) => Promise<{ ok?: boolean; error?: string }>
+  recrawlDocSource?: (sourceId: number, name: string, url: string, crawlDepth: number, prefix?: string) => Promise<{ ok?: boolean; error?: string }>
   cancelDocCrawl?: (sourceId: number) => Promise<{ ok?: boolean; error?: string }>
   onDocsCrawlProgress?: (callback: (progress: DocCrawlProgress) => void) => () => void
   onDocsSetupProgress?: (callback: (progress: { step: string; detail?: string; stepIndex: number; totalSteps: number }) => void) => () => void

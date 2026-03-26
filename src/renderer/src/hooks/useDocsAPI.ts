@@ -58,13 +58,6 @@ export function useDocsAPI(getToken: () => Promise<string | null>) {
     setSources(prev => prev.filter(s => s.id !== sourceId))
   }, [fetchWithAuth])
 
-  const searchDocs = useCallback(async (query: string, sourceIds?: number[], limit?: number) => {
-    return fetchWithAuth('/api/docs/search', {
-      method: 'POST',
-      body: JSON.stringify({ query, sourceIds, limit }),
-    })
-  }, [fetchWithAuth])
-
   const fetchPages = useCallback(async (sourceId: number): Promise<Array<{ id: number; url: string; title: string | null; crawledAt: string }>> => {
     return fetchWithAuth(`/api/docs/${sourceId}/pages`) as Promise<Array<{ id: number; url: string; title: string | null; crawledAt: string }>>
   }, [fetchWithAuth])
@@ -75,7 +68,6 @@ export function useDocsAPI(getToken: () => Promise<string | null>) {
     error,
     refresh,
     deleteSource,
-    searchDocs,
     fetchPages,
   }
 }

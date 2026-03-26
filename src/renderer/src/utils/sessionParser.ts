@@ -90,7 +90,14 @@ export function parseSessionMessages(raw: RawSessionMessage[]): ChatMessage[] {
       if (ic) {
         const lastUserIdx = result.findLastIndex((m: ChatMessage) => m.role === 'user')
         if (lastUserIdx >= 0) {
-          result[lastUserIdx] = { ...result[lastUserIdx], injectedContext: ic }
+          const files = ic.context?.files?.map(f => f.source)
+          const docs = ic.context?.documentation?.names
+          result[lastUserIdx] = {
+            ...result[lastUserIdx],
+            injectedContext: ic,
+            ...(files?.length ? { files } : {}),
+            ...(docs?.length ? { docs } : {}),
+          }
         }
       }
     } else if (msg.type === 'assistant') {
@@ -112,7 +119,7 @@ export function parseSessionMessages(raw: RawSessionMessage[]): ChatMessage[] {
             input: block.input || {},
             result: toolResult?.content,
             isError: toolResult?.isError,
-            status: toolResult ? (toolResult.isError ? 'error' : 'done') : 'running',
+            status: toolResult ? (toolResult.isError ? 'error' : 'done') : 'done',
             content: block.content as Array<{ type: string; [key: string]: unknown }> | undefined,
             locations: block.locations,
             rawInput: block.rawInput,
